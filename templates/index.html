@@ -1,0 +1,190 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Alertmanager Route Tester</title>
+    <script src="https://unpkg.com/htmx.org@1.9.10"></script>
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>Alertmanager Route Tester</h1>
+            <p class="subtitle">Test where your alerts route in the Alertmanager configuration</p>
+        </header>
+
+        <main>
+            <div class="panel">
+                <h2>Build Your Alert</h2>
+                
+                <div class="input-mode-toggle">
+                    <button id="ui-mode-btn" class="active" onclick="switchMode('ui')">UI Builder</button>
+                    <button id="raw-mode-btn" onclick="switchMode('raw')">Raw Input</button>
+                </div>
+
+                <form id="alert-form" hx-post="/test" hx-target="#result" hx-swap="innerHTML">
+                    <div id="ui-builder">
+                        <div class="label-section">
+                            <h3>Common Labels</h3>
+                            <div class="label-grid">
+                                <div class="label-input">
+                                    <label for="alertname">alertname</label>
+                                    <input type="text" id="alertname" name="alertname" placeholder="e.g., HighErrorRate">
+                                </div>
+                                <div class="label-input">
+                                    <label for="severity">severity</label>
+                                    <select id="severity" name="severity">
+                                        <option value="">-- select --</option>
+                                        <option value="critical">critical</option>
+                                        <option value="warning">warning</option>
+                                        <option value="info">info</option>
+                                    </select>
+                                </div>
+                                <div class="label-input">
+                                    <label for="job">job</label>
+                                    <input type="text" id="job" name="job" placeholder="e.g., prometheus">
+                                </div>
+                                <div class="label-input">
+                                    <label for="instance">instance</label>
+                                    <input type="text" id="instance" name="instance" placeholder="e.g., localhost:9090">
+                                </div>
+                            </div>
+                        </div>
+
+                        {{if .LabelKeys}}
+                        <div class="label-section">
+                            <h3>Labels from Config</h3>
+                            <div class="label-tags">
+                                {{range .LabelKeys}}
+                                {{if and (ne . "alertname") (ne . "severity") (ne . "job") (ne . "instance")}}
+                                <span class="label-tag" onclick="addCustomLabel('{{.}}')">{{.}}</span>
+                                {{end}}
+                                {{end}}
+                            </div>
+                        </div>
+                        {{end}}
+
+                        <div class="label-section">
+                            <h3>Custom Labels</h3>
+                            <div id="custom-labels"></div>
+                            <button type="button" class="btn-secondary" onclick="addCustomLabelInput()">+ Add Label</button>
+                        </div>
+                    </div>
+
+                    <div id="raw-builder" style="display: none;">
+                        <div class="label-section">
+                            <label for="raw-input">Paste Prometheus Alert Labels (JSON)</label>
+                            <textarea id="raw-input" rows="10" placeholder='{"alertname": "HighErrorRate", "severity": "critical", "job": "api"}'></textarea>
+                            <button type="button" class="btn-secondary" onclick="parseRawInput()">Load Labels</button>
+                        </div>
+                    </div>
+
+                    <button type="submit" class="btn-primary">Test Route</button>
+                </form>
+            </div>
+
+            <div class="panel" id="result">
+                <div class="placeholder">
+                    <p>Configure your alert labels above and click "Test Route" to see which receiver it matches.</p>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <script>
+        let customLabelCount = 0;
+
+        function switchMode(mode) {
+            const uiBuilder = document.getElementById('ui-builder');
+            const rawBuilder = document.getElementById('raw-builder');
+            const uiBtn = document.getElementById('ui-mode-btn');
+            const rawBtn = document.getElementById('raw-mode-btn');
+
+            if (mode === 'ui') {
+                uiBuilder.style.display = 'block';
+                rawBuilder.style.display = 'none';
+                uiBtn.classList.add('active');
+                rawBtn.classList.remove('active');
+            } else {
+                uiBuilder.style.display = 'none';
+                rawBuilder.style.display = 'block';
+                uiBtn.classList.remove('active');
+                rawBtn.classList.add('active');
+            }
+        }
+
+        function addCustomLabelInput(key = '', value = '') {
+            const container = document.getElementById('custom-labels');
+            const id = `custom-${customLabelCount++}`;
+            
+            const div = document.createElement('div');
+            div.className = 'label-input-group';
+            div.id = id;
+            div.innerHTML = `
+                <input type="text" name="${id}-key" placeholder="Label key" value="${key}" class="custom-key">
+                <input type="text" name="${id}-value" placeholder="Label value" value="${value}" class="custom-value">
+                <button type="button" class="btn-remove" onclick="removeCustomLabel('${id}')">×</button>
+            `;
+            container.appendChild(div);
+        }
+
+        function removeCustomLabel(id) {
+            document.getElementById(id).remove();
+        }
+
+        function addCustomLabel(key) {
+            addCustomLabelInput(key, '');
+            document.querySelector(`#custom-labels .label-input-group:last-child .custom-value`).focus();
+        }
+
+        function parseRawInput() {
+            try {
+                const raw = document.getElementById('raw-input').value;
+                const labels = JSON.parse(raw);
+                
+                // Clear existing values
+                document.getElementById('alertname').value = labels.alertname || '';
+                document.getElementById('severity').value = labels.severity || '';
+                document.getElementById('job').value = labels.job || '';
+                document.getElementById('instance').value = labels.instance || '';
+                
+                // Clear custom labels
+                document.getElementById('custom-labels').innerHTML = '';
+                
+                // Add other labels as custom
+                for (const [key, value] of Object.entries(labels)) {
+                    if (!['alertname', 'severity', 'job', 'instance'].includes(key)) {
+                        addCustomLabelInput(key, value);
+                    }
+                }
+                
+                // Switch to UI mode
+                switchMode('ui');
+            } catch (e) {
+                alert('Invalid JSON: ' + e.message);
+            }
+        }
+
+        // Intercept form submission to collect custom labels
+        document.getElementById('alert-form').addEventListener('submit', function(e) {
+            const customInputs = document.querySelectorAll('#custom-labels .label-input-group');
+            customInputs.forEach(group => {
+                const keyInput = group.querySelector('.custom-key');
+                const valueInput = group.querySelector('.custom-value');
+                if (keyInput.value && valueInput.value) {
+                    // Create hidden inputs for custom labels
+                    const existing = document.querySelector(`input[name="${keyInput.value}"]`);
+                    if (!existing) {
+                        const hidden = document.createElement('input');
+                        hidden.type = 'hidden';
+                        hidden.name = keyInput.value;
+                        hidden.value = valueInput.value;
+                        group.appendChild(hidden);
+                    }
+                }
+            });
+        });
+    </script>
+</body>
+</html>

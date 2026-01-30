@@ -1,0 +1,129 @@
+[tools]
+go = "1.25"
+
+[tasks.start]
+description = "Start everything needed for local testing (Recommended)"
+depends = ["setup"]
+run = """
+#!/bin/bash
+set -e
+
+echo "Starting Alertmanager on :9093..."
+./bin/alertmanager/alertmanager \
+  --config.file=testdata/alertmanager.yml \
+  --web.listen-address=:9093 \
+  --storage.path=./data/alertmanager &
+ALERTMANAGER_PID=$!
+
+# Wait for Alertmanager to be ready
+echo "Waiting for Alertmanager to start..."
+for i in {1..30}; do
+  if curl -s http://localhost:9093/api/v2/status > /dev/null 2>&1; then
+    echo "✓ Alertmanager is ready"
+    break
+  fi
+  sleep 1
+done
+
+echo ""
+echo "Starting Route Tester on :8080..."
+go run . -alertmanager-url http://localhost:9093 -listen :8080 &
+APP_PID=$!
+
+# Wait for app to be ready
+sleep 2
+
+echo ""
+echo "=========================================="
+echo "✓ Everything is running!"
+echo "=========================================="
+echo ""
+echo "Alertmanager UI:  http://localhost:9093"
+echo "Route Tester:     http://localhost:8080"
+echo ""
+echo "Press Ctrl+C to stop all services"
+echo ""
+
+# Cleanup function
+cleanup() {
+  echo ""
+  echo "Stopping services..."
+  kill $APP_PID 2>/dev/null || true
+  kill $ALERTMANAGER_PID 2>/dev/null || true
+  exit 0
+}
+
+trap cleanup INT TERM
+
+# Wait for both processes
+wait
+"""
+
+[tasks.setup]
+description = "Download and setup Alertmanager for local testing"
+run = """
+#!/bin/bash
+set -e
+
+ALERTMANAGER_VERSION="0.27.0"
+OS=$(uname -s | tr '[:upper:]' '[:lower:]')
+ARCH=$(uname -m)
+
+if [ "$ARCH" = "x86_64" ]; then
+    ARCH="amd64"
+elif [ "$ARCH" = "aarch64" ] || [ "$ARCH" = "arm64" ]; then
+    ARCH="arm64"
+fi
+
+ALERTMANAGER_DIR="./bin/alertmanager"
+
+if [ -f "$ALERTMANAGER_DIR/alertmanager" ]; then
+    echo "Alertmanager already installed"
+    exit 0
+fi
+
+echo "Downloading Alertmanager ${ALERTMANAGER_VERSION} for ${OS}/${ARCH}..."
+
+mkdir -p ./bin
+cd ./bin
+
+TARBALL="alertmanager-${ALERTMANAGER_VERSION}.${OS}-${ARCH}.tar.gz"
+URL="https://github.com/prometheus/alertmanager/releases/download/v${ALERTMANAGER_VERSION}/${TARBALL}"
+
+curl -L -O "$URL"
+tar xzf "$TARBALL"
+mv "alertmanager-${ALERTMANAGER_VERSION}.${OS}-${ARCH}" alertmanager
+rm "$TARBALL"
+
+echo "Alertmanager installed successfully"
+"""
+
+[tasks.alertmanager]
+description = "Run local Alertmanager instance with test config"
+depends = ["setup"]
+run = """
+#!/bin/bash
+./bin/alertmanager/alertmanager \
+  --config.file=testdata/alertmanager.yml \
+  --web.listen-address=:9093 \
+  --storage.path=./data/alertmanager
+"""
+
+[tasks.dev]
+description = "Run the route tester application in development mode"
+run = """
+#!/bin/bash
+go run . -alertmanager-url http://localhost:9093 -listen :8080
+"""
+
+[tasks.test]
+description = "Run all tests"
+run = "go test -v ./..."
+
+[tasks.build]
+description = "Build the application"
+run = "go build -o bin/alertmanager-route-tester ."
+
+[tasks.clean]
+description = "Clean up generated files"
+run = "rm -rf ./bin ./data"

@@ -1,0 +1,63 @@
+<div class="result-panel">
+    {{if .Receiver}}
+    <div class="result-success">
+        <h2>Matched Receiver</h2>
+        <div class="receiver-name">{{ .Receiver }}</div>
+    </div>
+
+    {{if .MatchedRoutes}}
+    <div class="route-path">
+        <h3>Route Path</h3>
+        <div class="route-list">
+            {{range .MatchedRoutes}}
+            <div class="route-item">
+                {{if .Match}}
+                <div class="route-match">
+                    <strong>Match:</strong>
+                    <ul>
+                        {{range $key, $value := .Match}}
+                        <li><code>{{$key}}</code> = <code>{{$value}}</code></li>
+                        {{end}}
+                    </ul>
+                </div>
+                {{end}}
+                {{if .MatchRE}}
+                <div class="route-match">
+                    <strong>Match Regex:</strong>
+                    <ul>
+                        {{range $key, $value := .MatchRE}}
+                        <li><code>{{$key}}</code> =~ <code>{{$value}}</code></li>
+                        {{end}}
+                    </ul>
+                </div>
+                {{end}}
+                {{if .Receiver}}
+                <div class="route-receiver">Receiver: <strong>{{.Receiver}}</strong></div>
+                {{end}}
+                {{if .Continue}}
+                <div class="route-continue">Continue: true</div>
+                {{end}}
+            </div>
+            {{end}}
+        </div>
+    </div>
+    {{end}}
+
+    <div class="alert-labels">
+        <h3>Alert Labels</h3>
+        <div class="labels-list">
+            {{range $key, $value := .Labels}}
+            <div class="label-item">
+                <span class="label-key">{{$key}}</span>
+                <span class="label-value">{{$value}}</span>
+            </div>
+            {{end}}
+        </div>
+    </div>
+    {{else}}
+    <div class="result-warning">
+        <h2>No Receiver Matched</h2>
+        <p>The alert labels did not match any configured route.</p>
+    </div>
+    {{end}}
+</div>

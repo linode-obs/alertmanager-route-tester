@@ -1,0 +1,48 @@
+global:
+  resolve_timeout: 5m
+
+route:
+  receiver: 'default'
+  group_by: ['alertname', 'cluster']
+  group_wait: 10s
+  group_interval: 10s
+  repeat_interval: 12h
+  routes:
+  - match:
+      severity: critical
+    receiver: pagerduty-critical
+    continue: false
+  - match:
+      severity: warning
+    receiver: slack-warnings
+    continue: true
+  - match_re:
+      service: ^(api|web)$
+    receiver: team-platform
+    routes:
+    - match:
+        environment: production
+      receiver: pagerduty-platform
+  - match:
+      team: database
+    receiver: team-database
+
+receivers:
+- name: 'default'
+  webhook_configs:
+  - url: 'http://localhost:5001/default'
+- name: 'pagerduty-critical'
+  webhook_configs:
+  - url: 'http://localhost:5001/pagerduty-critical'
+- name: 'slack-warnings'
+  webhook_configs:
+  - url: 'http://localhost:5001/slack-warnings'
+- name: 'team-platform'
+  webhook_configs:
+  - url: 'http://localhost:5001/team-platform'
+- name: 'pagerduty-platform'
+  webhook_configs:
+  - url: 'http://localhost:5001/pagerduty-platform'
+- name: 'team-database'
+  webhook_configs:
+  - url: 'http://localhost:5001/team-database'

@@ -67,6 +67,8 @@ The following features are planned for future releases:
 
 - Paste Config Support: Allow users to paste their own `alertmanager.yml` configuration directly into the UI
 - Config Validation: Validate Alertmanager configurations before testing
+- A CLI mode without the web interface would also be interesting for tests/automation to ensure alerts go to a specific alertmanager configuration
+  - Tests for external usage and this project itself to make sure the alert routing logic is right
 
 ### Enhanced UI
 

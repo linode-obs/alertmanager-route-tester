@@ -52,30 +52,37 @@ The following features are planned for future releases:
 
 ### Configuration File Support
 
-- **YAML Configuration**: Replace CLI arguments with a dedicated `config.yaml` file
-- **TLS Settings**: Proper certificate configuration, custom CA support, mTLS authentication
-- **Connection Options**: Timeouts, retry policies, connection pooling
-- **Multiple Alertmanagers**: Support testing against multiple Alertmanager instances
+- YAML Configuration: Replace CLI arguments with a dedicated `config.yaml` file
+  - TLS Settings: Proper certificate configuration, custom CA support, mTLS authentication
+  - Connection Options: Timeouts, retry policies, connection pooling
 
 ### Offline Mode
 
-- **Paste Config Support**: Allow users to paste their own `alertmanager.yml` configuration directly into the UI
-- **Local Testing**: Test routing logic without connecting to a live Alertmanager instance
-- **Config Validation**: Validate Alertmanager configurations before testing
-- **Export/Import**: Save and load test configurations
+- Paste Config Support: Allow users to paste their own `alertmanager.yml` configuration directly into the UI
+- Config Validation: Validate Alertmanager configurations before testing
 
 ### Enhanced UI
 
-- **Configuration Editor**: Built-in syntax highlighting for Alertmanager configs
-- **Bulk Testing**: Test multiple alerts at once
-- **History**: Save and replay previous test scenarios
-- **Export Results**: Generate reports of routing test results
-- **Improved Multiple Receiver Display**: Clearer visualization when alerts match multiple receivers due to `continue: true` routes, showing the complete notification flow in an easier-to-understand format
+- Improved Multiple Receiver Display that has clearer visualization when alerts match multiple receivers due to `continue: true` routes
+- Some kind of more interesting UI theme that is still clean and light
+
+### Go Code Architecture Improvements
+
+- Interface-Based Design: Extract core routing logic into well-defined interfaces for better testability and extensibility
+- Add proper context.Context support throughout the application for timeout handling and cancellation
+- Use slog!
+- Expand test coverage with comprehensive table-driven tests for all routing scenarios
+  - Also try testcontainers-go for mocking an external Alertmanager
+- Proper error handling with context using fmt.Errorf and error wrapping patterns
+
+### Misc
+
+- Import some go project template goodies like pre-commit, etc.
 
 ## About This Project
 
 Built with Claude (claude-sonnet-4.5). See [agents.md](agents.md) for development details and AI assistance information.
 
-**Model:** Claude Sonnet 4.5 (github-copilot/claude-sonnet-4.5)  
-**Skills Used:** None (standard library only)  
+**Model:** Claude Sonnet 4.5 (github-copilot/claude-sonnet-4.5)
+**Skills Used:** frontend-design, golang-pro
 **Technologies:** Go 1.25, HTMX, mise

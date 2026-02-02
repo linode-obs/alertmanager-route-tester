@@ -40,7 +40,6 @@ mise run clean        # Clean up bin/ and data/
 - Go 1.25 (standard library only, no frameworks)
 - HTMX for dynamic UI
 - mise for task running
-- testcontainers-go for integration tests
 
 ## Testing
 

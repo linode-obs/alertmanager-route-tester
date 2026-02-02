@@ -42,6 +42,7 @@ This command:
 - Downloads and installs Alertmanager if needed
 - Starts Alertmanager on http://localhost:9093
 - Starts Route Tester on http://localhost:8080
+- In the future can optional Docker compose setup would be nice
 
 ## How It Works
 
@@ -85,6 +86,6 @@ The following features are planned for future releases:
 
 Built with Claude (claude-sonnet-4.5). See [agents.md](agents.md) for development details and AI assistance information.
 
-**Model:** Claude Sonnet 4.5 (github-copilot/claude-sonnet-4.5)
-**Skills Used:** frontend-design, golang-pro
-**Technologies:** Go 1.25, HTMX, mise
+- Claude Sonnet 4.5 (github-copilot/claude-sonnet-4.5)
+- Skills Used: frontend-design, golang-pro
+- Technologies: Go, HTMX

@@ -33,6 +33,11 @@
     <div class="route-path">
         <h3>Matched Route Configuration</h3>
         <p class="route-explanation">Your alert matched the following route(s):</p>
+        {{if gt (len .MatchedRoutes) 1}}
+        <div class="multiple-receivers-notice">
+            ⚠️ <strong>Multiple receivers will be notified</strong> due to routes with <code>continue: true</code>
+        </div>
+        {{end}}
         <div class="route-list">
             {{range .MatchedRoutes}}
             <div class="route-item">

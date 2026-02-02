@@ -213,25 +213,28 @@ func (c *Client) FindReceiverByName(name string, config *Config) *Receiver {
 }
 
 func findMatchingRouteRecursive(labels map[string]string, route *Route, matchedRoutes *[]*Route) string {
+	var finalReceiver string
+
 	for _, childRoute := range route.Routes {
 		if matchesRoute(labels, childRoute) {
 			*matchedRoutes = append(*matchedRoutes, childRoute)
 
+			// Recursively check child routes first
 			if receiver := findMatchingRouteRecursive(labels, childRoute, matchedRoutes); receiver != "" {
-				return receiver
+				finalReceiver = receiver
+			} else if childRoute.Receiver != "" {
+				// No child matched but this route has a receiver
+				finalReceiver = childRoute.Receiver
 			}
 
-			if childRoute.Receiver != "" {
-				return childRoute.Receiver
-			}
-
+			// If continue is false, stop checking other routes at this level
 			if !childRoute.Continue {
 				break
 			}
 		}
 	}
 
-	return ""
+	return finalReceiver
 }
 
 func matchesRoute(labels map[string]string, route *Route) bool {
@@ -344,6 +347,15 @@ func GenerateSampleAlerts(config *Config) []SampleAlert {
 			},
 		},
 		{
+			Name:        "Critical Security Alert",
+			Description: "Routes to security-team (continue) + pagerduty-security",
+			Labels: map[string]string{
+				"alertname": "CriticalSecurityBreach",
+				"category":  "security",
+				"severity":  "critical",
+			},
+		},
+		{
 			Name:        "Database Team Alert",
 			Description: "Routes to team-database (team match)",
 			Labels: map[string]string{
@@ -375,14 +387,6 @@ func GenerateSampleAlerts(config *Config) []SampleAlert {
 				"alertname": "HighCPUUsage",
 				"component": "infrastructure",
 				"region":    "us-west-2",
-			},
-		},
-		{
-			Name:        "Security Issue",
-			Description: "Routes to security-team (category match)",
-			Labels: map[string]string{
-				"alertname": "SuspiciousActivity",
-				"category":  "security",
 			},
 		},
 	}

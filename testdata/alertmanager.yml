@@ -12,7 +12,6 @@ route:
   - match:
       severity: critical
     receiver: pagerduty-critical
-    continue: false
 
   # High priority alerts
   - match:
@@ -20,10 +19,14 @@ route:
     receiver: slack-high-priority
     continue: true
 
-  # Warning alerts to Slack
+  # Warning alerts to Slack - continues to check other routes
   - match:
       severity: warning
     receiver: slack-warnings
+    continue: true
+
+  # All alerts also go to general monitoring (catches warnings too)
+  - receiver: monitoring-team
     continue: true
 
   # Regional routing for infrastructure
@@ -72,6 +75,7 @@ route:
   - match:
       category: security
     receiver: security-team
+    continue: true
     routes:
     - match:
         severity: critical
@@ -110,6 +114,9 @@ receivers:
 - name: 'slack-high-priority'
   webhook_configs:
   - url: 'http://localhost:5001/slack-high-priority'
+- name: 'monitoring-team'
+  webhook_configs:
+  - url: 'http://localhost:5001/monitoring-team'
 - name: 'team-platform'
   webhook_configs:
   - url: 'http://localhost:5001/team-platform'

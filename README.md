@@ -9,15 +9,14 @@ Test Prometheus alerts against your Alertmanager routing config without sending 
 ## Quick Start
 
 ```bash
-# Setup local Alertmanager for testing
-mise run setup
-mise run alertmanager  # separate terminal
-
-# Run the tester
-mise run dev
+mise run start
 ```
 
-Visit http://localhost:8080
+This single command:
+- Downloads and installs Alertmanager if needed
+- Starts Alertmanager on http://localhost:9093
+- Starts Route Tester on http://localhost:8080
+- Press Ctrl+C to stop everything
 
 ## Usage
 

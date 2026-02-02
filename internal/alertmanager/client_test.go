@@ -223,7 +223,7 @@ func TestFindMatchingRoute(t *testing.T) {
 				"alertname": "UnknownAlert",
 			},
 			expectedReceiver: "default",
-			expectedRoutes:   1,
+			expectedRoutes:   0, // Changed: no specific routes matched, so matched_routes should be empty
 		},
 	}
 

@@ -3,29 +3,99 @@ global:
 
 route:
   receiver: 'default'
-  group_by: ['alertname', 'cluster']
+  group_by: ['alertname', 'cluster', 'namespace']
   group_wait: 10s
   group_interval: 10s
   repeat_interval: 12h
   routes:
+  # Critical alerts always go to PagerDuty
   - match:
       severity: critical
     receiver: pagerduty-critical
     continue: false
+
+  # High priority alerts
+  - match:
+      severity: high
+    receiver: slack-high-priority
+    continue: true
+
+  # Warning alerts to Slack
   - match:
       severity: warning
     receiver: slack-warnings
     continue: true
+
+  # Regional routing for infrastructure
+  - match:
+      component: infrastructure
+    routes:
+    - match:
+        region: us-east-1
+      receiver: team-infra-east
+    - match:
+        region: us-west-2
+      receiver: team-infra-west
+    - match:
+        region: eu-west-1
+      receiver: team-infra-eu
+
+  # Platform team routes
   - match_re:
-      service: ^(api|web)$
+      service: ^(api|web|frontend)$
     receiver: team-platform
     routes:
     - match:
         environment: production
+        severity: critical
       receiver: pagerduty-platform
+    - match:
+        environment: production
+      receiver: slack-platform-prod
+    - match:
+        environment: staging
+      receiver: slack-platform-staging
+
+  # Database team routes
   - match:
       team: database
     receiver: team-database
+    routes:
+    - match:
+        severity: critical
+      receiver: pagerduty-database
+    - match_re:
+        alertname: ^(PostgreSQL|MySQL|Redis).*
+      receiver: slack-database-alerts
+
+  # Security alerts
+  - match:
+      category: security
+    receiver: security-team
+    routes:
+    - match:
+        severity: critical
+      receiver: pagerduty-security
+
+  # Customer-facing service alerts
+  - match:
+      customer_facing: "true"
+    routes:
+    - match:
+        severity: critical
+      receiver: pagerduty-customer
+    - match:
+        severity: warning
+      receiver: slack-customer-alerts
+
+  # Monitoring system alerts
+  - match_re:
+      job: ^(prometheus|grafana|alertmanager)$
+    receiver: team-observability
+    routes:
+    - match:
+        severity: critical
+      receiver: pagerduty-observability
 
 receivers:
 - name: 'default'
@@ -37,12 +107,54 @@ receivers:
 - name: 'slack-warnings'
   webhook_configs:
   - url: 'http://localhost:5001/slack-warnings'
+- name: 'slack-high-priority'
+  webhook_configs:
+  - url: 'http://localhost:5001/slack-high-priority'
 - name: 'team-platform'
   webhook_configs:
   - url: 'http://localhost:5001/team-platform'
 - name: 'pagerduty-platform'
   webhook_configs:
   - url: 'http://localhost:5001/pagerduty-platform'
+- name: 'slack-platform-prod'
+  webhook_configs:
+  - url: 'http://localhost:5001/slack-platform-prod'
+- name: 'slack-platform-staging'
+  webhook_configs:
+  - url: 'http://localhost:5001/slack-platform-staging'
 - name: 'team-database'
   webhook_configs:
   - url: 'http://localhost:5001/team-database'
+- name: 'pagerduty-database'
+  webhook_configs:
+  - url: 'http://localhost:5001/pagerduty-database'
+- name: 'slack-database-alerts'
+  webhook_configs:
+  - url: 'http://localhost:5001/slack-database-alerts'
+- name: 'security-team'
+  webhook_configs:
+  - url: 'http://localhost:5001/security-team'
+- name: 'pagerduty-security'
+  webhook_configs:
+  - url: 'http://localhost:5001/pagerduty-security'
+- name: 'pagerduty-customer'
+  webhook_configs:
+  - url: 'http://localhost:5001/pagerduty-customer'
+- name: 'slack-customer-alerts'
+  webhook_configs:
+  - url: 'http://localhost:5001/slack-customer-alerts'
+- name: 'team-observability'
+  webhook_configs:
+  - url: 'http://localhost:5001/team-observability'
+- name: 'pagerduty-observability'
+  webhook_configs:
+  - url: 'http://localhost:5001/pagerduty-observability'
+- name: 'team-infra-east'
+  webhook_configs:
+  - url: 'http://localhost:5001/team-infra-east'
+- name: 'team-infra-west'
+  webhook_configs:
+  - url: 'http://localhost:5001/team-infra-west'
+- name: 'team-infra-eu'
+  webhook_configs:
+  - url: 'http://localhost:5001/team-infra-eu'

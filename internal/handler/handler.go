@@ -1,6 +1,3 @@
-// ABOUTME: HTTP handlers for web UI and API endpoints
-// ABOUTME: Serves HTMX-based interface for testing alert routing
-
 package handler
 
 import (
@@ -23,13 +20,20 @@ type TestRequest struct {
 }
 
 type TestResponse struct {
-	Receiver      string                `json:"receiver"`
-	MatchedRoutes []*alertmanager.Route `json:"matched_routes"`
-	Labels        map[string]string     `json:"labels"`
+	Receiver       string                 `json:"receiver"`
+	ReceiverConfig *alertmanager.Receiver `json:"receiver_config,omitempty"`
+	MatchedRoutes  []*alertmanager.Route  `json:"matched_routes"`
+	Labels         map[string]string      `json:"labels"`
 }
 
 func New(client *alertmanager.Client) *Handler {
-	tmpl := template.Must(template.ParseGlob("templates/*.html"))
+	funcMap := template.FuncMap{
+		"json": func(v interface{}) template.JS {
+			b, _ := json.Marshal(v)
+			return template.JS(b)
+		},
+	}
+	tmpl := template.Must(template.New("").Funcs(funcMap).ParseGlob("templates/*.html"))
 	return &Handler{
 		client: client,
 		tmpl:   tmpl,
@@ -38,20 +42,49 @@ func New(client *alertmanager.Client) *Handler {
 
 func (h *Handler) HandleIndex(w http.ResponseWriter, r *http.Request) {
 	config, err := h.client.GetConfig()
+	connectionOK := err == nil
+
 	if err != nil {
 		log.Printf("Error fetching config: %v", err)
-		http.Error(w, "Failed to fetch Alertmanager config", http.StatusInternalServerError)
+		data := struct {
+			LabelSuggestions []alertmanager.LabelSuggestion
+			SampleAlerts     []alertmanager.SampleAlert
+			Config           *alertmanager.Config
+			AlertmanagerURL  string
+			ConnectionStatus bool
+			ConnectionError  string
+		}{
+			LabelSuggestions: []alertmanager.LabelSuggestion{},
+			SampleAlerts:     []alertmanager.SampleAlert{},
+			Config:           nil,
+			AlertmanagerURL:  h.client.BaseURL(),
+			ConnectionStatus: false,
+			ConnectionError:  err.Error(),
+		}
+		if err := h.tmpl.ExecuteTemplate(w, "index.html", data); err != nil {
+			log.Printf("Error rendering template: %v", err)
+			http.Error(w, "Failed to render page", http.StatusInternalServerError)
+		}
 		return
 	}
 
-	labelKeys := alertmanager.ExtractLabelKeys(config)
+	labelSuggestions := alertmanager.ExtractLabelSuggestions(config)
+	sampleAlerts := alertmanager.GenerateSampleAlerts(config)
 
 	data := struct {
-		LabelKeys []string
-		Config    *alertmanager.Config
+		LabelSuggestions []alertmanager.LabelSuggestion
+		SampleAlerts     []alertmanager.SampleAlert
+		Config           *alertmanager.Config
+		AlertmanagerURL  string
+		ConnectionStatus bool
+		ConnectionError  string
 	}{
-		LabelKeys: labelKeys,
-		Config:    config,
+		LabelSuggestions: labelSuggestions,
+		SampleAlerts:     sampleAlerts,
+		Config:           config,
+		AlertmanagerURL:  h.client.BaseURL(),
+		ConnectionStatus: connectionOK,
+		ConnectionError:  "",
 	}
 
 	if err := h.tmpl.ExecuteTemplate(w, "index.html", data); err != nil {
@@ -68,7 +101,6 @@ func (h *Handler) HandleTest(w http.ResponseWriter, r *http.Request) {
 
 	var labels map[string]string
 
-	// Check if this is form data or JSON
 	contentType := r.Header.Get("Content-Type")
 	if strings.Contains(contentType, "application/json") {
 		var req TestRequest
@@ -78,7 +110,6 @@ func (h *Handler) HandleTest(w http.ResponseWriter, r *http.Request) {
 		}
 		labels = req.Labels
 	} else {
-		// Parse form data
 		if err := r.ParseForm(); err != nil {
 			http.Error(w, "Invalid form data", http.StatusBadRequest)
 			return
@@ -93,29 +124,43 @@ func (h *Handler) HandleTest(w http.ResponseWriter, r *http.Request) {
 	}
 
 	config, err := h.client.GetConfig()
+	var receiver string
+	var receiverConfig *alertmanager.Receiver
+	var matchedRoutes []*alertmanager.Route
+	var errorMsg string
+
 	if err != nil {
 		log.Printf("Error fetching config: %v", err)
-		http.Error(w, "Failed to fetch config", http.StatusInternalServerError)
-		return
+		errorMsg = "Failed to fetch Alertmanager config: " + err.Error()
+	} else if config == nil {
+		log.Printf("Config is nil")
+		errorMsg = "Alertmanager returned empty config"
+	} else if config.Route == nil {
+		log.Printf("Config route is nil. Config: %+v", config)
+		errorMsg = "Alertmanager config has no route defined. Check your alertmanager.yml"
+	} else {
+		receiver, matchedRoutes, err = h.client.FindMatchingRoute(labels, config)
+		if err != nil {
+			log.Printf("Error finding route: %v", err)
+			errorMsg = "Error finding matching route: " + err.Error()
+		} else if receiver != "" {
+			receiverConfig = h.client.FindReceiverByName(receiver, config)
+		}
 	}
 
-	receiver, matchedRoutes, err := h.client.FindMatchingRoute(labels, config)
-	if err != nil {
-		log.Printf("Error finding route: %v", err)
-		http.Error(w, "Failed to find matching route", http.StatusInternalServerError)
-		return
-	}
-
-	// Check if HTMX request
 	if r.Header.Get("HX-Request") == "true" {
 		data := struct {
-			Receiver      string
-			MatchedRoutes []*alertmanager.Route
-			Labels        map[string]string
+			Receiver       string
+			ReceiverConfig *alertmanager.Receiver
+			MatchedRoutes  []*alertmanager.Route
+			Labels         map[string]string
+			Error          string
 		}{
-			Receiver:      receiver,
-			MatchedRoutes: matchedRoutes,
-			Labels:        labels,
+			Receiver:       receiver,
+			ReceiverConfig: receiverConfig,
+			MatchedRoutes:  matchedRoutes,
+			Labels:         labels,
+			Error:          errorMsg,
 		}
 		if err := h.tmpl.ExecuteTemplate(w, "result.html", data); err != nil {
 			log.Printf("Error rendering result: %v", err)
@@ -124,11 +169,16 @@ func (h *Handler) HandleTest(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// Return JSON for API requests
+	if errorMsg != "" {
+		http.Error(w, errorMsg, http.StatusInternalServerError)
+		return
+	}
+
 	response := TestResponse{
-		Receiver:      receiver,
-		MatchedRoutes: matchedRoutes,
-		Labels:        labels,
+		Receiver:       receiver,
+		ReceiverConfig: receiverConfig,
+		MatchedRoutes:  matchedRoutes,
+		Labels:         labels,
 	}
 
 	w.Header().Set("Content-Type", "application/json")

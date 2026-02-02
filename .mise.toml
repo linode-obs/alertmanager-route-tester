@@ -3,7 +3,7 @@ go = "1.25"
 
 [tasks.start]
 description = "Start everything needed for local testing (Recommended)"
-depends = ["setup"]
+depends = ["setup", "build"]
 run = """
 #!/bin/bash
 set -e
@@ -27,7 +27,7 @@ done
 
 echo ""
 echo "Starting Route Tester on :8080..."
-go run . -alertmanager-url http://localhost:9093 -listen :8080 &
+./bin/alertmanager-route-tester -alertmanager-url http://localhost:9093 -listen :8080 &
 APP_PID=$!
 
 # Wait for app to be ready

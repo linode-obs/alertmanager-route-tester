@@ -1,6 +1,3 @@
-// ABOUTME: Main entry point for alertmanager route tester web application
-// ABOUTME: Serves HTMX UI and provides API endpoints for testing alert routing
-
 package main
 
 import (

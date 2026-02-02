@@ -1,42 +1,54 @@
 <div class="result-panel">
-    {{if .Receiver}}
-    <div class="result-success">
-        <h2>Matched Receiver</h2>
-        <div class="receiver-name">{{ .Receiver }}</div>
+    {{if .Error}}
+    <div class="result-error">
+        <h2>Error</h2>
+        <p>{{ .Error }}</p>
+    </div>
+    {{else if .Receiver}}
+    <div class="result-success {{if not .MatchedRoutes}}result-default{{end}}">
+        <h2>✓ Matched Receiver</h2>
+        <div class="receiver-name {{if not .MatchedRoutes}}receiver-default{{end}}">{{ .Receiver }}</div>
+
+        {{if not .MatchedRoutes}}
+        <div class="route-info">
+            <p class="default-route-notice">ℹ️ No specific sub-routes matched. This alert uses the <strong>root route's receiver</strong> ({{.Receiver}}) which acts as the default.</p>
+        </div>
+        {{end}}
+
+        {{if .ReceiverConfig}}
+        <div class="receiver-config">
+            <h3>Receiver Configuration</h3>
+            <div class="config-section">
+                <div class="config-item">
+                    <div class="route-config-block">
+                        <pre class="yaml-config">{{.ReceiverConfig.RawConfig}}</pre>
+                    </div>
+                </div>
+            </div>
+        </div>
+        {{end}}
     </div>
 
     {{if .MatchedRoutes}}
     <div class="route-path">
-        <h3>Route Path</h3>
+        <h3>Matched Route Configuration</h3>
+        <p class="route-explanation">Your alert matched the following route(s):</p>
         <div class="route-list">
             {{range .MatchedRoutes}}
             <div class="route-item">
-                {{if .Match}}
-                <div class="route-match">
-                    <strong>Match:</strong>
-                    <ul>
-                        {{range $key, $value := .Match}}
-                        <li><code>{{$key}}</code> = <code>{{$value}}</code></li>
-                        {{end}}
-                    </ul>
+                <div class="route-config-block">
+                    <pre class="yaml-config">receiver: {{.Receiver}}{{if .Match}}
+match:{{range $key, $value := .Match}}
+  {{$key}}: {{$value}}{{end}}{{end}}{{if .MatchRE}}
+match_re:{{range $key, $value := .MatchRE}}
+  {{$key}}: {{$value}}{{end}}{{end}}{{if .Continue}}
+continue: {{.Continue}}{{end}}{{if .GroupBy}}
+group_by:{{range .GroupBy}}
+- {{.}}{{end}}{{end}}{{if .GroupWait}}
+group_wait: {{.GroupWait}}{{end}}{{if .GroupInterval}}
+group_interval: {{.GroupInterval}}{{end}}{{if .RepeatInterval}}
+repeat_interval: {{.RepeatInterval}}{{end}}</pre>
                 </div>
-                {{end}}
-                {{if .MatchRE}}
-                <div class="route-match">
-                    <strong>Match Regex:</strong>
-                    <ul>
-                        {{range $key, $value := .MatchRE}}
-                        <li><code>{{$key}}</code> =~ <code>{{$value}}</code></li>
-                        {{end}}
-                    </ul>
-                </div>
-                {{end}}
-                {{if .Receiver}}
-                <div class="route-receiver">Receiver: <strong>{{.Receiver}}</strong></div>
-                {{end}}
-                {{if .Continue}}
-                <div class="route-continue">Continue: true</div>
-                {{end}}
             </div>
             {{end}}
         </div>

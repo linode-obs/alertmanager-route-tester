@@ -1,23 +1,33 @@
-# Binaries and build artifacts
-bin/
-data/
+# Binaries for programs and plugins
 *.exe
 *.exe~
 *.dll
 *.so
 *.dylib
 
-# Test binary
+# alertmanager-route-tester binary
+alertmanager-route-tester
+
+# CI tools and build artifacts
+bin/
+data/
+
+# Test binary, built with `go test -c`
 *.test
 
-# Output of the go coverage tool
+# Output of the go coverage tool, specifically when used with LiteIDE
 *.out
+*.html
+*.xml
 
-# Dependency directories
-vendor/
+# Dependency directories (remove the comment below to include it)
+# vendor/
 
 # Go workspace file
 go.work
+
+# goreleaser
+dist/
 
 # IDE
 .vscode/
@@ -29,3 +39,10 @@ go.work
 # OS
 .DS_Store
 Thumbs.db
+
+# Pre-commit
+.pre-commit-config.yaml.backup
+
+# Local environment files
+.env
+.env.local

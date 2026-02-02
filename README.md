@@ -2,6 +2,12 @@
 
 Alertmanager Route Tester (ATR) is a web-app designed to help figure out where your Prometheus alerts will actually wind up given an Alertmanager configuration. It pulls Alertmanager's santizied configuration directly from an Alertmanager API and allows the user to see exactly what reciever(s) their alerts will route to.
 
+![Main view](images/main_view.png)
+
+Easily visualize complex alerting scenarions like `continue=true`:
+
+![Continue view](images/continue_view.png)
+
 ## Usage
 
 Point it at any Alertmanager instance:
@@ -74,10 +80,6 @@ The following features are planned for future releases:
 - Expand test coverage with comprehensive table-driven tests for all routing scenarios
   - Also try testcontainers-go for mocking an external Alertmanager
 - Proper error handling with context using fmt.Errorf and error wrapping patterns
-
-### Misc
-
-- Import some go project template goodies like pre-commit, etc.
 
 ## About This Project
 

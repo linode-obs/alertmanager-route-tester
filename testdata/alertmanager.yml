@@ -25,8 +25,10 @@ route:
     receiver: slack-warnings
     continue: true
 
-  # All alerts also go to general monitoring (catches warnings too)
-  - receiver: monitoring-team
+  # Monitoring team alerts also go to general monitoring (catches warnings too)
+  - match:
+      team: monitoring
+    receiver: monitoring-team
     continue: true
 
   # Regional routing for infrastructure

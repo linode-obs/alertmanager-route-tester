@@ -104,6 +104,7 @@ func TestRoutingWithContinue(t *testing.T) {
 	labels := map[string]string{
 		"alertname": "DiskSpaceLow",
 		"severity":  "warning",
+		"team":      "monitoring",
 	}
 
 	result, err := cli.TestRouting(client, labels)

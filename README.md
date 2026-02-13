@@ -21,6 +21,21 @@ go run . -alertmanager-url https://alertmanager:9093 -skip-tls-verify
 
 Build your alert using the UI or paste YAML Prometheus alert labels. Hit "Test Route" to see which receiver it matches and the full route path.
 
+## CLI Test Mode
+
+Run route tests from the command line using the exact same routing logic as the web UI.
+
+```bash
+# Basic test
+go run . -alertmanager-url http://localhost:9093 -test \
+  -labels '{"alertname":"HighCPU","severity":"critical"}'
+
+# JSON output for scripting
+go run . -alertmanager-url http://localhost:9093 -test \
+  -labels '{"alertname":"HighCPU","severity":"critical"}' \
+  -format json
+```
+
 ## Development
 
 ```bash
@@ -67,8 +82,6 @@ The following features are planned for future releases:
 
 - Paste Config Support: Allow users to paste their own `alertmanager.yml` configuration directly into the UI
 - Config Validation: Validate Alertmanager configurations before testing
-- A CLI mode without the web interface would also be interesting for tests/automation to ensure alerts go to a specific alertmanager configuration
-  - Tests for external usage and this project itself to make sure the alert routing logic is right
 
 ### Enhanced UI
 

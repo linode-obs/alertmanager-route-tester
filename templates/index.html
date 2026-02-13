@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="en" data-theme="dark">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -327,7 +327,7 @@ team: platform'></textarea>
 
         // Load saved theme on page load
         (function() {
-            const savedTheme = localStorage.getItem('theme') || 'light';
+            const savedTheme = localStorage.getItem('theme') || 'dark';
             const icon = document.getElementById('dark-mode-icon');
             document.documentElement.setAttribute('data-theme', savedTheme);
             if (savedTheme === 'dark') {

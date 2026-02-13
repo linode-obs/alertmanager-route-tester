@@ -16,6 +16,12 @@ Create a `config.yaml` and point it at any Alertmanager instance:
 go run .
 ```
 
+For local or sensitive settings, create `config.local.yaml` (it is gitignored):
+
+```bash
+go run . -config config.local.yaml
+```
+
 Build your alert using the UI or paste YAML Prometheus alert labels. Hit "Test Route" to see which receiver it matches and the full route path.
 
 ### Configuration File

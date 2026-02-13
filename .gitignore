@@ -46,3 +46,6 @@ Thumbs.db
 # Local environment files
 .env
 .env.local
+
+# Local developer config
+config.local.yaml

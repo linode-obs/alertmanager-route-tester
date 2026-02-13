@@ -144,9 +144,10 @@ The following features are planned for future releases:
 - Proper error handling with context using fmt.Errorf and error wrapping patterns
 - Load in connected Alertmanager configuration once upon initial load then cache it for subsequent requests. Have button to reload config.
 
-### CI
+### CI/misc
 
 - GitHub Actions for automated tests/coverage/etc
+- Update readme with fresh screenshots
 
 ## About This Project
 

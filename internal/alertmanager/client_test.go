@@ -1,6 +1,3 @@
-// ABOUTME: Tests for Alertmanager client and route matching functionality
-// ABOUTME: Validates correct receiver resolution based on alert labels
-
 package alertmanager
 
 import (

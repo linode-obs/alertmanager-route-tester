@@ -9,25 +9,25 @@ route:
   repeat_interval: 12h
   routes:
   # Critical alerts always go to PagerDuty
-  - match:
-      severity: critical
+  - matchers:
+    - severity="critical"
     receiver: pagerduty-critical
 
   # High priority alerts
-  - match:
-      severity: high
+  - matchers:
+    - severity="high"
     receiver: slack-high-priority
     continue: true
 
   # Warning alerts to Slack - continues to check other routes
-  - match:
-      severity: warning
+  - matchers:
+    - severity="warning"
     receiver: slack-warnings
     continue: true
 
   # Monitoring team alerts also go to general monitoring (catches warnings too)
-  - match:
-      team: monitoring
+  - matchers:
+    - team="monitoring"
     receiver: monitoring-team
     continue: true
 
@@ -46,8 +46,8 @@ route:
       receiver: team-infra-eu
 
   # Platform team routes
-  - match_re:
-      service: ^(api|web|frontend)$
+  - matchers:
+    - service=~"^(api|web|frontend)$"
     receiver: team-platform
     routes:
     - match:

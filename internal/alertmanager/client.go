@@ -39,6 +39,7 @@ type Route struct {
 	Receiver       string            `json:"receiver,omitempty" yaml:"receiver,omitempty"`
 	Match          map[string]string `json:"match,omitempty" yaml:"match,omitempty"`
 	MatchRE        map[string]string `json:"match_re,omitempty" yaml:"match_re,omitempty"`
+	Matchers       []string          `json:"matchers,omitempty" yaml:"matchers,omitempty"`
 	GroupBy        []string          `json:"group_by,omitempty" yaml:"group_by,omitempty"`
 	Continue       bool              `json:"continue,omitempty" yaml:"continue,omitempty"`
 	Routes         []*Route          `json:"routes,omitempty" yaml:"routes,omitempty"`
@@ -392,7 +393,71 @@ func matchesRoute(labels map[string]string, route *Route) bool {
 		}
 	}
 
+	for _, matcher := range route.Matchers {
+		if !matchesMatcher(labels, matcher) {
+			return false
+		}
+	}
+
 	return true
+}
+
+type parsedMatcher struct {
+	Label    string
+	Operator string
+	Value    string
+}
+
+func matchesMatcher(labels map[string]string, matcher string) bool {
+	parsed, ok := parseMatcher(matcher)
+	if !ok {
+		return false
+	}
+
+	value, hasLabel := labels[parsed.Label]
+
+	switch parsed.Operator {
+	case "=":
+		return hasLabel && value == parsed.Value
+	case "!=":
+		return !hasLabel || value != parsed.Value
+	case "=~":
+		if !hasLabel {
+			return false
+		}
+		matched, err := regexp.MatchString(parsed.Value, value)
+		return err == nil && matched
+	case "!~":
+		if !hasLabel {
+			return true
+		}
+		matched, err := regexp.MatchString(parsed.Value, value)
+		return err == nil && !matched
+	default:
+		return false
+	}
+}
+
+var matcherPattern = regexp.MustCompile(`^\s*([^=!~\s]+)\s*(=~|!~|=|!=)\s*(.+?)\s*$`)
+
+func parseMatcher(input string) (parsedMatcher, bool) {
+	matches := matcherPattern.FindStringSubmatch(input)
+	if len(matches) != 4 {
+		return parsedMatcher{}, false
+	}
+
+	value := strings.TrimSpace(matches[3])
+	if len(value) >= 2 {
+		if (value[0] == '"' && value[len(value)-1] == '"') || (value[0] == '\'' && value[len(value)-1] == '\'') {
+			value = value[1 : len(value)-1]
+		}
+	}
+
+	return parsedMatcher{
+		Label:    matches[1],
+		Operator: matches[2],
+		Value:    value,
+	}, true
 }
 
 type LabelSuggestion struct {
@@ -448,6 +513,12 @@ func extractFromRoute(route *Route, keys map[string]bool) {
 	for key := range route.MatchRE {
 		keys[key] = true
 	}
+	for _, matcher := range route.Matchers {
+		parsed, ok := parseMatcher(matcher)
+		if ok {
+			keys[parsed.Label] = true
+		}
+	}
 
 	for _, child := range route.Routes {
 		extractFromRoute(child, keys)
@@ -468,6 +539,20 @@ func extractLabelValuesFromRoute(route *Route, labelValues map[string]map[string
 
 	for _, child := range route.Routes {
 		extractLabelValuesFromRoute(child, labelValues)
+	}
+
+	for _, matcher := range route.Matchers {
+		parsed, ok := parseMatcher(matcher)
+		if !ok {
+			continue
+		}
+		if parsed.Operator != "=" {
+			continue
+		}
+		if labelValues[parsed.Label] == nil {
+			labelValues[parsed.Label] = make(map[string]bool)
+		}
+		labelValues[parsed.Label][parsed.Value] = true
 	}
 }
 

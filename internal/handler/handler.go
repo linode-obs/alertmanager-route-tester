@@ -27,14 +27,28 @@ type TestResponse struct {
 }
 
 type RouteStep struct {
-	Index    int
-	Receiver string
-	Match    map[string]string
-	MatchRE  map[string]string
-	Continue bool
-	IsFinal  bool
+	Index     int
+	Receiver  string
+	Match     map[string]string
+	MatchRE   map[string]string
+	Matchers  []string
+	Continue  bool
+	IsFinal   bool
 	TypeLabel string
 	TypeIcon  string
+}
+
+type MatchSummary struct {
+	Match    map[string]string
+	MatchRE  map[string]string
+	Matchers []string
+}
+
+type ReceiverSummary struct {
+	Name       string
+	Config     *alertmanager.Receiver
+	TypeLabels []string
+	IsFinal    bool
 }
 
 func New(client *alertmanager.Client) *Handler {
@@ -160,25 +174,32 @@ func (h *Handler) HandleTest(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if r.Header.Get("HX-Request") == "true" {
-		routeSteps, matchedReceivers, continueCount := buildRouteSummary(matchedRoutes, receiver, config)
+		routeSteps, matchedReceivers, continueCount, finalMatch := buildRouteSummary(matchedRoutes, receiver, config)
+		matchedReceiverSummaries := buildReceiverSummaries(matchedRoutes, receiver, config)
 		data := struct {
-			Receiver         string
-			ReceiverConfig   *alertmanager.Receiver
-			MatchedRoutes    []*alertmanager.Route
-			MatchedReceivers []string
-			RouteSteps       []RouteStep
-			ContinueCount    int
-			Labels           map[string]string
-			Error            string
+			Receiver                 string
+			ReceiverConfig           *alertmanager.Receiver
+			MatchedRoutes            []*alertmanager.Route
+			MatchedReceivers         []string
+			RouteSteps               []RouteStep
+			ContinueCount            int
+			FinalMatch               MatchSummary
+			DefaultRoot              bool
+			MatchedReceiverSummaries []ReceiverSummary
+			Labels                   map[string]string
+			Error                    string
 		}{
-			Receiver:         receiver,
-			ReceiverConfig:   receiverConfig,
-			MatchedRoutes:    matchedRoutes,
-			MatchedReceivers: matchedReceivers,
-			RouteSteps:       routeSteps,
-			ContinueCount:    continueCount,
-			Labels:           labels,
-			Error:            errorMsg,
+			Receiver:                 receiver,
+			ReceiverConfig:           receiverConfig,
+			MatchedRoutes:            matchedRoutes,
+			MatchedReceivers:         matchedReceivers,
+			RouteSteps:               routeSteps,
+			ContinueCount:            continueCount,
+			FinalMatch:               finalMatch,
+			DefaultRoot:              config != nil && len(matchedRoutes) == 0 && receiver == config.Route.Receiver,
+			MatchedReceiverSummaries: matchedReceiverSummaries,
+			Labels:                   labels,
+			Error:                    errorMsg,
 		}
 		if err := h.tmpl.ExecuteTemplate(w, "result.html", data); err != nil {
 			slog.Error("error rendering result", "error", err)
@@ -217,12 +238,13 @@ func (h *Handler) HandleConfigLabels(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(labelKeys)
 }
 
-func buildRouteSummary(matchedRoutes []*alertmanager.Route, finalReceiver string, config *alertmanager.Config) ([]RouteStep, []string, int) {
+func buildRouteSummary(matchedRoutes []*alertmanager.Route, finalReceiver string, config *alertmanager.Config) ([]RouteStep, []string, int, MatchSummary) {
 	steps := make([]RouteStep, 0, len(matchedRoutes))
 	receivers := make([]string, 0, len(matchedRoutes))
 	seen := make(map[string]bool)
 	continueCount := 0
 	receiverMap := map[string]*alertmanager.Receiver{}
+	finalMatch := MatchSummary{}
 
 	if config != nil {
 		for i := range config.Receivers {
@@ -248,6 +270,7 @@ func buildRouteSummary(matchedRoutes []*alertmanager.Route, finalReceiver string
 			Receiver:  route.Receiver,
 			Match:     route.Match,
 			MatchRE:   route.MatchRE,
+			Matchers:  route.Matchers,
 			Continue:  route.Continue,
 			TypeLabel: typeLabel,
 			TypeIcon:  typeIcon,
@@ -264,6 +287,9 @@ func buildRouteSummary(matchedRoutes []*alertmanager.Route, finalReceiver string
 		for i := len(steps) - 1; i >= 0; i-- {
 			if steps[i].Receiver == finalReceiver {
 				steps[i].IsFinal = true
+				finalMatch.Match = matchedRoutes[i].Match
+				finalMatch.MatchRE = matchedRoutes[i].MatchRE
+				finalMatch.Matchers = matchedRoutes[i].Matchers
 				break
 			}
 		}
@@ -272,7 +298,7 @@ func buildRouteSummary(matchedRoutes []*alertmanager.Route, finalReceiver string
 		}
 	}
 
-	return steps, receivers, continueCount
+	return steps, receivers, continueCount, finalMatch
 }
 
 func receiverType(receiver *alertmanager.Receiver) (string, string) {
@@ -290,4 +316,82 @@ func receiverType(receiver *alertmanager.Receiver) (string, string) {
 	default:
 		return "", ""
 	}
+}
+
+func buildReceiverSummaries(matchedRoutes []*alertmanager.Route, finalReceiver string, config *alertmanager.Config) []ReceiverSummary {
+	if config == nil {
+		return nil
+	}
+
+	receiverMap := map[string]*alertmanager.Receiver{}
+	for i := range config.Receivers {
+		receiver := &config.Receivers[i]
+		receiverMap[receiver.Name] = receiver
+	}
+
+	summaries := []ReceiverSummary{}
+	seen := map[string]bool{}
+	for _, route := range matchedRoutes {
+		if route.Receiver == "" || seen[route.Receiver] {
+			continue
+		}
+		receiver := receiverMap[route.Receiver]
+		summaries = append(summaries, ReceiverSummary{
+			Name:       route.Receiver,
+			Config:     receiver,
+			TypeLabels: receiverTypeLabels(receiver),
+			IsFinal:    route.Receiver == finalReceiver,
+		})
+		seen[route.Receiver] = true
+	}
+
+	if finalReceiver != "" && !seen[finalReceiver] {
+		receiver := receiverMap[finalReceiver]
+		summaries = append(summaries, ReceiverSummary{
+			Name:       finalReceiver,
+			Config:     receiver,
+			TypeLabels: receiverTypeLabels(receiver),
+			IsFinal:    true,
+		})
+	}
+
+	return summaries
+}
+
+func receiverTypeLabels(receiver *alertmanager.Receiver) []string {
+	if receiver == nil {
+		return nil
+	}
+
+	labels := []string{}
+	if count := len(receiver.EmailConfigs); count > 0 {
+		labels = append(labels, "email_configs ("+itoa(count)+")")
+	}
+	if count := len(receiver.SlackConfigs); count > 0 {
+		labels = append(labels, "slack_configs ("+itoa(count)+")")
+	}
+	if count := len(receiver.PagerdutyConfigs); count > 0 {
+		labels = append(labels, "pagerduty_configs ("+itoa(count)+")")
+	}
+	if count := len(receiver.WebhookConfigs); count > 0 {
+		labels = append(labels, "webhook_configs ("+itoa(count)+")")
+	}
+	if count := len(receiver.OpsGenieConfigs); count > 0 {
+		labels = append(labels, "opsgenie_configs ("+itoa(count)+")")
+	}
+	return labels
+}
+
+func itoa(value int) string {
+	if value == 0 {
+		return "0"
+	}
+	buf := [20]byte{}
+	i := len(buf)
+	for value > 0 {
+		i--
+		buf[i] = byte('0' + value%10)
+		value /= 10
+	}
+	return string(buf[i:])
 }

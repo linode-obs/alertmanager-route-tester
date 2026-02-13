@@ -44,6 +44,32 @@
             </div>
         </div>
         {{end}}
+
+        {{if .MatchedReceiverSummaries}}
+        <div class="receiver-others">
+            <h3>Matched Receivers</h3>
+            <p class="route-explanation">All receivers matched by this alert (final receiver highlighted).</p>
+            <div class="receiver-summary-grid">
+                {{range .MatchedReceiverSummaries}}
+                <div class="receiver-summary-card {{if .IsFinal}}receiver-summary-final{{end}}">
+                    <div class="receiver-summary-header">
+                        <span class="receiver-summary-name">{{.Name}}</span>
+                        {{if .IsFinal}}
+                        <span class="receiver-summary-pill">final</span>
+                        {{end}}
+                    </div>
+                    {{if .TypeLabels}}
+                    <div class="receiver-types">
+                        {{range .TypeLabels}}
+                        <span class="receiver-type-chip">{{.}}</span>
+                        {{end}}
+                    </div>
+                    {{end}}
+                </div>
+                {{end}}
+            </div>
+        </div>
+        {{end}}
     </div>
 
     {{if .MatchedRoutes}}
@@ -64,7 +90,9 @@ match:{{range $key, $value := .Match}}
   {{$key}}: {{$value}}{{end}}{{end}}{{if .MatchRE}}
 match_re:{{range $key, $value := .MatchRE}}
   {{$key}}: {{$value}}{{end}}{{end}}{{if .Continue}}
-continue: {{.Continue}}{{end}}{{if .GroupBy}}
+continue: {{.Continue}}{{end}}{{if .Matchers}}
+matchers:{{range .Matchers}}
+  - {{.}}{{end}}{{end}}{{if .GroupBy}}
 group_by:{{range .GroupBy}}
 - {{.}}{{end}}{{end}}{{if .GroupWait}}
 group_wait: {{.GroupWait}}{{end}}{{if .GroupInterval}}
@@ -74,6 +102,49 @@ repeat_interval: {{.RepeatInterval}}{{end}}</pre>
             </div>
             {{end}}
         </div>
+    </div>
+
+    <div class="receiver-why">
+        <h3>Why This Receiver</h3>
+        {{if .DefaultRoot}}
+        <p class="route-explanation">This receiver is the root default (no sub-routes matched).</p>
+        {{else if or .FinalMatch.Match .FinalMatch.MatchRE .FinalMatch.Matchers}}
+        <p class="route-explanation">This receiver matched the route conditions below.</p>
+        <div class="why-grid">
+            {{if .FinalMatch.Match}}
+            <div class="why-card">
+                <div class="why-title">match</div>
+                <div class="why-content">
+                    {{range $key, $value := .FinalMatch.Match}}
+                    <span class="why-kv">{{$key}}={{$value}}</span>
+                    {{end}}
+                </div>
+            </div>
+            {{end}}
+            {{if .FinalMatch.MatchRE}}
+            <div class="why-card">
+                <div class="why-title">match_re</div>
+                <div class="why-content">
+                    {{range $key, $value := .FinalMatch.MatchRE}}
+                    <span class="why-kv">{{$key}}={{$value}}</span>
+                    {{end}}
+                </div>
+            </div>
+            {{end}}
+            {{if .FinalMatch.Matchers}}
+            <div class="why-card">
+                <div class="why-title">matchers</div>
+                <div class="why-content">
+                    {{range .FinalMatch.Matchers}}
+                    <span class="why-kv">{{.}}</span>
+                    {{end}}
+                </div>
+            </div>
+            {{end}}
+        </div>
+        {{else}}
+        <p class="route-explanation">No explicit match conditions found for the final receiver.</p>
+        {{end}}
     </div>
 
     <div class="receiver-summary">
@@ -140,6 +211,16 @@ repeat_interval: {{.RepeatInterval}}{{end}}</pre>
                             <div class="trace-content">
                                 {{range $key, $value := .MatchRE}}
                                 <span class="trace-kv">{{$key}}={{$value}}</span>
+                                {{end}}
+                            </div>
+                        </div>
+                        {{end}}
+                        {{if .Matchers}}
+                        <div class="trace-block">
+                            <div class="trace-title">matchers</div>
+                            <div class="trace-content">
+                                {{range .Matchers}}
+                                <span class="trace-kv">{{.}}</span>
                                 {{end}}
                             </div>
                         </div>

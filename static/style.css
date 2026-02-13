@@ -679,6 +679,51 @@ textarea:focus {
     margin-top: 15px;
 }
 
+.receiver-why {
+    margin-bottom: 20px;
+    padding: 16px;
+    border-radius: 8px;
+    border: 1px solid var(--border-color);
+    background-color: var(--panel-bg);
+}
+
+.why-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+    gap: 12px;
+    margin-top: 10px;
+}
+
+.why-card {
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    padding: 10px 12px;
+    background-color: var(--code-bg);
+}
+
+.why-title {
+    font-size: 0.8em;
+    color: var(--text-muted);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    margin-bottom: 6px;
+}
+
+.why-content {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px;
+}
+
+.why-kv {
+    font-family: 'Courier New', monospace;
+    font-size: 0.85em;
+    background-color: var(--panel-bg);
+    border: 1px solid var(--border-color);
+    border-radius: 4px;
+    padding: 3px 6px;
+}
+
 .default-route-notice {
     background-color: rgba(255, 165, 0, 0.15);
     border-left: 4px solid #ff8c00;
@@ -771,6 +816,51 @@ code {
     margin-top: 20px;
     border-top: 2px solid var(--border-color);
     padding-top: 20px;
+}
+
+.receiver-others {
+    margin-top: 20px;
+    border-top: 2px solid var(--border-color);
+    padding-top: 20px;
+}
+
+.receiver-summary-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+    gap: 12px;
+    margin-top: 10px;
+}
+
+.receiver-summary-card {
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    padding: 12px;
+    background-color: var(--panel-bg);
+}
+
+.receiver-summary-card.receiver-summary-final {
+    border-color: var(--success-color);
+    box-shadow: 0 0 0 1px rgba(92, 184, 92, 0.15);
+}
+
+.receiver-summary-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 8px;
+}
+
+.receiver-summary-name {
+    font-weight: 600;
+    color: var(--text-color);
+}
+
+.receiver-summary-pill {
+    border: 1px solid var(--success-color);
+    color: var(--success-color);
+    padding: 2px 8px;
+    border-radius: 999px;
+    font-size: 0.75em;
 }
 
 .receiver-types {

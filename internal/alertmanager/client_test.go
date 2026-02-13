@@ -117,6 +117,46 @@ func TestMatchesRoute(t *testing.T) {
 			},
 			expected: true,
 		},
+		{
+			name: "matcher equals",
+			labels: map[string]string{
+				"severity": "critical",
+			},
+			route: &Route{
+				Matchers: []string{`severity="critical"`},
+			},
+			expected: true,
+		},
+		{
+			name: "matcher not equals",
+			labels: map[string]string{
+				"severity": "warning",
+			},
+			route: &Route{
+				Matchers: []string{`severity!="critical"`},
+			},
+			expected: true,
+		},
+		{
+			name: "matcher regex",
+			labels: map[string]string{
+				"service": "api",
+			},
+			route: &Route{
+				Matchers: []string{`service=~"^(api|web)$"`},
+			},
+			expected: true,
+		},
+		{
+			name: "matcher not regex",
+			labels: map[string]string{
+				"service": "database",
+			},
+			route: &Route{
+				Matchers: []string{`service!~"^(api|web)$"`},
+			},
+			expected: true,
+		},
 	}
 
 	for _, tt := range tests {
@@ -135,28 +175,20 @@ func TestFindMatchingRoute(t *testing.T) {
 			Receiver: "default",
 			Routes: []*Route{
 				{
-					Match: map[string]string{
-						"severity": "critical",
-					},
+					Matchers: []string{`severity="critical"`},
 					Receiver: "pagerduty",
 				},
 				{
-					Match: map[string]string{
-						"severity": "warning",
-					},
+					Matchers: []string{`severity="warning"`},
 					Receiver: "slack",
 					Continue: true,
 				},
 				{
-					MatchRE: map[string]string{
-						"service": "^(api|web)$",
-					},
+					Matchers: []string{`service=~"^(api|web)$"`},
 					Receiver: "platform-team",
 					Routes: []*Route{
 						{
-							Match: map[string]string{
-								"environment": "production",
-							},
+							Matchers: []string{`environment="production"`},
 							Receiver: "pagerduty-platform",
 						},
 					},
@@ -269,6 +301,9 @@ func TestExtractLabelKeys(t *testing.T) {
 						},
 					},
 				},
+				{
+					Matchers: []string{`region="us-east-1"`},
+				},
 			},
 		},
 	}
@@ -280,6 +315,7 @@ func TestExtractLabelKeys(t *testing.T) {
 		"team":        true,
 		"service":     true,
 		"environment": true,
+		"region":      true,
 	}
 
 	if len(keys) != len(expectedKeys) {

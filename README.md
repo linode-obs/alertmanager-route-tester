@@ -10,16 +10,10 @@ Easily visualize complex alerting scenarions like `continue=true`:
 
 ## Usage
 
-Create a `config.yaml` and point it at any Alertmanager instance:
+Point it at any Alertmanager instance with `config.yaml`:
 
 ```bash
 go run .
-```
-
-For local or sensitive settings, create `config.local.yaml` (it is gitignored):
-
-```bash
-go run . -config config.local.yaml
 ```
 
 Build your alert using the UI or paste YAML Prometheus alert labels. Hit "Test Route" to see which receiver it matches and the full route path.
@@ -58,6 +52,23 @@ alertmanager:
     max_idle_conns: 100
     max_idle_conns_per_host: 10
     max_conns_per_host: 0
+```
+
+### Local Alertmanager
+
+If you are running Alertmanager locally (default port `9093`), set:
+
+```yaml
+alertmanager:
+  url: "http://localhost:9093"
+```
+
+### Local Config Overrides
+
+For machine-specific settings, use a local config file (gitignored):
+
+```bash
+go run . -config config.local.yaml
 ```
 
 ## CLI Test Mode
@@ -131,6 +142,10 @@ The following features are planned for future releases:
 - Expand test coverage with comprehensive table-driven tests for all routing scenarios
   - Also try testcontainers-go for mocking an external Alertmanager
 - Proper error handling with context using fmt.Errorf and error wrapping patterns
+
+### CI
+
+- GitHub Actions for automated tests/coverage/etc
 
 ## About This Project
 

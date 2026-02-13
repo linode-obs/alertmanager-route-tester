@@ -37,7 +37,7 @@ alertmanager-route-tester:
 
 ## Key Features
 
-1. **Exact Same Logic** - CLI mode uses identical routing logic as web UI
-2. **Testable** - Perfect for Go tests to verify routing behavior
-3. **Two Output Formats** - Simple (human-readable) and JSON (machine-readable)
-4. **No Mocks** - Tests against real Alertmanager configuration
+1. Exact same logic - CLI mode uses identical routing logic as web UI
+2. Testable - Perfect for Go tests to verify routing behavior
+3. Two output formats - Simple (human-readable) and JSON (machine-readable)
+4. No mocks - Tests against real Alertmanager configuration

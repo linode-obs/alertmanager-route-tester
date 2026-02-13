@@ -153,9 +153,9 @@ func TestCriticalAlertsAlwaysRouteToPagerDuty(t *testing.T) {
 
 The example tests in `internal/cli/test_test.go` cover:
 
-1. **Critical alert routing** - Ensures critical alerts go to PagerDuty
-2. **Team-based routing** - Verifies team labels route to correct receivers
-3. **Complex routing with continue** - Tests routes that match multiple rules
-4. **Default receiver fallback** - Confirms unmatched alerts use default
-5. **Receiver configuration** - Validates receiver configs are retrieved
-6. **Regex matching** - Tests match_re patterns work correctly
+1. Critical alert routing - Ensures critical alerts go to PagerDuty
+2. Team-based routing - Verifies team labels route to correct receivers
+3. Complex routing with continue - Tests routes that match multiple rules
+4. Default receiver fallback - Confirms unmatched alerts use default
+5. Receiver configuration - Validates receiver configs are retrieved
+6. Regex matching - Tests match_re patterns work correctly

@@ -26,6 +26,15 @@ type TestResponse struct {
 	Labels         map[string]string      `json:"labels"`
 }
 
+type RouteStep struct {
+	Index    int
+	Receiver string
+	Match    map[string]string
+	MatchRE  map[string]string
+	Continue bool
+	IsFinal  bool
+}
+
 func New(client *alertmanager.Client) *Handler {
 	funcMap := template.FuncMap{
 		"json": func(v interface{}) template.JS {
@@ -149,18 +158,25 @@ func (h *Handler) HandleTest(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if r.Header.Get("HX-Request") == "true" {
+		routeSteps, matchedReceivers, continueCount := buildRouteSummary(matchedRoutes, receiver)
 		data := struct {
-			Receiver       string
-			ReceiverConfig *alertmanager.Receiver
-			MatchedRoutes  []*alertmanager.Route
-			Labels         map[string]string
-			Error          string
+			Receiver         string
+			ReceiverConfig   *alertmanager.Receiver
+			MatchedRoutes    []*alertmanager.Route
+			MatchedReceivers []string
+			RouteSteps       []RouteStep
+			ContinueCount    int
+			Labels           map[string]string
+			Error            string
 		}{
-			Receiver:       receiver,
-			ReceiverConfig: receiverConfig,
-			MatchedRoutes:  matchedRoutes,
-			Labels:         labels,
-			Error:          errorMsg,
+			Receiver:         receiver,
+			ReceiverConfig:   receiverConfig,
+			MatchedRoutes:    matchedRoutes,
+			MatchedReceivers: matchedReceivers,
+			RouteSteps:       routeSteps,
+			ContinueCount:    continueCount,
+			Labels:           labels,
+			Error:            errorMsg,
 		}
 		if err := h.tmpl.ExecuteTemplate(w, "result.html", data); err != nil {
 			log.Printf("Error rendering result: %v", err)
@@ -197,4 +213,45 @@ func (h *Handler) HandleConfigLabels(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	json.NewEncoder(w).Encode(labelKeys)
+}
+
+func buildRouteSummary(matchedRoutes []*alertmanager.Route, finalReceiver string) ([]RouteStep, []string, int) {
+	steps := make([]RouteStep, 0, len(matchedRoutes))
+	receivers := make([]string, 0, len(matchedRoutes))
+	seen := make(map[string]bool)
+	continueCount := 0
+
+	for i, route := range matchedRoutes {
+		if route.Continue {
+			continueCount++
+		}
+
+		step := RouteStep{
+			Index:    i + 1,
+			Receiver: route.Receiver,
+			Match:    route.Match,
+			MatchRE:  route.MatchRE,
+			Continue: route.Continue,
+		}
+		steps = append(steps, step)
+
+		if route.Receiver != "" && !seen[route.Receiver] {
+			receivers = append(receivers, route.Receiver)
+			seen[route.Receiver] = true
+		}
+	}
+
+	if finalReceiver != "" {
+		for i := len(steps) - 1; i >= 0; i-- {
+			if steps[i].Receiver == finalReceiver {
+				steps[i].IsFinal = true
+				break
+			}
+		}
+		if len(receivers) == 0 {
+			receivers = append(receivers, finalReceiver)
+		}
+	}
+
+	return steps, receivers, continueCount
 }

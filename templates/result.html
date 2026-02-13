@@ -58,6 +58,70 @@ repeat_interval: {{.RepeatInterval}}{{end}}</pre>
             {{end}}
         </div>
     </div>
+
+    <div class="receiver-summary">
+        <h3>Receiver Path</h3>
+        {{if gt (len .MatchedReceivers) 1}}
+        <p class="route-explanation">Multiple receivers were matched. The final receiver is highlighted.</p>
+        {{else}}
+        <p class="route-explanation">Single receiver matched.</p>
+        {{end}}
+        <div class="receiver-chips">
+            {{range .MatchedReceivers}}
+            <span class="receiver-chip {{if eq . $.Receiver}}receiver-chip-final{{end}}">{{.}}</span>
+            {{end}}
+        </div>
+        {{if gt .ContinueCount 0}}
+        <div class="continue-summary">
+            Continue matched on {{.ContinueCount}} route(s), so evaluation kept going.
+        </div>
+        {{end}}
+    </div>
+
+    {{if .RouteSteps}}
+    <div class="route-trace">
+        <h3>Route Trace</h3>
+        <p class="route-explanation">Evaluation order for routes that matched this alert.</p>
+        <ol class="trace-list">
+            {{range .RouteSteps}}
+            <li class="trace-step {{if .IsFinal}}trace-final{{end}}">
+                <div class="trace-header">
+                    <span class="trace-index">{{.Index}}</span>
+                    <span class="trace-receiver">{{.Receiver}}</span>
+                    {{if .Continue}}
+                    <span class="trace-continue">continue</span>
+                    {{end}}
+                    {{if .IsFinal}}
+                    <span class="trace-final-pill">final</span>
+                    {{end}}
+                </div>
+                <div class="trace-match">
+                    {{if .Match}}
+                    <div class="trace-block">
+                        <div class="trace-title">match</div>
+                        <div class="trace-content">
+                            {{range $key, $value := .Match}}
+                            <span class="trace-kv">{{$key}}={{$value}}</span>
+                            {{end}}
+                        </div>
+                    </div>
+                    {{end}}
+                    {{if .MatchRE}}
+                    <div class="trace-block">
+                        <div class="trace-title">match_re</div>
+                        <div class="trace-content">
+                            {{range $key, $value := .MatchRE}}
+                            <span class="trace-kv">{{$key}}={{$value}}</span>
+                            {{end}}
+                        </div>
+                    </div>
+                    {{end}}
+                </div>
+            </li>
+            {{end}}
+        </ol>
+    </div>
+    {{end}}
     {{end}}
 
     <div class="alert-labels">

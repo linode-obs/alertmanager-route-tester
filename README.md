@@ -112,12 +112,6 @@ Supports both exact matches and regex matchers, nested routes, default root reci
 
 The following features are planned for future releases:
 
-### Configuration File Support
-
-- YAML Configuration: Replace CLI arguments with a dedicated `config.yaml` file
-  - TLS Settings: Proper certificate configuration, custom CA support, mTLS authentication
-  - Connection Options: Timeouts, retry policies, connection pooling
-
 ### Offline Mode
 
 - Paste Config Support: Allow users to paste their own `alertmanager.yml` configuration directly into the UI

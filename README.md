@@ -132,6 +132,7 @@ The following features are planned for future releases:
 
 - Some kind of more interesting UI theme that is still clean and light
 - Try to display how the alert will actually look using the specific receiver configs/template
+- Subroute support to display when an alert was captured by a parent route and routed through a subroute to a specific reciever
 
 ### Go Code Architecture Improvements
 

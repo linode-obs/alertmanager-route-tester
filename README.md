@@ -133,15 +133,19 @@ The following features are planned for future releases:
 - Improved Multiple Receiver Display that has clearer visualization when alerts match multiple receivers due to `continue: true` routes
 - Some kind of more interesting UI theme that is still clean and light
 - We could add a trace view like vicmecs UI for the alert routing (idea for tomorrow)
+- Support for alert labels with all regex labels like `=~`, `!~`, etc.
+- Try to display how the alert will actually look using the specific receiver configs/template
 
 ### Go Code Architecture Improvements
 
 - Interface-Based Design: Extract core routing logic into well-defined interfaces for better testability and extensibility
 - Add proper context.Context support throughout the application for timeout handling and cancellation
 - Use slog!
+- Add opentelemetry metrics/traces
 - Expand test coverage with comprehensive table-driven tests for all routing scenarios
   - Also try testcontainers-go for mocking an external Alertmanager
 - Proper error handling with context using fmt.Errorf and error wrapping patterns
+- Load in connected Alertmanager configuration once upon initial load then cache it for subsequent requests. Have button to reload config.
 
 ### CI
 

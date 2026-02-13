@@ -186,6 +186,28 @@ func (c *Client) BaseURL() string {
 	return c.baseURL
 }
 
+func (c *Client) CheckConnection() error {
+	var status StatusResponse
+	var lastErr error
+
+	for attempt := 1; attempt <= c.retryMaxAttempts; attempt++ {
+		retryable, err := c.fetchStatus(&status)
+		if err == nil {
+			lastErr = nil
+			break
+		}
+		lastErr = err
+		if !retryable || attempt == c.retryMaxAttempts {
+			break
+		}
+		if c.retryBackoff > 0 {
+			time.Sleep(c.retryBackoff)
+		}
+	}
+
+	return lastErr
+}
+
 func (c *Client) GetConfig() (*Config, error) {
 	var status StatusResponse
 	var lastErr error

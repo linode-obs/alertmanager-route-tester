@@ -6,6 +6,8 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
+	"runtime"
+	"runtime/debug"
 	"strings"
 
 	"github.com/wbollock/alertmanager-route-tester/internal/alertmanager"
@@ -55,6 +57,22 @@ func main() {
 		os.Exit(1)
 	}
 
+	version, revision, modified, goVersion := buildInfo()
+	connectionErr := client.CheckConnection()
+	slog.Info("startup",
+		"listen", cfg.App.Server.Listen,
+		"alertmanager_url", cfg.Alertmanager.URL,
+		"server_enabled", cfg.ServerEnabled(),
+		"cli_test_enabled", cfg.App.CLITestMode.Enabled,
+		"version", version,
+		"vcs_revision", revision,
+		"vcs_modified", modified,
+		"go_version", goVersion,
+		"connection_ok", connectionErr == nil,
+		"connection_error", errString(connectionErr),
+		"config_path", *configPath,
+	)
+
 	// CLI test mode
 	if cfg.App.CLITestMode.Enabled {
 		result, err := cli.TestRouting(client, cfg.App.CLITestMode.Labels)
@@ -91,4 +109,30 @@ func main() {
 		slog.Error("server stopped", "error", err)
 		os.Exit(1)
 	}
+}
+
+func buildInfo() (version string, revision string, modified bool, goVersion string) {
+	version = "dev"
+	goVersion = runtime.Version()
+	if info, ok := debug.ReadBuildInfo(); ok {
+		if info.Main.Version != "" && info.Main.Version != "(devel)" {
+			version = info.Main.Version
+		}
+		for _, setting := range info.Settings {
+			switch setting.Key {
+			case "vcs.revision":
+				revision = setting.Value
+			case "vcs.modified":
+				modified = setting.Value == "true"
+			}
+		}
+	}
+	return version, revision, modified, goVersion
+}
+
+func errString(err error) string {
+	if err == nil {
+		return ""
+	}
+	return err.Error()
 }

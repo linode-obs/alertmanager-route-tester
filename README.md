@@ -130,9 +130,9 @@ The following features are planned for future releases:
 
 ### Enhanced UI
 
-- Some kind of more interesting UI theme that is still clean and light
 - Try to display how the alert will actually look using the specific receiver configs/template
-- Subroute support to display when an alert was captured by a parent route and routed through a subroute to a specific reciever
+  - Note: This requires loading Alertmanager template files and implementing the full Alertmanager template function set. Without that, many configs reference external templates (e.g. `{{ template "..." }}`) that cannot be rendered from the API response alone.
+- Subroute context support: make it explicit when an alert matched a parent route and then routed into a nested `routes:` entry, including the parent → child chain (not just `continue` matches).
 
 ### Go Code Architecture Improvements
 

@@ -33,6 +33,8 @@ type RouteStep struct {
 	MatchRE  map[string]string
 	Continue bool
 	IsFinal  bool
+	TypeLabel string
+	TypeIcon  string
 }
 
 func New(client *alertmanager.Client) *Handler {
@@ -158,7 +160,7 @@ func (h *Handler) HandleTest(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if r.Header.Get("HX-Request") == "true" {
-		routeSteps, matchedReceivers, continueCount := buildRouteSummary(matchedRoutes, receiver)
+		routeSteps, matchedReceivers, continueCount := buildRouteSummary(matchedRoutes, receiver, config)
 		data := struct {
 			Receiver         string
 			ReceiverConfig   *alertmanager.Receiver
@@ -215,23 +217,40 @@ func (h *Handler) HandleConfigLabels(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(labelKeys)
 }
 
-func buildRouteSummary(matchedRoutes []*alertmanager.Route, finalReceiver string) ([]RouteStep, []string, int) {
+func buildRouteSummary(matchedRoutes []*alertmanager.Route, finalReceiver string, config *alertmanager.Config) ([]RouteStep, []string, int) {
 	steps := make([]RouteStep, 0, len(matchedRoutes))
 	receivers := make([]string, 0, len(matchedRoutes))
 	seen := make(map[string]bool)
 	continueCount := 0
+	receiverMap := map[string]*alertmanager.Receiver{}
+
+	if config != nil {
+		for i := range config.Receivers {
+			receiver := &config.Receivers[i]
+			receiverMap[receiver.Name] = receiver
+		}
+	}
 
 	for i, route := range matchedRoutes {
 		if route.Continue {
 			continueCount++
 		}
 
+		typeLabel, typeIcon := "", ""
+		if route.Receiver != "" {
+			if receiverCfg := receiverMap[route.Receiver]; receiverCfg != nil {
+				typeLabel, typeIcon = receiverType(receiverCfg)
+			}
+		}
+
 		step := RouteStep{
-			Index:    i + 1,
-			Receiver: route.Receiver,
-			Match:    route.Match,
-			MatchRE:  route.MatchRE,
-			Continue: route.Continue,
+			Index:     i + 1,
+			Receiver:  route.Receiver,
+			Match:     route.Match,
+			MatchRE:   route.MatchRE,
+			Continue:  route.Continue,
+			TypeLabel: typeLabel,
+			TypeIcon:  typeIcon,
 		}
 		steps = append(steps, step)
 
@@ -254,4 +273,21 @@ func buildRouteSummary(matchedRoutes []*alertmanager.Route, finalReceiver string
 	}
 
 	return steps, receivers, continueCount
+}
+
+func receiverType(receiver *alertmanager.Receiver) (string, string) {
+	switch {
+	case len(receiver.SlackConfigs) > 0:
+		return "slack_configs", "💬"
+	case len(receiver.PagerdutyConfigs) > 0:
+		return "pagerduty_configs", "🚨"
+	case len(receiver.WebhookConfigs) > 0:
+		return "webhook_configs", "🔗"
+	case len(receiver.EmailConfigs) > 0:
+		return "email_configs", "✉️"
+	case len(receiver.OpsGenieConfigs) > 0:
+		return "opsgenie_configs", "🧭"
+	default:
+		return "", ""
+	}
 }

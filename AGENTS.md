@@ -36,7 +36,7 @@ mise run clean        # Clean up bin/ and data/
 
 ## Project Structure
 
-- `main.go` - HTTP server and CLI flags (supports both web and CLI modes)
+- `main.go` - HTTP server entrypoint (supports both web and CLI modes via config)
 - `internal/alertmanager/` - API client and route matching engine
 - `internal/cli/` - CLI test mode (same routing logic as web UI)
 - `internal/handler/` - HTTP handlers for UI and API
@@ -60,8 +60,10 @@ mise run test
 
 ## Connecting to Real Alertmanager
 
+Update `config.yaml` with your Alertmanager URL and TLS settings, then run:
+
 ```bash
-go run . -alertmanager-url https://your-alertmanager:9093 -skip-tls-verify
+go run .
 ```
 
 ## CLI Test Mode
@@ -70,15 +72,16 @@ The tool supports a CLI mode that uses the exact same routing logic as the web U
 
 ### Usage
 
-```bash
-# Basic test
-go run . -alertmanager-url http://localhost:9093 -test \
-  -labels '{"alertname":"HighCPU","severity":"critical"}'
-
-# JSON output for scripting
-go run . -alertmanager-url http://localhost:9093 -test \
-  -labels '{"alertname":"HighCPU","severity":"critical"}' \
-  -format json
+```yaml
+alertmanager-route-tester:
+  server:
+    enabled: false
+  cli-test-mode:
+    enabled: true # set true to run in CLI test mode instead of web server mode
+    format: "json"
+    labels:
+      alertname: "HighCPU"
+      severity: "critical"
 ```
 
 ### Example Output

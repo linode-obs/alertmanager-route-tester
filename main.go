@@ -1,7 +1,6 @@
 package main
 
 import (
-	"encoding/json"
 	"flag"
 	"fmt"
 	"log"
@@ -11,48 +10,59 @@ import (
 
 	"github.com/wbollock/alertmanager-route-tester/internal/alertmanager"
 	"github.com/wbollock/alertmanager-route-tester/internal/cli"
+	appconfig "github.com/wbollock/alertmanager-route-tester/internal/config"
 	"github.com/wbollock/alertmanager-route-tester/internal/handler"
 )
 
 func main() {
-	var (
-		listenAddr      = flag.String("listen", ":8080", "Address to listen on")
-		alertmanagerURL = flag.String("alertmanager-url", "", "Alertmanager API URL (required)")
-		skipTLSVerify   = flag.Bool("skip-tls-verify", false, "Skip TLS certificate verification")
-		testMode        = flag.Bool("test", false, "Run in test mode (CLI) instead of web server mode")
-		labelsJSON      = flag.String("labels", "", "JSON object of alert labels (test mode only)")
-		outputFormat    = flag.String("format", "simple", "Output format: json or simple (test mode only)")
-	)
+	configPath := flag.String("config", "config.yaml", "Path to configuration file")
 	flag.Parse()
 
-	if *alertmanagerURL == "" {
-		fmt.Fprintln(os.Stderr, "Error: -alertmanager-url is required")
-		flag.Usage()
+	cfg, err := appconfig.Load(*configPath)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err.Error())
 		os.Exit(1)
 	}
 
-	client := alertmanager.NewClient(*alertmanagerURL, *skipTLSVerify)
+	client, err := alertmanager.NewClientWithOptions(alertmanager.ClientOptions{
+		BaseURL: cfg.Alertmanager.URL,
+		TLS: alertmanager.TLSOptions{
+			SkipVerify: cfg.Alertmanager.HTTP.TLS.SkipVerify,
+			CAFile:     cfg.Alertmanager.HTTP.TLS.CAFile,
+			CertFile:   cfg.Alertmanager.HTTP.TLS.CertFile,
+			KeyFile:    cfg.Alertmanager.HTTP.TLS.KeyFile,
+		},
+		Timeouts: alertmanager.TimeoutOptions{
+			Request:        cfg.Alertmanager.HTTP.Timeouts.Request.Duration,
+			Dial:           cfg.Alertmanager.HTTP.Timeouts.Dial.Duration,
+			TLSHandshake:   cfg.Alertmanager.HTTP.Timeouts.TLSHandshake.Duration,
+			ResponseHeader: cfg.Alertmanager.HTTP.Timeouts.ResponseHeader.Duration,
+			IdleConn:       cfg.Alertmanager.HTTP.Timeouts.IdleConn.Duration,
+			ExpectContinue: cfg.Alertmanager.HTTP.Timeouts.ExpectContinue.Duration,
+		},
+		Retry: alertmanager.RetryOptions{
+			MaxAttempts: cfg.Alertmanager.Retry.MaxAttempts,
+			Backoff:     cfg.Alertmanager.Retry.Backoff.Duration,
+		},
+		Pool: alertmanager.PoolOptions{
+			MaxIdleConns:        cfg.Alertmanager.Pool.MaxIdleConns,
+			MaxIdleConnsPerHost: cfg.Alertmanager.Pool.MaxIdleConnsPerHost,
+			MaxConnsPerHost:     cfg.Alertmanager.Pool.MaxConnsPerHost,
+		},
+	})
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err.Error())
+		os.Exit(1)
+	}
 
 	// CLI test mode
-	if *testMode {
-		if *labelsJSON == "" {
-			fmt.Fprintln(os.Stderr, "Error: -labels is required in test mode")
-			fmt.Fprintln(os.Stderr, "Example: -labels '{\"alertname\":\"HighCPU\",\"severity\":\"critical\"}'")
-			os.Exit(1)
-		}
-
-		var labels map[string]string
-		if err := json.Unmarshal([]byte(*labelsJSON), &labels); err != nil {
-			fmt.Fprintf(os.Stderr, "Error parsing labels JSON: %v\n", err)
-			os.Exit(1)
-		}
-
-		result, err := cli.TestRouting(client, labels)
+	if cfg.App.CLITestMode.Enabled {
+		result, err := cli.TestRouting(client, cfg.App.CLITestMode.Labels)
 		if err != nil {
 			// Error is already included in result
 		}
 
-		format := cli.OutputFormat(strings.ToLower(*outputFormat))
+		format := cli.OutputFormat(strings.ToLower(cfg.App.CLITestMode.Format))
 		if err := cli.PrintResult(result, format); err != nil {
 			os.Exit(1)
 		}
@@ -61,6 +71,10 @@ func main() {
 			os.Exit(1)
 		}
 		return
+	}
+	if !cfg.ServerEnabled() {
+		fmt.Fprintln(os.Stderr, "Error: alertmanager-route-tester.server.enabled is false and cli-test-mode.enabled is false")
+		os.Exit(1)
 	}
 
 	// Web server mode
@@ -71,9 +85,9 @@ func main() {
 	http.HandleFunc("/test", h.HandleTest)
 	http.HandleFunc("/config/labels", h.HandleConfigLabels)
 
-	log.Printf("Starting server on %s", *listenAddr)
-	log.Printf("Using Alertmanager at %s", *alertmanagerURL)
-	if err := http.ListenAndServe(*listenAddr, nil); err != nil {
+	log.Printf("Starting server on %s", cfg.App.Server.Listen)
+	log.Printf("Using Alertmanager at %s", cfg.Alertmanager.URL)
+	if err := http.ListenAndServe(cfg.App.Server.Listen, nil); err != nil {
 		log.Fatal(err)
 	}
 }

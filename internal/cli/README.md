@@ -21,21 +21,18 @@ go test -v ./internal/cli/...
 
 ## Quick CLI Usage
 
-```bash
-# Test a critical alert
-go run . -alertmanager-url http://localhost:9093 -test \
-  -labels '{"alertname":"HighCPU","severity":"critical"}'
+Enable test mode in `config.yaml`:
 
-# Output:
-# Labels: map[alertname:HighCPU severity:critical]
-# Receiver: pagerduty-critical
-# Matched Routes:
-#   1. receiver=pagerduty-critical match=map[severity:critical]
-
-# Test with JSON output
-go run . -alertmanager-url http://localhost:9093 -test \
-  -labels '{"alertname":"HighCPU","severity":"critical"}' \
-  -format json
+```yaml
+alertmanager-route-tester:
+  server:
+    enabled: false
+  cli-test-mode:
+    enabled: true # set true to run in CLI test mode instead of web server mode
+    format: "json"
+    labels:
+      alertname: "HighCPU"
+      severity: "critical"
 ```
 
 ## Key Features

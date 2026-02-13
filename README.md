@@ -10,30 +10,64 @@ Easily visualize complex alerting scenarions like `continue=true`:
 
 ## Usage
 
-Point it at any Alertmanager instance:
+Create a `config.yaml` and point it at any Alertmanager instance:
 
 ```bash
-go run . -alertmanager-url http://your-alertmanager:9093
-
-# Skip TLS verification if needed
-go run . -alertmanager-url https://alertmanager:9093 -skip-tls-verify
+go run .
 ```
 
 Build your alert using the UI or paste YAML Prometheus alert labels. Hit "Test Route" to see which receiver it matches and the full route path.
+
+### Configuration File
+
+```yaml
+alertmanager-route-tester:
+  server:
+    enabled: true
+    listen: ":8080"
+  cli-test-mode:
+    enabled: false # set true to run in CLI test mode instead of web server mode
+    format: "simple"
+    labels: {} # required when cli-test-mode.enabled is true
+
+alertmanager:
+  url: "http://localhost:9093"
+  http:
+    tls:
+      skip_verify: false
+      ca_file: ""
+      cert_file: ""
+      key_file: ""
+    timeouts:
+      request: 15s
+      dial: 5s
+      tls_handshake: 5s
+      response_header: 10s
+      idle_conn: 90s
+      expect_continue: 1s
+  retry:
+    max_attempts: 3
+    backoff: 300ms
+  pool:
+    max_idle_conns: 100
+    max_idle_conns_per_host: 10
+    max_conns_per_host: 0
+```
 
 ## CLI Test Mode
 
 Run route tests from the command line using the exact same routing logic as the web UI.
 
-```bash
-# Basic test
-go run . -alertmanager-url http://localhost:9093 -test \
-  -labels '{"alertname":"HighCPU","severity":"critical"}'
-
-# JSON output for scripting
-go run . -alertmanager-url http://localhost:9093 -test \
-  -labels '{"alertname":"HighCPU","severity":"critical"}' \
-  -format json
+```yaml
+alertmanager-route-tester:
+  server:
+    enabled: false
+  cli-test-mode:
+    enabled: true
+    format: "json"
+    labels:
+      alertname: "HighCPU"
+      severity: "critical"
 ```
 
 ## Development

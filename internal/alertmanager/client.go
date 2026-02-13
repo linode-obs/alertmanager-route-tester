@@ -2,11 +2,14 @@ package alertmanager
 
 import (
 	"crypto/tls"
+	"crypto/x509"
 	"encoding/json"
 	"fmt"
 	"io"
 	"math/rand"
+	"net"
 	"net/http"
+	"os"
 	"regexp"
 	"strings"
 	"time"
@@ -15,8 +18,10 @@ import (
 )
 
 type Client struct {
-	baseURL    string
-	httpClient *http.Client
+	baseURL          string
+	httpClient       *http.Client
+	retryMaxAttempts int
+	retryBackoff     time.Duration
 }
 
 type StatusResponse struct {
@@ -85,6 +90,41 @@ type OpsGenieConfig struct {
 	Description string `json:"description,omitempty" yaml:"description,omitempty"`
 }
 
+type ClientOptions struct {
+	BaseURL  string
+	TLS      TLSOptions
+	Timeouts TimeoutOptions
+	Retry    RetryOptions
+	Pool     PoolOptions
+}
+
+type TLSOptions struct {
+	SkipVerify bool
+	CAFile     string
+	CertFile   string
+	KeyFile    string
+}
+
+type TimeoutOptions struct {
+	Request        time.Duration
+	Dial           time.Duration
+	TLSHandshake   time.Duration
+	ResponseHeader time.Duration
+	IdleConn       time.Duration
+	ExpectContinue time.Duration
+}
+
+type RetryOptions struct {
+	MaxAttempts int
+	Backoff     time.Duration
+}
+
+type PoolOptions struct {
+	MaxIdleConns        int
+	MaxIdleConnsPerHost int
+	MaxConnsPerHost     int
+}
+
 func NewClient(baseURL string, skipTLSVerify bool) *Client {
 	transport := &http.Transport{
 		TLSClientConfig: &tls.Config{
@@ -93,11 +133,52 @@ func NewClient(baseURL string, skipTLSVerify bool) *Client {
 	}
 
 	return &Client{
-		baseURL: strings.TrimSuffix(baseURL, "/"),
+		baseURL:          strings.TrimSuffix(baseURL, "/"),
+		httpClient:       &http.Client{Transport: transport},
+		retryMaxAttempts: 1,
+		retryBackoff:     0,
+	}
+}
+
+func NewClientWithOptions(opts ClientOptions) (*Client, error) {
+	if opts.BaseURL == "" {
+		return nil, fmt.Errorf("base URL is required")
+	}
+
+	tlsConfig, err := buildTLSConfig(opts.TLS)
+	if err != nil {
+		return nil, err
+	}
+
+	transport := &http.Transport{
+		TLSClientConfig:       tlsConfig,
+		MaxIdleConns:          opts.Pool.MaxIdleConns,
+		MaxIdleConnsPerHost:   opts.Pool.MaxIdleConnsPerHost,
+		MaxConnsPerHost:       opts.Pool.MaxConnsPerHost,
+		IdleConnTimeout:       opts.Timeouts.IdleConn,
+		TLSHandshakeTimeout:   opts.Timeouts.TLSHandshake,
+		ResponseHeaderTimeout: opts.Timeouts.ResponseHeader,
+		ExpectContinueTimeout: opts.Timeouts.ExpectContinue,
+		DialContext: (&net.Dialer{
+			Timeout:   opts.Timeouts.Dial,
+			KeepAlive: 30 * time.Second,
+		}).DialContext,
+	}
+
+	retryMax := opts.Retry.MaxAttempts
+	if retryMax < 1 {
+		retryMax = 1
+	}
+
+	return &Client{
+		baseURL: strings.TrimSuffix(opts.BaseURL, "/"),
 		httpClient: &http.Client{
 			Transport: transport,
+			Timeout:   opts.Timeouts.Request,
 		},
-	}
+		retryMaxAttempts: retryMax,
+		retryBackoff:     opts.Retry.Backoff,
+	}, nil
 }
 
 func (c *Client) BaseURL() string {
@@ -105,20 +186,25 @@ func (c *Client) BaseURL() string {
 }
 
 func (c *Client) GetConfig() (*Config, error) {
-	resp, err := c.httpClient.Get(c.baseURL + "/api/v2/status")
-	if err != nil {
-		return nil, fmt.Errorf("failed to fetch status: %w", err)
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("unexpected status code %d: %s", resp.StatusCode, string(body))
-	}
-
 	var status StatusResponse
-	if err := json.NewDecoder(resp.Body).Decode(&status); err != nil {
-		return nil, fmt.Errorf("failed to decode response: %w", err)
+	var lastErr error
+
+	for attempt := 1; attempt <= c.retryMaxAttempts; attempt++ {
+		retryable, err := c.fetchStatus(&status)
+		if err == nil {
+			lastErr = nil
+			break
+		}
+		lastErr = err
+		if !retryable || attempt == c.retryMaxAttempts {
+			break
+		}
+		if c.retryBackoff > 0 {
+			time.Sleep(c.retryBackoff)
+		}
+	}
+	if lastErr != nil {
+		return nil, lastErr
 	}
 
 	// Parse the YAML configuration
@@ -133,6 +219,26 @@ func (c *Client) GetConfig() (*Config, error) {
 	}
 
 	return &config, nil
+}
+
+func (c *Client) fetchStatus(status *StatusResponse) (bool, error) {
+	resp, err := c.httpClient.Get(c.baseURL + "/api/v2/status")
+	if err != nil {
+		return true, fmt.Errorf("failed to fetch status: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		retryable := resp.StatusCode == http.StatusTooManyRequests || resp.StatusCode >= http.StatusInternalServerError
+		return retryable, fmt.Errorf("unexpected status code %d: %s", resp.StatusCode, string(body))
+	}
+
+	if err := json.NewDecoder(resp.Body).Decode(status); err != nil {
+		return true, fmt.Errorf("failed to decode response: %w", err)
+	}
+
+	return false, nil
 }
 
 // extractRawReceiverConfigs extracts the raw YAML for each receiver
@@ -183,6 +289,37 @@ func (c *Client) extractRawReceiverConfigs(config *Config, originalYAML string) 
 	}
 
 	return nil
+}
+
+func buildTLSConfig(opts TLSOptions) (*tls.Config, error) {
+	tlsConfig := &tls.Config{
+		InsecureSkipVerify: opts.SkipVerify,
+	}
+
+	if opts.CAFile != "" {
+		caCert, err := os.ReadFile(opts.CAFile)
+		if err != nil {
+			return nil, fmt.Errorf("failed to read CA file: %w", err)
+		}
+		certPool, err := x509.SystemCertPool()
+		if err != nil || certPool == nil {
+			certPool = x509.NewCertPool()
+		}
+		if !certPool.AppendCertsFromPEM(caCert) {
+			return nil, fmt.Errorf("failed to parse CA file")
+		}
+		tlsConfig.RootCAs = certPool
+	}
+
+	if opts.CertFile != "" || opts.KeyFile != "" {
+		cert, err := tls.LoadX509KeyPair(opts.CertFile, opts.KeyFile)
+		if err != nil {
+			return nil, fmt.Errorf("failed to load client certificate: %w", err)
+		}
+		tlsConfig.Certificates = []tls.Certificate{cert}
+	}
+
+	return tlsConfig, nil
 }
 
 // FindMatchingRoute determines which receiver an alert would match

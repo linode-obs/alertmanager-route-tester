@@ -3,7 +3,7 @@ package handler
 import (
 	"encoding/json"
 	"html/template"
-	"log"
+	"log/slog"
 	"net/http"
 	"strings"
 
@@ -54,7 +54,7 @@ func (h *Handler) HandleIndex(w http.ResponseWriter, r *http.Request) {
 	connectionOK := err == nil
 
 	if err != nil {
-		log.Printf("Error fetching config: %v", err)
+		slog.Error("error fetching config", "error", err)
 		data := struct {
 			LabelSuggestions []alertmanager.LabelSuggestion
 			SampleAlerts     []alertmanager.SampleAlert
@@ -71,7 +71,7 @@ func (h *Handler) HandleIndex(w http.ResponseWriter, r *http.Request) {
 			ConnectionError:  err.Error(),
 		}
 		if err := h.tmpl.ExecuteTemplate(w, "index.html", data); err != nil {
-			log.Printf("Error rendering template: %v", err)
+			slog.Error("error rendering template", "error", err)
 			http.Error(w, "Failed to render page", http.StatusInternalServerError)
 		}
 		return
@@ -97,7 +97,7 @@ func (h *Handler) HandleIndex(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if err := h.tmpl.ExecuteTemplate(w, "index.html", data); err != nil {
-		log.Printf("Error rendering template: %v", err)
+		slog.Error("error rendering template", "error", err)
 		http.Error(w, "Failed to render page", http.StatusInternalServerError)
 	}
 }
@@ -139,18 +139,18 @@ func (h *Handler) HandleTest(w http.ResponseWriter, r *http.Request) {
 	var errorMsg string
 
 	if err != nil {
-		log.Printf("Error fetching config: %v", err)
+		slog.Error("error fetching config", "error", err)
 		errorMsg = "Failed to fetch Alertmanager config: " + err.Error()
 	} else if config == nil {
-		log.Printf("Config is nil")
+		slog.Error("alertmanager config is nil")
 		errorMsg = "Alertmanager returned empty config"
 	} else if config.Route == nil {
-		log.Printf("Config route is nil. Config: %+v", config)
+		slog.Error("alertmanager config route is nil", "config", config)
 		errorMsg = "Alertmanager config has no route defined. Check your alertmanager.yml"
 	} else {
 		receiver, matchedRoutes, err = h.client.FindMatchingRoute(labels, config)
 		if err != nil {
-			log.Printf("Error finding route: %v", err)
+			slog.Error("error finding route", "error", err)
 			errorMsg = "Error finding matching route: " + err.Error()
 		} else if receiver != "" {
 			receiverConfig = h.client.FindReceiverByName(receiver, config)
@@ -179,7 +179,7 @@ func (h *Handler) HandleTest(w http.ResponseWriter, r *http.Request) {
 			Error:            errorMsg,
 		}
 		if err := h.tmpl.ExecuteTemplate(w, "result.html", data); err != nil {
-			log.Printf("Error rendering result: %v", err)
+			slog.Error("error rendering result", "error", err)
 			http.Error(w, "Failed to render result", http.StatusInternalServerError)
 		}
 		return
@@ -204,7 +204,7 @@ func (h *Handler) HandleTest(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) HandleConfigLabels(w http.ResponseWriter, r *http.Request) {
 	config, err := h.client.GetConfig()
 	if err != nil {
-		log.Printf("Error fetching config: %v", err)
+		slog.Error("error fetching config", "error", err)
 		http.Error(w, "Failed to fetch config", http.StatusInternalServerError)
 		return
 	}

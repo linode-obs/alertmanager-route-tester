@@ -3,7 +3,7 @@ package main
 import (
 	"flag"
 	"fmt"
-	"log"
+	"log/slog"
 	"net/http"
 	"os"
 	"strings"
@@ -85,9 +85,10 @@ func main() {
 	http.HandleFunc("/test", h.HandleTest)
 	http.HandleFunc("/config/labels", h.HandleConfigLabels)
 
-	log.Printf("Starting server on %s", cfg.App.Server.Listen)
-	log.Printf("Using Alertmanager at %s", cfg.Alertmanager.URL)
+	slog.Info("starting server", "listen", cfg.App.Server.Listen)
+	slog.Info("using alertmanager", "url", cfg.Alertmanager.URL)
 	if err := http.ListenAndServe(cfg.App.Server.Listen, nil); err != nil {
-		log.Fatal(err)
+		slog.Error("server stopped", "error", err)
+		os.Exit(1)
 	}
 }

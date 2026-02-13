@@ -87,6 +87,7 @@ The following features are planned for future releases:
 
 - Improved Multiple Receiver Display that has clearer visualization when alerts match multiple receivers due to `continue: true` routes
 - Some kind of more interesting UI theme that is still clean and light
+- We could add a trace view like vicmecs UI for the alert routing (idea for tomorrow)
 
 ### Go Code Architecture Improvements
 

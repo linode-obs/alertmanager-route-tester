@@ -9,6 +9,7 @@ import (
 	"runtime"
 	"runtime/debug"
 	"strings"
+	"time"
 
 	"github.com/wbollock/alertmanager-route-tester/internal/alertmanager"
 	"github.com/wbollock/alertmanager-route-tester/internal/cli"
@@ -103,7 +104,15 @@ func main() {
 
 	slog.Info("starting server", "listen", cfg.App.Server.Listen)
 	slog.Info("using alertmanager", "url", cfg.Alertmanager.URL)
-	if err := http.ListenAndServe(cfg.App.Server.Listen, nil); err != nil { // #nosec G114 -- this server is bound to the configured local service address.
+	server := &http.Server{
+		Addr:              cfg.App.Server.Listen,
+		Handler:           nil,
+		ReadHeaderTimeout: 5 * time.Second,
+		ReadTimeout:       15 * time.Second,
+		WriteTimeout:      15 * time.Second,
+		IdleTimeout:       60 * time.Second,
+	}
+	if err := server.ListenAndServe(); err != nil {
 		slog.Error("server stopped", "error", err)
 		os.Exit(1)
 	}

@@ -1,8 +1,14 @@
 package alertmanager
 
 import (
+	"sync"
 	"testing"
+	"time"
 )
+
+// ---------------------------------------------------------------------------
+// matchesRoute tests
+// ---------------------------------------------------------------------------
 
 func TestMatchesRoute(t *testing.T) {
 	tests := []struct {
@@ -12,147 +18,157 @@ func TestMatchesRoute(t *testing.T) {
 		expected bool
 	}{
 		{
-			name: "exact match - single label",
-			labels: map[string]string{
-				"severity": "critical",
-			},
-			route: &Route{
-				Match: map[string]string{
-					"severity": "critical",
-				},
-			},
+			name:     "exact match - single label",
+			labels:   map[string]string{"severity": "critical"},
+			route:    &Route{Match: map[string]string{"severity": "critical"}},
 			expected: true,
 		},
 		{
-			name: "exact match - multiple labels",
-			labels: map[string]string{
-				"severity": "critical",
-				"team":     "platform",
-			},
-			route: &Route{
-				Match: map[string]string{
-					"severity": "critical",
-					"team":     "platform",
-				},
-			},
+			name:     "exact match - multiple labels",
+			labels:   map[string]string{"severity": "critical", "team": "platform"},
+			route:    &Route{Match: map[string]string{"severity": "critical", "team": "platform"}},
 			expected: true,
 		},
 		{
-			name: "no match - wrong value",
-			labels: map[string]string{
-				"severity": "warning",
-			},
-			route: &Route{
-				Match: map[string]string{
-					"severity": "critical",
-				},
-			},
+			name:     "no match - wrong value",
+			labels:   map[string]string{"severity": "warning"},
+			route:    &Route{Match: map[string]string{"severity": "critical"}},
 			expected: false,
 		},
 		{
-			name: "no match - missing label",
-			labels: map[string]string{
-				"severity": "critical",
-			},
-			route: &Route{
-				Match: map[string]string{
-					"severity": "critical",
-					"team":     "platform",
-				},
-			},
+			name:     "no match - missing label",
+			labels:   map[string]string{"severity": "critical"},
+			route:    &Route{Match: map[string]string{"severity": "critical", "team": "platform"}},
 			expected: false,
 		},
 		{
-			name: "regex match - simple pattern",
-			labels: map[string]string{
-				"service": "api",
-			},
-			route: &Route{
-				MatchRE: map[string]string{
-					"service": "^(api|web)$",
-				},
-			},
+			name:     "regex match - simple pattern",
+			labels:   map[string]string{"service": "api"},
+			route:    &Route{MatchRE: map[string]string{"service": "^(api|web)$"}},
 			expected: true,
 		},
 		{
-			name: "regex match - complex pattern",
-			labels: map[string]string{
-				"instance": "prod-server-01",
-			},
-			route: &Route{
-				MatchRE: map[string]string{
-					"instance": "prod-.*",
-				},
-			},
+			name:     "regex match - complex pattern",
+			labels:   map[string]string{"instance": "prod-server-01"},
+			route:    &Route{MatchRE: map[string]string{"instance": "prod-.*"}},
 			expected: true,
 		},
 		{
-			name: "regex no match",
-			labels: map[string]string{
-				"service": "database",
-			},
-			route: &Route{
-				MatchRE: map[string]string{
-					"service": "^(api|web)$",
-				},
-			},
+			name:     "regex no match",
+			labels:   map[string]string{"service": "database"},
+			route:    &Route{MatchRE: map[string]string{"service": "^(api|web)$"}},
 			expected: false,
 		},
 		{
-			name: "combined match and match_re",
-			labels: map[string]string{
-				"severity": "critical",
-				"service":  "api",
-			},
+			name:     "regex - missing label fails",
+			labels:   map[string]string{"alertname": "test"},
+			route:    &Route{MatchRE: map[string]string{"service": "^api$"}},
+			expected: false,
+		},
+		{
+			name:   "combined match and match_re",
+			labels: map[string]string{"severity": "critical", "service": "api"},
 			route: &Route{
-				Match: map[string]string{
-					"severity": "critical",
-				},
-				MatchRE: map[string]string{
-					"service": "^(api|web)$",
-				},
+				Match:   map[string]string{"severity": "critical"},
+				MatchRE: map[string]string{"service": "^(api|web)$"},
 			},
 			expected: true,
 		},
 		{
-			name: "matcher equals",
-			labels: map[string]string{
-				"severity": "critical",
-			},
-			route: &Route{
-				Matchers: []string{`severity="critical"`},
-			},
+			name:     "combined - match fails",
+			labels:   map[string]string{"severity": "warning", "service": "api"},
+			route:    &Route{Match: map[string]string{"severity": "critical"}, MatchRE: map[string]string{"service": "^api$"}},
+			expected: false,
+		},
+		{
+			name:     "empty route matches everything",
+			labels:   map[string]string{"alertname": "anything"},
+			route:    &Route{},
 			expected: true,
 		},
 		{
-			name: "matcher not equals",
-			labels: map[string]string{
-				"severity": "warning",
-			},
-			route: &Route{
-				Matchers: []string{`severity!="critical"`},
-			},
+			name:     "matcher equals - match",
+			labels:   map[string]string{"severity": "critical"},
+			route:    &Route{Matchers: []string{`severity="critical"`}},
 			expected: true,
 		},
 		{
-			name: "matcher regex",
-			labels: map[string]string{
-				"service": "api",
-			},
-			route: &Route{
-				Matchers: []string{`service=~"^(api|web)$"`},
-			},
+			name:     "matcher equals - no match",
+			labels:   map[string]string{"severity": "warning"},
+			route:    &Route{Matchers: []string{`severity="critical"`}},
+			expected: false,
+		},
+		{
+			name:     "matcher not equals - match",
+			labels:   map[string]string{"severity": "warning"},
+			route:    &Route{Matchers: []string{`severity!="critical"`}},
 			expected: true,
 		},
 		{
-			name: "matcher not regex",
-			labels: map[string]string{
-				"service": "database",
-			},
-			route: &Route{
-				Matchers: []string{`service!~"^(api|web)$"`},
-			},
+			name:     "matcher not equals - no match",
+			labels:   map[string]string{"severity": "critical"},
+			route:    &Route{Matchers: []string{`severity!="critical"`}},
+			expected: false,
+		},
+		{
+			name:     "matcher not equals - missing label is truthy",
+			labels:   map[string]string{"alertname": "test"},
+			route:    &Route{Matchers: []string{`severity!="critical"`}},
 			expected: true,
+		},
+		{
+			name:     "matcher regex - match",
+			labels:   map[string]string{"service": "api"},
+			route:    &Route{Matchers: []string{`service=~"^(api|web)$"`}},
+			expected: true,
+		},
+		{
+			name:     "matcher regex - no match",
+			labels:   map[string]string{"service": "database"},
+			route:    &Route{Matchers: []string{`service=~"^(api|web)$"`}},
+			expected: false,
+		},
+		{
+			name:     "matcher negative regex - match (not in set)",
+			labels:   map[string]string{"service": "database"},
+			route:    &Route{Matchers: []string{`service!~"^(api|web)$"`}},
+			expected: true,
+		},
+		{
+			name:     "matcher negative regex - no match (is in set)",
+			labels:   map[string]string{"service": "api"},
+			route:    &Route{Matchers: []string{`service!~"^(api|web)$"`}},
+			expected: false,
+		},
+		{
+			name:     "matcher negative regex - missing label is truthy",
+			labels:   map[string]string{"alertname": "test"},
+			route:    &Route{Matchers: []string{`service!~"^api$"`}},
+			expected: true,
+		},
+		{
+			name:   "multiple matchers - all must pass",
+			labels: map[string]string{"severity": "critical", "team": "platform"},
+			route: &Route{Matchers: []string{
+				`severity="critical"`,
+				`team="platform"`,
+			}},
+			expected: true,
+		},
+		{
+			name:   "multiple matchers - one fails",
+			labels: map[string]string{"severity": "warning", "team": "platform"},
+			route: &Route{Matchers: []string{
+				`severity="critical"`,
+				`team="platform"`,
+			}},
+			expected: false,
+		},
+		{
+			name:     "invalid matcher returns false",
+			labels:   map[string]string{"severity": "critical"},
+			route:    &Route{Matchers: []string{"not_a_valid_matcher"}},
+			expected: false,
 		},
 	}
 
@@ -163,6 +179,176 @@ func TestMatchesRoute(t *testing.T) {
 				t.Errorf("matchesRoute() = %v, want %v", result, tt.expected)
 			}
 		})
+	}
+}
+
+// ---------------------------------------------------------------------------
+// parseMatcher tests
+// ---------------------------------------------------------------------------
+
+func TestParseMatcher(t *testing.T) {
+	tests := []struct {
+		input     string
+		wantOK    bool
+		wantLabel string
+		wantOp    string
+		wantValue string
+	}{
+		{`severity="critical"`, true, "severity", "=", "critical"},
+		{`severity!="critical"`, true, "severity", "!=", "critical"},
+		{`service=~"^api$"`, true, "service", "=~", "^api$"},
+		{`service!~"^api$"`, true, "service", "!~", "^api$"},
+		{`severity='critical'`, true, "severity", "=", "critical"},      // single-quote stripping
+		{`severity=critical`, true, "severity", "=", "critical"},        // unquoted value
+		{`  severity = "critical" `, true, "severity", "=", "critical"}, // whitespace
+		{`notavalidmatcher`, false, "", "", ""},
+		{`=value`, false, "", "", ""},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.input, func(t *testing.T) {
+			got, ok := parseMatcher(tt.input)
+			if ok != tt.wantOK {
+				t.Fatalf("parseMatcher(%q) ok = %v, want %v", tt.input, ok, tt.wantOK)
+			}
+			if !ok {
+				return
+			}
+			if got.Label != tt.wantLabel {
+				t.Errorf("Label = %q, want %q", got.Label, tt.wantLabel)
+			}
+			if got.Operator != tt.wantOp {
+				t.Errorf("Operator = %q, want %q", got.Operator, tt.wantOp)
+			}
+			if got.Value != tt.wantValue {
+				t.Errorf("Value = %q, want %q", got.Value, tt.wantValue)
+			}
+		})
+	}
+}
+
+// ---------------------------------------------------------------------------
+// FindMatchingRoute – comprehensive table-driven tests
+// ---------------------------------------------------------------------------
+
+// buildTestConfig returns a Config that mirrors testdata/alertmanager.yml so
+// all routing scenarios can be tested offline.
+func buildTestConfig() *Config {
+	return &Config{
+		Route: &Route{
+			Receiver: "default",
+			Routes: []*Route{
+				// Critical → pagerduty-critical (no continue)
+				{
+					Matchers: []string{`severity="critical"`},
+					Receiver: "pagerduty-critical",
+				},
+				// High priority → slack-high-priority (continue)
+				{
+					Matchers: []string{`severity="high"`},
+					Receiver: "slack-high-priority",
+					Continue: true,
+				},
+				// Warning → slack-warnings (continue)
+				{
+					Matchers: []string{`severity="warning"`},
+					Receiver: "slack-warnings",
+					Continue: true,
+				},
+				// Monitoring team → monitoring-team (continue)
+				{
+					Matchers: []string{`team="monitoring"`},
+					Receiver: "monitoring-team",
+					Continue: true,
+				},
+				// Infrastructure → regional sub-routes
+				{
+					Match:    map[string]string{"component": "infrastructure"},
+					Receiver: "", // parent has no receiver of its own
+					Routes: []*Route{
+						{Match: map[string]string{"region": "us-east-1"}, Receiver: "team-infra-east"},
+						{Match: map[string]string{"region": "us-west-2"}, Receiver: "team-infra-west"},
+						{Match: map[string]string{"region": "eu-west-1"}, Receiver: "team-infra-eu"},
+					},
+				},
+				// Platform team → service regex + environment sub-routes
+				{
+					Matchers: []string{`service=~"^(api|web|frontend)$"`},
+					Receiver: "team-platform",
+					Routes: []*Route{
+						{
+							Match:    map[string]string{"environment": "production", "severity": "critical"},
+							Receiver: "pagerduty-platform",
+						},
+						{
+							Match:    map[string]string{"environment": "production"},
+							Receiver: "slack-platform-prod",
+						},
+						{
+							Match:    map[string]string{"environment": "staging"},
+							Receiver: "slack-platform-staging",
+						},
+					},
+				},
+				// Database team
+				{
+					Match:    map[string]string{"team": "database"},
+					Receiver: "team-database",
+					Routes: []*Route{
+						{Match: map[string]string{"severity": "critical"}, Receiver: "pagerduty-database"},
+						{MatchRE: map[string]string{"alertname": `^(PostgreSQL|MySQL|Redis).*`}, Receiver: "slack-database-alerts"},
+					},
+				},
+				// Security (continue) + critical sub-route
+				{
+					Match:    map[string]string{"category": "security"},
+					Receiver: "security-team",
+					Continue: true,
+					Routes: []*Route{
+						{Match: map[string]string{"severity": "critical"}, Receiver: "pagerduty-security"},
+					},
+				},
+				// Customer-facing
+				{
+					Match: map[string]string{"customer_facing": "true"},
+					Routes: []*Route{
+						{Match: map[string]string{"severity": "critical"}, Receiver: "pagerduty-customer"},
+						{Match: map[string]string{"severity": "warning"}, Receiver: "slack-customer-alerts"},
+					},
+				},
+				// Observability jobs
+				{
+					MatchRE:  map[string]string{"job": `^(prometheus|grafana|alertmanager)$`},
+					Receiver: "team-observability",
+					Routes: []*Route{
+						{Match: map[string]string{"severity": "critical"}, Receiver: "pagerduty-observability"},
+					},
+				},
+			},
+		},
+		Receivers: []Receiver{
+			{Name: "default"},
+			{Name: "pagerduty-critical"},
+			{Name: "slack-high-priority"},
+			{Name: "slack-warnings"},
+			{Name: "monitoring-team"},
+			{Name: "team-infra-east"},
+			{Name: "team-infra-west"},
+			{Name: "team-infra-eu"},
+			{Name: "team-platform"},
+			{Name: "pagerduty-platform"},
+			{Name: "slack-platform-prod"},
+			{Name: "slack-platform-staging"},
+			{Name: "team-database"},
+			{Name: "pagerduty-database"},
+			{Name: "slack-database-alerts"},
+			{Name: "security-team"},
+			{Name: "pagerduty-security"},
+			{Name: "pagerduty-customer"},
+			{Name: "slack-customer-alerts"},
+			{Name: "team-observability"},
+			{Name: "pagerduty-observability"},
+		},
 	}
 }
 
@@ -210,49 +396,34 @@ func TestFindMatchingRoute(t *testing.T) {
 		expectedRoutes   int
 	}{
 		{
-			name: "critical alert routes to pagerduty",
-			labels: map[string]string{
-				"alertname": "HighErrorRate",
-				"severity":  "critical",
-			},
+			name:             "critical alert routes to pagerduty",
+			labels:           map[string]string{"alertname": "HighErrorRate", "severity": "critical"},
 			expectedReceiver: "pagerduty",
 			expectedRoutes:   1,
 		},
 		{
-			name: "warning alert routes to slack",
-			labels: map[string]string{
-				"alertname": "HighLatency",
-				"severity":  "warning",
-			},
+			name:             "warning alert routes to slack",
+			labels:           map[string]string{"alertname": "HighLatency", "severity": "warning"},
 			expectedReceiver: "slack",
 			expectedRoutes:   1,
 		},
 		{
-			name: "api service routes to platform-team",
-			labels: map[string]string{
-				"alertname": "APIDown",
-				"service":   "api",
-			},
+			name:             "api service routes to platform-team",
+			labels:           map[string]string{"alertname": "APIDown", "service": "api"},
 			expectedReceiver: "platform-team",
 			expectedRoutes:   1,
 		},
 		{
-			name: "production api routes to pagerduty-platform",
-			labels: map[string]string{
-				"alertname":   "APIDown",
-				"service":     "api",
-				"environment": "production",
-			},
+			name:             "production api routes to pagerduty-platform",
+			labels:           map[string]string{"alertname": "APIDown", "service": "api", "environment": "production"},
 			expectedReceiver: "pagerduty-platform",
 			expectedRoutes:   2,
 		},
 		{
-			name: "no match uses default",
-			labels: map[string]string{
-				"alertname": "UnknownAlert",
-			},
+			name:             "no match uses default",
+			labels:           map[string]string{"alertname": "UnknownAlert"},
 			expectedReceiver: "default",
-			expectedRoutes:   0, // Changed: no specific routes matched, so matched_routes should be empty
+			expectedRoutes:   0,
 		},
 	}
 
@@ -273,6 +444,448 @@ func TestFindMatchingRoute(t *testing.T) {
 		})
 	}
 }
+
+func TestFindMatchingRouteComprehensive(t *testing.T) {
+	cfg := buildTestConfig()
+	client := &Client{}
+
+	tests := []struct {
+		name             string
+		labels           map[string]string
+		expectedReceiver string
+		minRoutes        int
+		exactRoutes      int // -1 means don't check exact count
+		// subroute context checks
+		wantSubroute   bool // is the final matched route a subroute?
+		wantParentName string
+	}{
+		// ── Simple top-level routes ───────────────────────────────────────
+		{
+			name:             "critical to pagerduty-critical",
+			labels:           map[string]string{"alertname": "HighCPU", "severity": "critical"},
+			expectedReceiver: "pagerduty-critical",
+			exactRoutes:      1,
+			wantSubroute:     false,
+		},
+		{
+			name:             "high priority to slack-high-priority (continue)",
+			labels:           map[string]string{"alertname": "DiskFull", "severity": "high"},
+			expectedReceiver: "slack-high-priority",
+			exactRoutes:      1,
+			wantSubroute:     false,
+		},
+		{
+			name:             "warning to slack-warnings (continue)",
+			labels:           map[string]string{"alertname": "DiskFull", "severity": "warning"},
+			expectedReceiver: "slack-warnings",
+			exactRoutes:      1,
+			wantSubroute:     false,
+		},
+		{
+			name:             "no match falls back to default",
+			labels:           map[string]string{"alertname": "RandomAlert", "foo": "bar"},
+			expectedReceiver: "default",
+			exactRoutes:      0,
+		},
+		// ── continue semantics ───────────────────────────────────────────
+		{
+			// warning + monitoring-team: warning route has continue=true, so evaluation
+			// proceeds and also matches the monitoring-team route (also continue=true).
+			// Last matching top-level route wins → monitoring-team.
+			name:             "warning AND monitoring-team: both continue, last wins",
+			labels:           map[string]string{"severity": "warning", "team": "monitoring"},
+			expectedReceiver: "monitoring-team",
+			exactRoutes:      -1, // only check minRoutes
+			minRoutes:        2,
+		},
+		// ── Nested sub-routes (infrastructure → regional) ────────────────
+		{
+			name:             "infra us-east-1 subroute",
+			labels:           map[string]string{"component": "infrastructure", "region": "us-east-1"},
+			expectedReceiver: "team-infra-east",
+			exactRoutes:      2, // parent infra route + child region route
+			wantSubroute:     true,
+		},
+		{
+			name:             "infra us-west-2 subroute",
+			labels:           map[string]string{"component": "infrastructure", "region": "us-west-2"},
+			expectedReceiver: "team-infra-west",
+			exactRoutes:      2,
+			wantSubroute:     true,
+		},
+		{
+			name:             "infra eu-west-1 subroute",
+			labels:           map[string]string{"component": "infrastructure", "region": "eu-west-1"},
+			expectedReceiver: "team-infra-eu",
+			exactRoutes:      2,
+			wantSubroute:     true,
+		},
+		{
+			// infrastructure match but no matching region → no child matched.
+			// Parent has no receiver itself → falls back to root default.
+			name:             "infra no matching region falls to default",
+			labels:           map[string]string{"component": "infrastructure", "region": "ap-southeast-1"},
+			expectedReceiver: "default",
+			exactRoutes:      1, // only the parent infra route matched
+		},
+		// ── Platform team nested routes ───────────────────────────────────
+		{
+			name:             "platform api service only → team-platform",
+			labels:           map[string]string{"service": "api"},
+			expectedReceiver: "team-platform",
+			exactRoutes:      1,
+			wantSubroute:     false,
+		},
+		{
+			name:             "platform api production → slack-platform-prod",
+			labels:           map[string]string{"service": "api", "environment": "production"},
+			expectedReceiver: "slack-platform-prod",
+			exactRoutes:      2,
+			wantSubroute:     true,
+			wantParentName:   "team-platform",
+		},
+		{
+			// The top-level severity=critical route (no continue) matches first and
+			// stops evaluation before the platform sub-routes are reached.
+			name:             "platform web production critical → blocked by top-level critical route",
+			labels:           map[string]string{"service": "web", "environment": "production", "severity": "critical"},
+			expectedReceiver: "pagerduty-critical",
+			exactRoutes:      1,
+			wantSubroute:     false,
+		},
+		{
+			name:             "platform frontend staging → slack-platform-staging",
+			labels:           map[string]string{"service": "frontend", "environment": "staging"},
+			expectedReceiver: "slack-platform-staging",
+			exactRoutes:      2,
+			wantSubroute:     true,
+		},
+		// ── Database team ─────────────────────────────────────────────────
+		{
+			name:             "database team → team-database (no sub-match)",
+			labels:           map[string]string{"team": "database"},
+			expectedReceiver: "team-database",
+			exactRoutes:      1,
+		},
+		{
+			// The top-level severity=critical route (no continue) matches first and
+			// stops evaluation before the database sub-routes are reached.
+			name:             "database team critical → blocked by top-level critical route",
+			labels:           map[string]string{"team": "database", "severity": "critical"},
+			expectedReceiver: "pagerduty-critical",
+			exactRoutes:      1,
+			wantSubroute:     false,
+		},
+		{
+			name:             "database team PostgreSQL alertname regex → slack-database-alerts",
+			labels:           map[string]string{"team": "database", "alertname": "PostgreSQLSlowQueries"},
+			expectedReceiver: "slack-database-alerts",
+			exactRoutes:      2,
+			wantSubroute:     true,
+		},
+		{
+			name:             "database team MySQL regex match",
+			labels:           map[string]string{"team": "database", "alertname": "MySQLReplicationLag"},
+			expectedReceiver: "slack-database-alerts",
+			exactRoutes:      2,
+		},
+		// ── Security (continue) ───────────────────────────────────────────
+		{
+			// The top-level severity=critical route (no continue) matches first and
+			// stops evaluation before the security route is reached.
+			name:             "security critical → blocked by top-level critical route",
+			labels:           map[string]string{"category": "security", "severity": "critical"},
+			expectedReceiver: "pagerduty-critical",
+			exactRoutes:      1,
+			wantSubroute:     false,
+		},
+		{
+			// severity=warning (continue=true) + security (continue=true) both match;
+			// last matching route wins → security-team.
+			name:             "security non-critical → warning route + security-team (both continue)",
+			labels:           map[string]string{"category": "security", "severity": "warning"},
+			expectedReceiver: "security-team",
+			exactRoutes:      2,
+			wantSubroute:     false,
+		},
+		// ── Customer facing ───────────────────────────────────────────────
+		{
+			// The top-level severity=critical route (no continue) matches first and
+			// stops evaluation before the customer-facing sub-routes are reached.
+			name:             "customer-facing critical → blocked by top-level critical route",
+			labels:           map[string]string{"customer_facing": "true", "severity": "critical"},
+			expectedReceiver: "pagerduty-critical",
+			exactRoutes:      1,
+			wantSubroute:     false,
+		},
+		{
+			// severity=warning (continue=true) matches, then customer_facing parent
+			// also matches; sub-route severity=warning matches → slack-customer-alerts.
+			// Total: 3 matched routes.
+			name:             "customer-facing warning → slack-customer-alerts",
+			labels:           map[string]string{"customer_facing": "true", "severity": "warning"},
+			expectedReceiver: "slack-customer-alerts",
+			exactRoutes:      3,
+			wantSubroute:     true,
+		},
+		// ── Observability (match_re on job) ───────────────────────────────
+		{
+			name:             "prometheus job → team-observability",
+			labels:           map[string]string{"job": "prometheus"},
+			expectedReceiver: "team-observability",
+			exactRoutes:      1,
+		},
+		{
+			// The top-level severity=critical route (no continue) matches first and
+			// stops evaluation before the observability sub-routes are reached.
+			name:             "grafana job critical → blocked by top-level critical route",
+			labels:           map[string]string{"job": "grafana", "severity": "critical"},
+			expectedReceiver: "pagerduty-critical",
+			exactRoutes:      1,
+			wantSubroute:     false,
+		},
+		{
+			name:             "alertmanager job → team-observability",
+			labels:           map[string]string{"job": "alertmanager"},
+			expectedReceiver: "team-observability",
+			exactRoutes:      1,
+		},
+		{
+			name:             "unknown job → default",
+			labels:           map[string]string{"job": "myapp"},
+			expectedReceiver: "default",
+			exactRoutes:      0,
+		},
+		// ── Matchers with single-quote values ─────────────────────────────
+		{
+			name:             "matcher with unquoted value",
+			labels:           map[string]string{"severity": "critical"},
+			expectedReceiver: "pagerduty-critical",
+			exactRoutes:      1,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			receiver, matched, err := client.FindMatchingRoute(tt.labels, cfg)
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+
+			if receiver != tt.expectedReceiver {
+				t.Errorf("receiver = %q, want %q", receiver, tt.expectedReceiver)
+				for i, mr := range matched {
+					t.Logf("  matched[%d] receiver=%q depth=%d subroute=%v parents=%v",
+						i, mr.Route.Receiver, mr.Depth, mr.IsSubroute, mr.ParentReceivers)
+				}
+			}
+
+			if tt.exactRoutes >= 0 && len(matched) != tt.exactRoutes {
+				t.Errorf("matched %d routes, want exactly %d", len(matched), tt.exactRoutes)
+			}
+			if tt.minRoutes > 0 && len(matched) < tt.minRoutes {
+				t.Errorf("matched %d routes, want at least %d", len(matched), tt.minRoutes)
+			}
+
+			// Subroute context checks on the last matched route.
+			if tt.wantSubroute && len(matched) > 0 {
+				last := matched[len(matched)-1]
+				if !last.IsSubroute {
+					t.Errorf("last matched route IsSubroute = false, want true")
+				}
+				if tt.wantParentName != "" {
+					found := false
+					for _, p := range last.ParentReceivers {
+						if p == tt.wantParentName {
+							found = true
+							break
+						}
+					}
+					if !found {
+						t.Errorf("expected parent receiver %q in chain %v", tt.wantParentName, last.ParentReceivers)
+					}
+				}
+			}
+		})
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Subroute depth and parent-chain tests
+// ---------------------------------------------------------------------------
+
+func TestSubrouteDepthAndParentChain(t *testing.T) {
+	// Config with three nesting levels: root → L1 → L2
+	cfg := &Config{
+		Route: &Route{
+			Receiver: "default",
+			Routes: []*Route{
+				{
+					Match:    map[string]string{"team": "platform"},
+					Receiver: "platform",
+					Routes: []*Route{
+						{
+							Match:    map[string]string{"env": "prod"},
+							Receiver: "platform-prod",
+							Routes: []*Route{
+								{
+									Match:    map[string]string{"severity": "critical"},
+									Receiver: "platform-prod-critical",
+								},
+							},
+						},
+					},
+				},
+			},
+		},
+	}
+
+	client := &Client{}
+
+	t.Run("three-level deep route has correct depth and parents", func(t *testing.T) {
+		labels := map[string]string{"team": "platform", "env": "prod", "severity": "critical"}
+		_, matched, err := client.FindMatchingRoute(labels, cfg)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if len(matched) != 3 {
+			t.Fatalf("expected 3 matched routes, got %d", len(matched))
+		}
+
+		// matched[0]: depth=0, not a subroute, no parents
+		r0 := matched[0]
+		if r0.Depth != 0 {
+			t.Errorf("matched[0].Depth = %d, want 0", r0.Depth)
+		}
+		if r0.IsSubroute {
+			t.Errorf("matched[0].IsSubroute = true, want false")
+		}
+		if len(r0.ParentReceivers) != 0 {
+			t.Errorf("matched[0].ParentReceivers = %v, want []", r0.ParentReceivers)
+		}
+
+		// matched[1]: depth=1, subroute, parent = ["platform"]
+		r1 := matched[1]
+		if r1.Depth != 1 {
+			t.Errorf("matched[1].Depth = %d, want 1", r1.Depth)
+		}
+		if !r1.IsSubroute {
+			t.Errorf("matched[1].IsSubroute = false, want true")
+		}
+		if len(r1.ParentReceivers) != 1 || r1.ParentReceivers[0] != "platform" {
+			t.Errorf("matched[1].ParentReceivers = %v, want [platform]", r1.ParentReceivers)
+		}
+
+		// matched[2]: depth=2, subroute, parent = ["platform", "platform-prod"]
+		r2 := matched[2]
+		if r2.Depth != 2 {
+			t.Errorf("matched[2].Depth = %d, want 2", r2.Depth)
+		}
+		if !r2.IsSubroute {
+			t.Errorf("matched[2].IsSubroute = false, want true")
+		}
+		if len(r2.ParentReceivers) != 2 {
+			t.Fatalf("matched[2].ParentReceivers = %v, want len 2", r2.ParentReceivers)
+		}
+		if r2.ParentReceivers[0] != "platform" || r2.ParentReceivers[1] != "platform-prod" {
+			t.Errorf("matched[2].ParentReceivers = %v, want [platform platform-prod]", r2.ParentReceivers)
+		}
+	})
+}
+
+// ---------------------------------------------------------------------------
+// Config caching tests
+// ---------------------------------------------------------------------------
+
+func TestConfigCache(t *testing.T) {
+	t.Run("InvalidateConfig clears cached config", func(t *testing.T) {
+		c := &Client{}
+		cfg := &Config{Route: &Route{Receiver: "default"}}
+
+		// Manually populate the cache as GetConfig() would.
+		c.cacheMu.Lock()
+		c.cachedConfig = cfg
+		c.cacheTimestamp = time.Now()
+		c.cacheMu.Unlock()
+
+		// Sanity: cache is set.
+		c.cacheMu.RLock()
+		if c.cachedConfig == nil {
+			t.Fatal("expected cachedConfig to be set")
+		}
+		c.cacheMu.RUnlock()
+
+		c.InvalidateConfig()
+
+		c.cacheMu.RLock()
+		defer c.cacheMu.RUnlock()
+		if c.cachedConfig != nil {
+			t.Error("expected cachedConfig to be nil after InvalidateConfig()")
+		}
+		if !c.cacheTimestamp.IsZero() {
+			t.Error("expected cacheTimestamp to be zero after InvalidateConfig()")
+		}
+	})
+
+	t.Run("ConfigCachedAt returns zero before any cache entry", func(t *testing.T) {
+		c := &Client{}
+		if !c.ConfigCachedAt().IsZero() {
+			t.Error("expected zero time before any caching")
+		}
+	})
+
+	t.Run("ConfigCachedAt returns non-zero after caching", func(t *testing.T) {
+		c := &Client{}
+		now := time.Now()
+		c.cacheMu.Lock()
+		c.cachedConfig = &Config{}
+		c.cacheTimestamp = now
+		c.cacheMu.Unlock()
+
+		got := c.ConfigCachedAt()
+		if got != now {
+			t.Errorf("ConfigCachedAt() = %v, want %v", got, now)
+		}
+	})
+
+	t.Run("concurrent access is safe", func(t *testing.T) {
+		c := &Client{}
+		var wg sync.WaitGroup
+		const goroutines = 50
+
+		for i := 0; i < goroutines; i++ {
+			wg.Add(2)
+			// Writer: toggles cache on and off.
+			go func() {
+				defer wg.Done()
+				c.cacheMu.Lock()
+				c.cachedConfig = &Config{}
+				c.cacheTimestamp = time.Now()
+				c.cacheMu.Unlock()
+			}()
+			// Reader: reads the cached time.
+			go func() {
+				defer wg.Done()
+				_ = c.ConfigCachedAt()
+			}()
+		}
+
+		// Intersperse invalidations.
+		for i := 0; i < goroutines/5; i++ {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				c.InvalidateConfig()
+			}()
+		}
+
+		wg.Wait() // should not race-detect
+	})
+}
+
+// ---------------------------------------------------------------------------
+// ExtractLabelKeys tests
+// ---------------------------------------------------------------------------
 
 func TestExtractLabelKeys(t *testing.T) {
 	config := &Config{
@@ -324,4 +937,160 @@ func TestExtractLabelKeys(t *testing.T) {
 			t.Errorf("ExtractLabelKeys() returned unexpected key: %s", key)
 		}
 	}
+}
+
+// ---------------------------------------------------------------------------
+// ExtractLabelSuggestions tests
+// ---------------------------------------------------------------------------
+
+func TestExtractLabelSuggestions(t *testing.T) {
+	config := &Config{
+		Route: &Route{
+			Routes: []*Route{
+				{
+					Match:    map[string]string{"severity": "critical"},
+					Receiver: "pagerduty",
+				},
+				{
+					Match:    map[string]string{"severity": "warning"},
+					Receiver: "slack",
+				},
+				{
+					Matchers: []string{`team="platform"`},
+					Receiver: "platform",
+				},
+				{
+					// match_re values are NOT included in suggestions (not exact values)
+					MatchRE:  map[string]string{"service": "^api$"},
+					Receiver: "api",
+				},
+			},
+		},
+	}
+
+	suggestions := ExtractLabelSuggestions(config)
+	suggestMap := make(map[string][]string)
+	for _, s := range suggestions {
+		suggestMap[s.Key] = s.Values
+	}
+
+	// severity should have both "critical" and "warning"
+	if vals, ok := suggestMap["severity"]; !ok {
+		t.Error("expected 'severity' in suggestions")
+	} else {
+		valSet := make(map[string]bool)
+		for _, v := range vals {
+			valSet[v] = true
+		}
+		if !valSet["critical"] {
+			t.Error("expected 'critical' in severity suggestions")
+		}
+		if !valSet["warning"] {
+			t.Error("expected 'warning' in severity suggestions")
+		}
+	}
+
+	// team should appear from matchers with = operator
+	if _, ok := suggestMap["team"]; !ok {
+		t.Error("expected 'team' in suggestions from matchers")
+	}
+}
+
+// ---------------------------------------------------------------------------
+// FindReceiverByName tests
+// ---------------------------------------------------------------------------
+
+func TestFindReceiverByName(t *testing.T) {
+	config := &Config{
+		Receivers: []Receiver{
+			{Name: "default"},
+			{Name: "pagerduty"},
+			{Name: "slack"},
+		},
+	}
+	client := &Client{}
+
+	t.Run("found", func(t *testing.T) {
+		r := client.FindReceiverByName("pagerduty", config)
+		if r == nil {
+			t.Fatal("expected non-nil receiver")
+		}
+		if r.Name != "pagerduty" {
+			t.Errorf("got receiver %q, want %q", r.Name, "pagerduty")
+		}
+	})
+
+	t.Run("not found returns nil", func(t *testing.T) {
+		r := client.FindReceiverByName("nonexistent", config)
+		if r != nil {
+			t.Errorf("expected nil for unknown receiver, got %+v", r)
+		}
+	})
+}
+
+// ---------------------------------------------------------------------------
+// Route with no receiver (parent-only match) falls back to root default
+// ---------------------------------------------------------------------------
+
+func TestParentRouteWithNoReceiverFallsToDefault(t *testing.T) {
+	cfg := &Config{
+		Route: &Route{
+			Receiver: "root-default",
+			Routes: []*Route{
+				{
+					// This parent route has no receiver of its own.
+					Match: map[string]string{"component": "infra"},
+					Routes: []*Route{
+						{Match: map[string]string{"region": "us-east-1"}, Receiver: "infra-east"},
+					},
+				},
+			},
+		},
+	}
+	client := &Client{}
+
+	t.Run("parent match + no child match → root default", func(t *testing.T) {
+		labels := map[string]string{"component": "infra", "region": "unknown"}
+		recv, matched, err := client.FindMatchingRoute(labels, cfg)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if recv != "root-default" {
+			t.Errorf("receiver = %q, want %q", recv, "root-default")
+		}
+		// The parent route itself matched (depth 0), but no child matched.
+		if len(matched) != 1 {
+			t.Errorf("expected 1 matched route (the parent), got %d", len(matched))
+		}
+	})
+
+	t.Run("parent + child match → child receiver", func(t *testing.T) {
+		labels := map[string]string{"component": "infra", "region": "us-east-1"}
+		recv, matched, err := client.FindMatchingRoute(labels, cfg)
+		if err != nil {
+			t.Fatalf("unexpected error: %v", err)
+		}
+		if recv != "infra-east" {
+			t.Errorf("receiver = %q, want %q", recv, "infra-east")
+		}
+		if len(matched) != 2 {
+			t.Errorf("expected 2 matched routes, got %d", len(matched))
+		}
+	})
+}
+
+// ---------------------------------------------------------------------------
+// Error cases
+// ---------------------------------------------------------------------------
+
+func TestFindMatchingRouteErrors(t *testing.T) {
+	client := &Client{}
+
+	t.Run("nil route config returns error", func(t *testing.T) {
+		cfg := &Config{Route: nil}
+		_, _, err := client.FindMatchingRoute(map[string]string{}, cfg)
+		if err == nil {
+			t.Error("expected error for nil route, got nil")
+		}
+	})
 }

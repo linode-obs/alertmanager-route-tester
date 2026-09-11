@@ -30,6 +30,10 @@ jobs:
 
     - name: Start Alertmanager
       run: |
+        if ss -ltnH 'sport = :19093' | grep -q .; then
+          echo "Port 19093 is already in use" >&2
+          exit 1
+        fi
         curl -fsSL -o alertmanager.tar.gz \
           https://github.com/prometheus/alertmanager/releases/download/v0.27.0/alertmanager-0.27.0.linux-amd64.tar.gz
         tar -xzf alertmanager.tar.gz

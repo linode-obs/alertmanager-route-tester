@@ -24,6 +24,20 @@ func TestServerTimeoutDefaultsCoverRetryBudget(t *testing.T) {
 	}
 }
 
+func TestNegativeRetryValuesAreRejected(t *testing.T) {
+	cfg := &Config{
+		Alertmanager: AlertmanagerConfig{
+			URL:   "http://localhost:9093",
+			Retry: RetryConfig{MaxAttempts: -1, Backoff: Duration{Duration: -time.Second}},
+		},
+	}
+	applyDefaults(cfg)
+
+	if err := validate(cfg); err == nil {
+		t.Fatal("validate() error = nil, want negative retry value error")
+	}
+}
+
 func TestNegativeServerTimeoutsAreRejected(t *testing.T) {
 	cfg := &Config{
 		Alertmanager: AlertmanagerConfig{URL: "http://localhost:9093"},

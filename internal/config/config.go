@@ -165,9 +165,17 @@ func applyDefaults(cfg *Config) {
 }
 
 func applyServerTimeoutDefaults(cfg *Config) {
-	retryBudget := cfg.Alertmanager.HTTP.Timeouts.Request.Duration * time.Duration(cfg.Alertmanager.Retry.MaxAttempts)
-	if cfg.Alertmanager.Retry.MaxAttempts > 1 {
-		retryBudget += cfg.Alertmanager.Retry.Backoff.Duration * time.Duration(cfg.Alertmanager.Retry.MaxAttempts-1)
+	attempts := cfg.Alertmanager.Retry.MaxAttempts
+	if attempts < 1 {
+		attempts = 1
+	}
+	backoff := cfg.Alertmanager.Retry.Backoff.Duration
+	if backoff < 0 {
+		backoff = 0
+	}
+	retryBudget := cfg.Alertmanager.HTTP.Timeouts.Request.Duration * time.Duration(attempts)
+	if attempts > 1 {
+		retryBudget += backoff * time.Duration(attempts-1)
 	}
 	if cfg.App.Server.ReadHeaderTimeout.Duration == 0 {
 		cfg.App.Server.ReadHeaderTimeout = Duration{Duration: 5 * time.Second}
@@ -211,6 +219,9 @@ func validate(cfg *Config) error {
 
 	if cfg.Alertmanager.Retry.MaxAttempts < 1 {
 		return errors.New("alertmanager.retry.max_attempts must be >= 1")
+	}
+	if cfg.Alertmanager.Retry.Backoff.Duration < 0 {
+		return errors.New("alertmanager.retry.backoff must be >= 0")
 	}
 
 	if cfg.App.CLITestMode.Enabled && len(cfg.App.CLITestMode.Labels) == 0 {

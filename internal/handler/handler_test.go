@@ -163,6 +163,68 @@ func TestReloadConfigRefetchesConfig(t *testing.T) {
 	}
 }
 
+func TestReloadConfigReturnsFailureWhenFetchFails(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusBadGateway)
+	}))
+	defer server.Close()
+
+	h := &Handler{client: alertmanager.NewClient(server.URL, false)}
+	request := httptest.NewRequest(http.MethodPost, "/config/reload", nil)
+	response := httptest.NewRecorder()
+
+	h.HandleReloadConfig(response, request)
+
+	if response.Code != http.StatusServiceUnavailable {
+		t.Fatalf("status = %d, want %d", response.Code, http.StatusServiceUnavailable)
+	}
+}
+
+func TestReloadConfigReturnsHXRefreshAfterSuccess(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"config":{"original":"route:\n  receiver: default\nreceivers:\n  - name: default\n"}}`))
+	}))
+	defer server.Close()
+
+	h := &Handler{client: alertmanager.NewClient(server.URL, false)}
+	request := httptest.NewRequest(http.MethodPost, "/config/reload", nil)
+	request.Header.Set("HX-Request", "true")
+	response := httptest.NewRecorder()
+
+	h.HandleReloadConfig(response, request)
+
+	if response.Code != http.StatusNoContent {
+		t.Fatalf("status = %d, want %d", response.Code, http.StatusNoContent)
+	}
+	if got := response.Header().Get("HX-Refresh"); got != "true" {
+		t.Fatalf("HX-Refresh = %q, want true", got)
+	}
+}
+
+func TestResultTemplateRendersRootFallbackWithMatchedParent(t *testing.T) {
+	tmpl := loadTemplates(t)
+	data := resultData{
+		Receiver:         "default",
+		MatchedRoutes:    []alertmanager.MatchedRoute{{Route: &alertmanager.Route{Match: map[string]string{"component": "infrastructure"}}}},
+		MatchedReceivers: []string{"default"},
+		DefaultRoot:      true,
+		Labels:           map[string]string{"component": "infrastructure"},
+	}
+
+	var buf bytes.Buffer
+	if err := tmpl.ExecuteTemplate(&buf, "result.html", data); err != nil {
+		t.Fatalf("result.html failed to render root fallback: %v", err)
+	}
+	output := buf.String()
+	if !strings.Contains(output, "root route's receiver") {
+		t.Fatal("root fallback notice is missing")
+	}
+	if strings.Contains(output, "Matched Route Configuration") {
+		t.Fatal("root fallback should not be presented as an explicit matched route")
+	}
+}
+
 func TestResultTemplateRendersMatchedRoutes(t *testing.T) {
 	tmpl := loadTemplates(t)
 

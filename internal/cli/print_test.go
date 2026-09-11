@@ -9,6 +9,20 @@ import (
 	"github.com/wbollock/alertmanager-route-tester/internal/alertmanager"
 )
 
+func TestPrintResultShowsGenericSubrouteMarkerWithoutAncestry(t *testing.T) {
+	result := &TestResult{
+		Receiver: "regional",
+		MatchedRoutes: []alertmanager.MatchedRoute{
+			{Route: &alertmanager.Route{Receiver: "regional"}, Depth: 1, IsSubroute: true},
+		},
+	}
+
+	output := captureSimpleOutput(t, result)
+	if !strings.Contains(output, "[subroute]") {
+		t.Fatalf("output = %q, want generic subroute marker", output)
+	}
+}
+
 func TestPrintResultShowsFullSubrouteAncestry(t *testing.T) {
 	result := &TestResult{
 		Receiver: "leaf",
@@ -22,6 +36,14 @@ func TestPrintResultShowsFullSubrouteAncestry(t *testing.T) {
 		},
 	}
 
+	output := captureSimpleOutput(t, result)
+	if !strings.Contains(output, "[subroute of platform -> platform-prod]") {
+		t.Fatalf("output = %q, want full ancestry", output)
+	}
+}
+
+func captureSimpleOutput(t *testing.T, result *TestResult) string {
+	t.Helper()
 	read, write, err := os.Pipe()
 	if err != nil {
 		t.Fatalf("os.Pipe() error = %v", err)
@@ -41,7 +63,5 @@ func TestPrintResultShowsFullSubrouteAncestry(t *testing.T) {
 	if err != nil {
 		t.Fatalf("io.ReadAll() error = %v", err)
 	}
-	if !strings.Contains(string(output), "[subroute of platform -> platform-prod]") {
-		t.Fatalf("output = %q, want full ancestry", output)
-	}
+	return string(output)
 }

@@ -129,7 +129,7 @@ func (h *Handler) HandleIndex(w http.ResponseWriter, r *http.Request) {
 }
 
 // HandleReloadConfig refreshes the cached config, then redirects back to the
-// index page.
+// index page when the refresh succeeds.
 func (h *Handler) HandleReloadConfig(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
@@ -140,6 +140,8 @@ func (h *Handler) HandleReloadConfig(w http.ResponseWriter, r *http.Request) {
 	h.client.InvalidateConfig()
 	if _, err := h.client.GetConfig(); err != nil {
 		slog.Error("error reloading alertmanager config", "error", err)
+		http.Error(w, "Failed to reload Alertmanager config", http.StatusServiceUnavailable)
+		return
 	}
 
 	// If this is an HTMX request, return a small snippet so the page can
@@ -400,10 +402,7 @@ func buildReceiverSummaries(matchedRoutes []alertmanager.MatchedRoute, finalRece
 }
 
 func isEffectiveMatch(matchedRoutes []alertmanager.MatchedRoute, index int) bool {
-	if index == len(matchedRoutes)-1 {
-		return true
-	}
-	return matchedRoutes[index+1].Depth <= matchedRoutes[index].Depth
+	return index >= 0 && index < len(matchedRoutes) && matchedRoutes[index].IsEffective
 }
 
 func isDefaultRoot(receiver string, matchedRoutes []alertmanager.MatchedRoute, config *alertmanager.Config) bool {

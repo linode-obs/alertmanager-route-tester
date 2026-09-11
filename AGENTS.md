@@ -111,7 +111,8 @@ JSON format:
         }
       },
       "depth": 0,
-      "is_subroute": false
+      "is_subroute": false,
+      "is_effective": true
     }
   ],
   "labels": {

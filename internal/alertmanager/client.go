@@ -397,6 +397,8 @@ type MatchedRoute struct {
 	// IsSubroute is true when Depth > 0, i.e. this route was reached by
 	// entering a nested `routes:` block of a parent that also matched.
 	IsSubroute bool `json:"is_subroute"`
+	// IsEffective is true when this route supplies a receiver for its matched branch.
+	IsEffective bool `json:"is_effective"`
 }
 
 // FindMatchingRoute determines which receiver an alert would match.
@@ -433,6 +435,7 @@ func findMatchingRouteRecursive(labels map[string]string, route *Route, matched 
 
 	for _, childRoute := range route.Routes {
 		if matchesRoute(labels, childRoute) {
+			matchIndex := len(*matched)
 			mr := MatchedRoute{
 				Route:           childRoute,
 				Depth:           depth,
@@ -456,6 +459,7 @@ func findMatchingRouteRecursive(labels map[string]string, route *Route, matched 
 			} else if childRoute.Receiver != "" {
 				// No child matched but this route has a receiver
 				finalReceiver = childRoute.Receiver
+				(*matched)[matchIndex].IsEffective = true
 			}
 
 			// If continue is false, stop checking other routes at this level

@@ -96,8 +96,12 @@ func PrintResult(result *TestResult, format OutputFormat) error {
 			for i, mr := range result.MatchedRoutes {
 				route := mr.Route
 				fmt.Printf("  %d. ", i+1)
-				if mr.IsSubroute && len(mr.ParentReceivers) > 0 {
-					fmt.Printf("[subroute of %s] ", strings.Join(mr.ParentReceivers, " -> "))
+				if mr.IsSubroute {
+					if len(mr.ParentReceivers) > 0 {
+						fmt.Printf("[subroute of %s] ", strings.Join(mr.ParentReceivers, " -> "))
+					} else {
+						fmt.Printf("[subroute] ")
+					}
 				}
 				if route.Receiver != "" {
 					fmt.Printf("receiver=%s ", route.Receiver)

@@ -28,6 +28,46 @@ func TestFindMatchingRouteReturnsEmptySliceForRootFallback(t *testing.T) {
 	}
 }
 
+func TestMatchedRoutesMarkResolvedBranches(t *testing.T) {
+	config := &Config{
+		Route: &Route{
+			Receiver: "default",
+			Routes: []*Route{
+				{
+					Match:    map[string]string{"team": "platform"},
+					Receiver: "platform",
+					Continue: true,
+					Routes: []*Route{
+						{Match: map[string]string{"severity": "warning"}},
+					},
+				},
+				{Match: map[string]string{"team": "platform"}, Receiver: "fallback"},
+			},
+		},
+	}
+	labels := map[string]string{"team": "platform", "severity": "warning"}
+
+	receiver, matched, err := (&Client{}).FindMatchingRoute(labels, config)
+	if err != nil {
+		t.Fatalf("FindMatchingRoute() error = %v", err)
+	}
+	if receiver != "fallback" {
+		t.Fatalf("receiver = %q, want fallback", receiver)
+	}
+	if len(matched) != 3 {
+		t.Fatalf("matched routes = %d, want 3", len(matched))
+	}
+	if !matched[0].IsEffective {
+		t.Error("parent route should remain effective when its receiver handles a receiver-less child")
+	}
+	if matched[1].IsEffective {
+		t.Error("receiver-less child should not be effective")
+	}
+	if !matched[2].IsEffective {
+		t.Error("sibling fallback route should be effective")
+	}
+}
+
 func TestGetConfigSerializesConcurrentCacheMisses(t *testing.T) {
 	var requests atomic.Int32
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

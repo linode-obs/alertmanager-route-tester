@@ -13,13 +13,13 @@ func TestPrintResultShowsGenericSubrouteMarkerWithoutAncestry(t *testing.T) {
 	result := &TestResult{
 		Receiver: "regional",
 		MatchedRoutes: []alertmanager.MatchedRoute{
-			{Route: &alertmanager.Route{Receiver: "regional"}, Depth: 1, IsSubroute: true},
+			{Route: &alertmanager.Route{}, Depth: 1, IsSubroute: true, ResolvedReceiver: "regional"},
 		},
 	}
 
 	output := captureSimpleOutput(t, result)
-	if !strings.Contains(output, "[subroute]") {
-		t.Fatalf("output = %q, want generic subroute marker", output)
+	if !strings.Contains(output, "[subroute]") || !strings.Contains(output, "receiver=regional") {
+		t.Fatalf("output = %q, want generic marker and resolved receiver", output)
 	}
 }
 

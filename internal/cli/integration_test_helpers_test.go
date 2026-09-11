@@ -4,6 +4,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"strings"
 	"testing"
 	"time"
 )
@@ -17,7 +18,7 @@ func alertmanagerURL() string {
 
 func alertmanagerAvailable(url string) bool {
 	client := &http.Client{Timeout: 2 * time.Second}
-	response, err := client.Get(url + "/api/v2/status")
+	response, err := client.Get(strings.TrimRight(url, "/") + "/api/v2/status")
 	if err != nil {
 		return false
 	}
@@ -46,6 +47,9 @@ func skipIntegration(t *testing.T) {
 	}
 
 	if !alertmanagerAvailable(alertmanagerURL()) {
+		if os.Getenv("ALERTMANAGER_URL") != "" {
+			t.Fatalf("Alertmanager is not available at %s", alertmanagerURL())
+		}
 		t.Skipf("Skipping integration test: Alertmanager is not running at %s", alertmanagerURL())
 	}
 }

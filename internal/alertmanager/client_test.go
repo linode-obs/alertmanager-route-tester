@@ -47,6 +47,9 @@ func TestReceiverlessContinueRouteInheritsParentReceiver(t *testing.T) {
 	if receiver != "default" {
 		t.Fatalf("receiver = %q, want inherited default", receiver)
 	}
+	if matched[0].ResolvedReceiver != "platform" || matched[1].ResolvedReceiver != "default" {
+		t.Fatalf("resolved receivers = %#v, want platform and default", matched)
+	}
 	if len(matched) != 2 || !matched[0].IsEffective || !matched[1].IsEffective {
 		t.Fatalf("matched routes = %#v, want both routes effective", matched)
 	}

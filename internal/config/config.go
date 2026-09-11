@@ -90,7 +90,7 @@ type TestConfig struct {
 }
 
 func Load(path string) (*Config, error) {
-	contents, err := os.ReadFile(path)
+	contents, err := os.ReadFile(path) // #nosec G304 -- the path is the explicitly selected application config file.
 	if err != nil {
 		return nil, fmt.Errorf("failed to read config file %q: %w", path, err)
 	}

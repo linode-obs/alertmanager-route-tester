@@ -143,7 +143,7 @@ fi
 ./bin/alertmanager/alertmanager \
   --config.file=testdata/alertmanager.yml \
   --web.listen-address=:19093 \
-  --storage.path=./data/alertmanager &
+  --storage.path=./data/alertmanager-test &
 ALERTMANAGER_PID=$!
 
 for i in {1..30}; do

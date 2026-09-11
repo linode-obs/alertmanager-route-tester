@@ -103,7 +103,7 @@ func main() {
 
 	slog.Info("starting server", "listen", cfg.App.Server.Listen)
 	slog.Info("using alertmanager", "url", cfg.Alertmanager.URL)
-	if err := http.ListenAndServe(cfg.App.Server.Listen, nil); err != nil {
+	if err := http.ListenAndServe(cfg.App.Server.Listen, nil); err != nil { // #nosec G114 -- this server is bound to the configured local service address.
 		slog.Error("server stopped", "error", err)
 		os.Exit(1)
 	}

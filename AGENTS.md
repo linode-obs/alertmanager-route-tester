@@ -112,7 +112,8 @@ JSON format:
       },
       "depth": 0,
       "is_subroute": false,
-      "is_effective": true
+      "is_effective": true,
+      "resolved_receiver": "pagerduty-critical"
     }
   ],
   "labels": {
@@ -122,7 +123,7 @@ JSON format:
 }
 ```
 
-The `matched_routes` entries include the matched route under `route` plus nested-route metadata. This replaces the previous top-level `receiver` and `match` fields.
+The `matched_routes` entries include the matched route under `route`, the resolved receiver after parent inheritance, and nested-route metadata. This replaces the previous top-level `receiver` and `match` fields.
 
 ### Using CLI Mode in Go Tests
 

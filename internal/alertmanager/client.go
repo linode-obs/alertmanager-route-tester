@@ -137,7 +137,7 @@ type PoolOptions struct {
 func NewClient(baseURL string, skipTLSVerify bool) *Client {
 	transport := &http.Transport{
 		TLSClientConfig: &tls.Config{
-			InsecureSkipVerify: skipTLSVerify,
+			InsecureSkipVerify: skipTLSVerify, // #nosec G402 -- TLS verification is explicitly configurable by the caller.
 		},
 	}
 
@@ -223,7 +223,6 @@ func (c *Client) GetConfig() (*Config, error) {
 		c.cacheMu.RUnlock()
 		return config, nil
 	}
-	generation := c.cacheGeneration
 	c.cacheMu.RUnlock()
 
 	c.configFetchMutex.Lock()
@@ -236,7 +235,7 @@ func (c *Client) GetConfig() (*Config, error) {
 		c.cacheMu.RUnlock()
 		return config, nil
 	}
-	generation = c.cacheGeneration
+	generation := c.cacheGeneration
 	c.cacheMu.RUnlock()
 
 	config, err := c.fetchConfig()
@@ -327,6 +326,12 @@ func (c *Client) ConfigCachedAt() time.Time {
 	return c.cacheTimestamp
 }
 
+func (c *Client) HasCachedConfig() bool {
+	c.cacheMu.RLock()
+	defer c.cacheMu.RUnlock()
+	return c.cachedConfig != nil
+}
+
 func (c *Client) fetchStatus(status *StatusResponse) (bool, error) {
 	resp, err := c.httpClient.Get(c.baseURL + "/api/v2/status")
 	if err != nil {
@@ -401,7 +406,7 @@ func (c *Client) extractRawReceiverConfigs(config *Config, originalYAML string) 
 
 func buildTLSConfig(opts TLSOptions) (*tls.Config, error) {
 	tlsConfig := &tls.Config{
-		InsecureSkipVerify: opts.SkipVerify,
+		InsecureSkipVerify: opts.SkipVerify, // #nosec G402 -- TLS verification is explicitly configurable by the caller.
 	}
 
 	if opts.CAFile != "" {
@@ -445,6 +450,8 @@ type MatchedRoute struct {
 	IsSubroute bool `json:"is_subroute"`
 	// IsEffective is true when this route supplies a receiver for its matched branch.
 	IsEffective bool `json:"is_effective"`
+	// ResolvedReceiver is the receiver after applying parent inheritance.
+	ResolvedReceiver string `json:"resolved_receiver,omitempty"`
 }
 
 // FindMatchingRoute determines which receiver an alert would match.
@@ -481,12 +488,18 @@ func findMatchingRouteRecursive(labels map[string]string, route *Route, matched 
 
 	for _, childRoute := range route.Routes {
 		if matchesRoute(labels, childRoute) {
+			receiverForRoute := childRoute.Receiver
+			if receiverForRoute == "" {
+				receiverForRoute = inheritedReceiver
+			}
+
 			matchIndex := len(*matched)
 			mr := MatchedRoute{
-				Route:           childRoute,
-				Depth:           depth,
-				ParentReceivers: parentReceivers,
-				IsSubroute:      depth > 0,
+				Route:            childRoute,
+				Depth:            depth,
+				ParentReceivers:  parentReceivers,
+				IsSubroute:       depth > 0,
+				ResolvedReceiver: receiverForRoute,
 			}
 			*matched = append(*matched, mr)
 
@@ -497,11 +510,6 @@ func findMatchingRouteRecursive(labels map[string]string, route *Route, matched 
 				childParents = make([]string, len(parentReceivers)+1)
 				copy(childParents, parentReceivers)
 				childParents[len(parentReceivers)] = childRoute.Receiver
-			}
-
-			receiverForRoute := childRoute.Receiver
-			if receiverForRoute == "" {
-				receiverForRoute = inheritedReceiver
 			}
 
 			// Recursively check child routes first.
@@ -784,7 +792,7 @@ func GenerateSampleAlerts(config *Config) []SampleAlert {
 	}
 
 	// Seed random number generator
-	rng := rand.New(rand.NewSource(time.Now().UnixNano()))
+	rng := rand.New(rand.NewSource(time.Now().UnixNano())) // #nosec G404 -- sample alert generation does not require cryptographic randomness.
 
 	// Shuffle and pick 2 from matching alerts
 	rng.Shuffle(len(matchingAlerts), func(i, j int) {

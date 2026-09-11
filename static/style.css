@@ -232,6 +232,12 @@ header h1 {
     border-color: rgba(255, 255, 255, 0.65);
 }
 
+.reload-error {
+    color: #ffb4ab;
+    font-size: 0.78em;
+    margin-left: 6px;
+}
+
 main {
     display: grid;
     grid-template-columns: 1fr 1fr;

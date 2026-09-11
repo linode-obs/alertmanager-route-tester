@@ -520,4 +520,8 @@ func TestResultTemplateRendersDefaultRoot(t *testing.T) {
 	if err := tmpl.ExecuteTemplate(&buf, "result.html", data); err != nil {
 		t.Fatalf("result.html failed to render with default root: %v", err)
 	}
+	output := buf.String()
+	if !strings.Contains(output, "root route's receiver") || !strings.Contains(output, "result-default") {
+		t.Fatalf("default root output = %q, want default notice and styling", output)
+	}
 }

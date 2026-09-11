@@ -1,6 +1,7 @@
 package cli_test
 
 import (
+	"context"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -18,7 +19,11 @@ func alertmanagerURL() string {
 
 func alertmanagerAvailable(url string) bool {
 	client := &http.Client{Timeout: 2 * time.Second}
-	response, err := client.Get(strings.TrimRight(url, "/") + "/api/v2/status")
+	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet, strings.TrimRight(url, "/")+"/api/v2/status", nil)
+	if err != nil {
+		return false
+	}
+	response, err := client.Do(req)
 	if err != nil {
 		return false
 	}

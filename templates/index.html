@@ -37,7 +37,7 @@
                     {{end}}
                     <form method="POST" action="/config/reload" style="display:inline"
                           hx-post="/config/reload" hx-swap="none"
-                          hx-on::config-reload-error="this.querySelector('.reload-error').hidden = false">
+                          hx-on:config-reload-error="this.querySelector('.reload-error').hidden = false">
                         <button type="submit" class="btn-reload-config" title="Reload configuration from Alertmanager">
                             Reload Config
                         </button>
@@ -53,7 +53,7 @@
                     {{end}}
                     <form method="POST" action="/config/reload" style="display:inline"
                           hx-post="/config/reload" hx-swap="none"
-                          hx-on::config-reload-error="this.querySelector('.reload-error').hidden = false">
+                          hx-on:config-reload-error="this.querySelector('.reload-error').hidden = false">
                         <button type="submit" class="btn-reload-config" title="Retry connecting to Alertmanager">
                             Retry
                         </button>

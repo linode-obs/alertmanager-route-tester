@@ -1,6 +1,7 @@
 package alertmanager
 
 import (
+	"context"
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/json"
@@ -333,7 +334,11 @@ func (c *Client) HasCachedConfig() bool {
 }
 
 func (c *Client) fetchStatus(status *StatusResponse) (bool, error) {
-	resp, err := c.httpClient.Get(c.baseURL + "/api/v2/status")
+	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet, c.baseURL+"/api/v2/status", nil)
+	if err != nil {
+		return true, fmt.Errorf("failed to create status request: %w", err)
+	}
+	resp, err := c.httpClient.Do(req)
 	if err != nil {
 		return true, fmt.Errorf("failed to fetch status: %w", err)
 	}

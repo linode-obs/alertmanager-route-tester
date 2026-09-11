@@ -3,7 +3,32 @@ version: "2"
 linters:
   default: standard
   enable:
+    - dupl
+    - exhaustive
+    - funlen
+    - gocyclo
     - gosec
+    - misspell
+    - noctx
+
+  exclusions:
+    rules:
+      - path: _test\.go
+        linters:
+          - funlen
+          - noctx
+      - path: internal/alertmanager/client\.go
+        linters:
+          - funlen
+      - path: internal/cli/test\.go
+        linters:
+          - funlen
+      - path: internal/handler/handler\.go
+        linters:
+          - funlen
+      - path: main\.go
+        linters:
+          - funlen
 
 formatters:
   enable:

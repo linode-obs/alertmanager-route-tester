@@ -28,9 +28,38 @@ jobs:
     - name: Install dependencies
       run: go mod download
 
+    - name: Start Alertmanager
+      run: |
+        curl -fsSL -o alertmanager.tar.gz \
+          https://github.com/prometheus/alertmanager/releases/download/v0.27.0/alertmanager-0.27.0.linux-amd64.tar.gz
+        tar -xzf alertmanager.tar.gz
+        mv alertmanager-0.27.0.linux-amd64 alertmanager
+        ./alertmanager/alertmanager \
+          --config.file=testdata/alertmanager.yml \
+          --web.listen-address=:19093 \
+          --storage.path=/tmp/alertmanager &
+        echo "ALERTMANAGER_PID=$!" >> "$GITHUB_ENV"
+        echo "ALERTMANAGER_URL=http://127.0.0.1:19093" >> "$GITHUB_ENV"
+        for i in {1..30}; do
+          if curl -fsS http://127.0.0.1:19093/api/v2/status > /dev/null; then
+            exit 0
+          fi
+          sleep 1
+        done
+        echo "Alertmanager did not become ready" >&2
+        exit 1
+
     - name: Run tests
       run: |
         go test -v ./... -coverprofile=coverage.out -covermode=count
+
+    - name: Stop Alertmanager
+      if: always()
+      run: |
+        if [ -n "${ALERTMANAGER_PID:-}" ]; then
+          kill "$ALERTMANAGER_PID" 2>/dev/null || true
+          wait "$ALERTMANAGER_PID" 2>/dev/null || true
+        fi
 
     - name: Generate coverage report
       run: |

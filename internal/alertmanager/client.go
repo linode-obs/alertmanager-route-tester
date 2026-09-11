@@ -288,7 +288,9 @@ func (c *Client) fetchStatus(status *StatusResponse) (bool, error) {
 	if err != nil {
 		return true, fmt.Errorf("failed to fetch status: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() {
+		_ = resp.Body.Close()
+	}()
 
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)

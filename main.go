@@ -75,10 +75,7 @@ func main() {
 
 	// CLI test mode
 	if cfg.App.CLITestMode.Enabled {
-		result, err := cli.TestRouting(client, cfg.App.CLITestMode.Labels)
-		if err != nil {
-			// Error is already included in result
-		}
+		result, _ := cli.TestRouting(client, cfg.App.CLITestMode.Labels)
 
 		format := cli.OutputFormat(strings.ToLower(cfg.App.CLITestMode.Format))
 		if err := cli.PrintResult(result, format); err != nil {

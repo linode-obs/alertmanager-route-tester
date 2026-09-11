@@ -26,5 +26,5 @@ func skipIntegration(t *testing.T) {
 	if err != nil {
 		t.Skipf("Skipping integration test: Alertmanager is not running at %s", alertmanagerURL())
 	}
-	response.Body.Close()
+	_ = response.Body.Close()
 }

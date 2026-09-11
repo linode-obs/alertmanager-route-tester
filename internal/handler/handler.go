@@ -256,7 +256,7 @@ func (h *Handler) HandleTest(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(response)
+	_ = json.NewEncoder(w).Encode(response)
 }
 
 func (h *Handler) HandleConfigLabels(w http.ResponseWriter, r *http.Request) {
@@ -270,7 +270,7 @@ func (h *Handler) HandleConfigLabels(w http.ResponseWriter, r *http.Request) {
 	labelKeys := alertmanager.ExtractLabelKeys(config)
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(labelKeys)
+	_ = json.NewEncoder(w).Encode(labelKeys)
 }
 
 func buildRouteSummary(matchedRoutes []alertmanager.MatchedRoute, finalReceiver string, config *alertmanager.Config) ([]RouteStep, []string, int, MatchSummary) {

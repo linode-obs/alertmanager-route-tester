@@ -53,15 +53,18 @@ func TestBuildRouteSummaryTreatsNestedParentAsTraceOnly(t *testing.T) {
 	}
 	matched := []alertmanager.MatchedRoute{
 		{Route: &alertmanager.Route{Receiver: "team-database"}},
-		{Route: &alertmanager.Route{Receiver: "pagerduty-database"}, Depth: 1, IsSubroute: true},
+		{Route: &alertmanager.Route{Receiver: "pagerduty-database"}, Depth: 1, IsSubroute: true, IsEffective: true},
 	}
 
-	_, receivers, continueCount, _ := buildRouteSummary(matched, "pagerduty-database", config)
+	steps, receivers, continueCount, _ := buildRouteSummary(matched, "pagerduty-database", config)
 	if got := strings.Join(receivers, ","); got != "pagerduty-database" {
 		t.Fatalf("matched receivers = %q, want pagerduty-database", got)
 	}
 	if continueCount != 0 {
 		t.Fatalf("continue count = %d, want 0", continueCount)
+	}
+	if len(steps) != 2 || steps[0].IsFinal || !steps[1].IsFinal {
+		t.Fatalf("route steps = %#v, want only child final", steps)
 	}
 
 	summaries := buildReceiverSummaries(matched, "pagerduty-database", config)
@@ -180,6 +183,44 @@ func TestReloadConfigReturnsFailureWhenFetchFails(t *testing.T) {
 	}
 }
 
+func TestReloadConfigPreservesCachedConfigWhenRefreshFails(t *testing.T) {
+	requests := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests++
+		if requests == 1 {
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"config":{"original":"route:\n  receiver: default\nreceivers:\n  - name: default\n"}}`))
+			return
+		}
+		w.WriteHeader(http.StatusBadGateway)
+	}))
+	defer server.Close()
+
+	client := alertmanager.NewClient(server.URL, false)
+	if _, err := client.GetConfig(); err != nil {
+		t.Fatalf("initial GetConfig() error = %v", err)
+	}
+
+	h := &Handler{client: client}
+	request := httptest.NewRequest(http.MethodPost, "/config/reload", nil)
+	response := httptest.NewRecorder()
+	h.HandleReloadConfig(response, request)
+
+	if response.Code != http.StatusServiceUnavailable {
+		t.Fatalf("status = %d, want %d", response.Code, http.StatusServiceUnavailable)
+	}
+	config, err := client.GetConfig()
+	if err != nil {
+		t.Fatalf("cached GetConfig() error = %v", err)
+	}
+	if config.Route == nil || config.Route.Receiver != "default" {
+		t.Fatalf("cached route = %#v, want default", config.Route)
+	}
+	if requests != 2 {
+		t.Fatalf("status requests = %d, want 2", requests)
+	}
+}
+
 func TestReloadConfigReturnsHXRefreshAfterSuccess(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
@@ -222,6 +263,61 @@ func TestResultTemplateRendersRootFallbackWithMatchedParent(t *testing.T) {
 	}
 	if strings.Contains(output, "Matched Route Configuration") {
 		t.Fatal("root fallback should not be presented as an explicit matched route")
+	}
+}
+
+func TestHandleTestReturnsNestedRouteJSON(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"config":{"original":"route:\n  receiver: default\n  routes:\n  - match:\n      team: database\n    receiver: team-database\n    routes:\n    - match:\n        severity: critical\n      receiver: pagerduty-database\nreceivers:\n- name: default\n- name: team-database\n- name: pagerduty-database\n"}}`))
+	}))
+	defer server.Close()
+
+	h := &Handler{client: alertmanager.NewClient(server.URL, false)}
+	request := httptest.NewRequest(http.MethodPost, "/test", bytes.NewBufferString(`{"labels":{"team":"database","severity":"critical"}}`))
+	request.Header.Set("Content-Type", "application/json")
+	response := httptest.NewRecorder()
+
+	h.HandleTest(response, request)
+
+	if response.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d", response.Code, http.StatusOK)
+	}
+	var body struct {
+		Receiver      string                      `json:"receiver"`
+		MatchedRoutes []alertmanager.MatchedRoute `json:"matched_routes"`
+	}
+	if err := json.NewDecoder(response.Body).Decode(&body); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if body.Receiver != "pagerduty-database" {
+		t.Fatalf("receiver = %q, want pagerduty-database", body.Receiver)
+	}
+	if len(body.MatchedRoutes) != 2 || body.MatchedRoutes[1].Depth != 1 || !body.MatchedRoutes[1].IsEffective {
+		t.Fatalf("matched routes = %#v, want nested effective child", body.MatchedRoutes)
+	}
+}
+
+func TestHandleTestReturnsEmptyMatchedRouteArrayForRootFallback(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"config":{"original":"route:\n  receiver: default\nreceivers:\n- name: default\n"}}`))
+	}))
+	defer server.Close()
+
+	h := &Handler{client: alertmanager.NewClient(server.URL, false)}
+	request := httptest.NewRequest(http.MethodPost, "/test", bytes.NewBufferString(`{"labels":{"alertname":"unknown"}}`))
+	request.Header.Set("Content-Type", "application/json")
+	response := httptest.NewRecorder()
+
+	h.HandleTest(response, request)
+
+	var body map[string]json.RawMessage
+	if err := json.NewDecoder(response.Body).Decode(&body); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if string(body["matched_routes"]) != "[]" {
+		t.Fatalf("matched_routes = %s, want []", body["matched_routes"])
 	}
 }
 

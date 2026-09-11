@@ -224,7 +224,19 @@ func (c *Client) GetConfig() (*Config, error) {
 		return c.cachedConfig, nil
 	}
 
-	// Slow path: fetch fresh config.
+	return c.fetchConfigLocked()
+}
+
+// RefreshConfig fetches a fresh configuration and replaces the cached value
+// only after the fetch and parse succeed.
+func (c *Client) RefreshConfig() (*Config, error) {
+	c.cacheMu.Lock()
+	defer c.cacheMu.Unlock()
+
+	return c.fetchConfigLocked()
+}
+
+func (c *Client) fetchConfigLocked() (*Config, error) {
 	var status StatusResponse
 	var lastErr error
 
@@ -246,18 +258,15 @@ func (c *Client) GetConfig() (*Config, error) {
 		return nil, lastErr
 	}
 
-	// Parse the YAML configuration
 	var config Config
 	if err := yaml.Unmarshal([]byte(status.ConfigYAML.Original), &config); err != nil {
 		return nil, fmt.Errorf("failed to parse YAML config: %w", err)
 	}
 
-	// Extract raw receiver configurations from the original YAML
 	if err := c.extractRawReceiverConfigs(&config, status.ConfigYAML.Original); err != nil {
 		return nil, fmt.Errorf("failed to extract receiver configs: %w", err)
 	}
 
-	// Store in cache.
 	c.cachedConfig = &config
 	c.cacheTimestamp = time.Now()
 
@@ -410,7 +419,7 @@ func (c *Client) FindMatchingRoute(labels map[string]string, config *Config) (st
 	}
 
 	matched := []MatchedRoute{}
-	receiver := findMatchingRouteRecursive(labels, config.Route, &matched, 0, nil)
+	receiver := findMatchingRouteRecursive(labels, config.Route, &matched, 0, nil, config.Route.Receiver)
 
 	// If no specific routes matched, use the root route's receiver as default
 	if receiver == "" && config.Route.Receiver != "" {
@@ -430,7 +439,7 @@ func (c *Client) FindReceiverByName(name string, config *Config) *Receiver {
 	return nil
 }
 
-func findMatchingRouteRecursive(labels map[string]string, route *Route, matched *[]MatchedRoute, depth int, parentReceivers []string) string {
+func findMatchingRouteRecursive(labels map[string]string, route *Route, matched *[]MatchedRoute, depth int, parentReceivers []string, inheritedReceiver string) string {
 	var finalReceiver string
 
 	for _, childRoute := range route.Routes {
@@ -453,12 +462,17 @@ func findMatchingRouteRecursive(labels map[string]string, route *Route, matched 
 				childParents[len(parentReceivers)] = childRoute.Receiver
 			}
 
-			// Recursively check child routes first
-			if receiver := findMatchingRouteRecursive(labels, childRoute, matched, depth+1, childParents); receiver != "" {
+			receiverForRoute := childRoute.Receiver
+			if receiverForRoute == "" {
+				receiverForRoute = inheritedReceiver
+			}
+
+			// Recursively check child routes first.
+			if receiver := findMatchingRouteRecursive(labels, childRoute, matched, depth+1, childParents, receiverForRoute); receiver != "" {
 				finalReceiver = receiver
-			} else if childRoute.Receiver != "" {
-				// No child matched but this route has a receiver
-				finalReceiver = childRoute.Receiver
+			} else if receiverForRoute != "" {
+				// No child matched, so this route inherits or supplies the receiver.
+				finalReceiver = receiverForRoute
 				(*matched)[matchIndex].IsEffective = true
 			}
 

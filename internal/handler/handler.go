@@ -137,8 +137,7 @@ func (h *Handler) HandleReloadConfig(w http.ResponseWriter, r *http.Request) {
 	}
 
 	slog.Info("reloading alertmanager config cache")
-	h.client.InvalidateConfig()
-	if _, err := h.client.GetConfig(); err != nil {
+	if _, err := h.client.RefreshConfig(); err != nil {
 		slog.Error("error reloading alertmanager config", "error", err)
 		http.Error(w, "Failed to reload Alertmanager config", http.StatusServiceUnavailable)
 		return

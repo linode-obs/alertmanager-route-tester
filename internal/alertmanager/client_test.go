@@ -28,6 +28,29 @@ func TestFindMatchingRouteReturnsEmptySliceForRootFallback(t *testing.T) {
 	}
 }
 
+func TestReceiverlessContinueRouteInheritsParentReceiver(t *testing.T) {
+	config := &Config{
+		Route: &Route{
+			Receiver: "default",
+			Routes: []*Route{
+				{Match: map[string]string{"severity": "warning"}, Receiver: "platform", Continue: true},
+				{Match: map[string]string{"severity": "warning"}},
+			},
+		},
+	}
+
+	receiver, matched, err := (&Client{}).FindMatchingRoute(map[string]string{"severity": "warning"}, config)
+	if err != nil {
+		t.Fatalf("FindMatchingRoute() error = %v", err)
+	}
+	if receiver != "default" {
+		t.Fatalf("receiver = %q, want inherited default", receiver)
+	}
+	if len(matched) != 2 || !matched[0].IsEffective || !matched[1].IsEffective {
+		t.Fatalf("matched routes = %#v, want both routes effective", matched)
+	}
+}
+
 func TestMatchedRoutesMarkResolvedBranches(t *testing.T) {
 	config := &Config{
 		Route: &Route{
@@ -57,11 +80,11 @@ func TestMatchedRoutesMarkResolvedBranches(t *testing.T) {
 	if len(matched) != 3 {
 		t.Fatalf("matched routes = %d, want 3", len(matched))
 	}
-	if !matched[0].IsEffective {
-		t.Error("parent route should remain effective when its receiver handles a receiver-less child")
+	if matched[0].IsEffective {
+		t.Error("parent route should not be effective when its receiver-less child inherits the receiver")
 	}
-	if matched[1].IsEffective {
-		t.Error("receiver-less child should not be effective")
+	if !matched[1].IsEffective {
+		t.Error("receiver-less child should be effective after inheriting the parent receiver")
 	}
 	if !matched[2].IsEffective {
 		t.Error("sibling fallback route should be effective")

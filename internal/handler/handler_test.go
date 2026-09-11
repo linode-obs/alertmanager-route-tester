@@ -152,11 +152,8 @@ func TestIsDefaultRootRejectsEffectiveNestedMatchUsingRootReceiver(t *testing.T)
 	}
 }
 
-// TestResultTemplateRendersMatchedRoutes verifies that result.html renders
-// without error when MatchedRoutes is []alertmanager.MatchedRoute.
-//
-// This guards against template field regressions such as accessing ".Receiver"
-// directly on a MatchedRoute (should be ".Route.Receiver").
+// TestHandleTestRendersErrorForMissingRootRoute verifies that a missing root
+// route returns a rendered error response instead of attempting route matching.
 func TestHandleTestRendersErrorForMissingRootRoute(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/v2/status" {

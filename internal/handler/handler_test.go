@@ -478,9 +478,9 @@ func TestResultTemplateRendersSubroute(t *testing.T) {
 		},
 		MatchedReceivers: []string{"pagerduty-database"},
 		RouteSteps: []RouteStep{
-			{Index: 1, Receiver: "team-database", Match: map[string]string{"team": "database"}},
+			{Index: 1, Receiver: "team-database", Match: map[string]string{"team": "database"}, IsEffective: false},
 			{Index: 2, Receiver: "pagerduty-database", Match: map[string]string{"severity": "critical"},
-				Depth: 1, ParentReceivers: []string{"team-database"}, IsSubroute: true, IsFinal: true},
+				Depth: 1, ParentReceivers: []string{"team-database"}, IsSubroute: true, IsEffective: true, IsFinal: true},
 		},
 		FinalMatch: MatchSummary{Match: map[string]string{"severity": "critical"}},
 		Labels:     map[string]string{"team": "database", "severity": "critical"},
@@ -500,6 +500,9 @@ func TestResultTemplateRendersSubroute(t *testing.T) {
 	}
 	if bytes.Contains(out, []byte("Multiple receivers will be notified")) {
 		t.Error("nested parent and child should not trigger multiple-receiver notice")
+	}
+	if !bytes.Contains(out, []byte("trace-trace-only-badge")) {
+		t.Error("trace-only parent marker is missing")
 	}
 }
 

@@ -1243,6 +1243,18 @@ code {
     font-size: 0.72em;
 }
 
+.trace-only {
+    opacity: 0.65;
+}
+
+.trace-trace-only-badge {
+    border: 1px dashed var(--text-muted, #8b95a1);
+    color: var(--text-muted, #8b95a1);
+    padding: 2px 8px;
+    border-radius: 999px;
+    font-size: 0.72em;
+}
+
 .trace-match {
     display: flex;
     flex-direction: column;

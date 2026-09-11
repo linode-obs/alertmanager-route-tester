@@ -511,7 +511,7 @@ func findMatchingRouteRecursive(labels map[string]string, route *Route, matched 
 			// Build the ancestry list for this route's own children.
 			// Only include non-empty receiver names.
 			childParents := parentReceivers
-			if receiverForRoute != "" && (len(parentReceivers) == 0 || parentReceivers[len(parentReceivers)-1] != receiverForRoute) {
+			if receiverForRoute != "" {
 				childParents = make([]string, len(parentReceivers)+1)
 				copy(childParents, parentReceivers)
 				childParents[len(parentReceivers)] = receiverForRoute

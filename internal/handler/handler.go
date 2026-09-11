@@ -28,15 +28,16 @@ type TestResponse struct {
 }
 
 type RouteStep struct {
-	Index     int
-	Receiver  string
-	Match     map[string]string
-	MatchRE   map[string]string
-	Matchers  []string
-	Continue  bool
-	IsFinal   bool
-	TypeLabel string
-	TypeIcon  string
+	Index       int
+	Receiver    string
+	Match       map[string]string
+	MatchRE     map[string]string
+	Matchers    []string
+	Continue    bool
+	IsFinal     bool
+	IsEffective bool
+	TypeLabel   string
+	TypeIcon    string
 	// Subroute context
 	Depth           int
 	ParentReceivers []string
@@ -320,6 +321,7 @@ func buildRouteSummary(matchedRoutes []alertmanager.MatchedRoute, finalReceiver 
 			MatchRE:         route.MatchRE,
 			Matchers:        route.Matchers,
 			Continue:        route.Continue,
+			IsEffective:     mr.IsEffective,
 			TypeLabel:       typeLabel,
 			TypeIcon:        typeIcon,
 			Depth:           mr.Depth,

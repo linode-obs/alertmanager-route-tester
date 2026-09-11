@@ -172,7 +172,7 @@ repeat_interval: {{.Route.RepeatInterval}}{{end}}</pre>
         <p class="route-explanation">Evaluation order for routes that matched this alert.</p>
         <div class="trace-timeline">
             {{range .RouteSteps}}
-            <div class="trace-row {{if .IsFinal}}trace-final{{end}} {{if .IsSubroute}}trace-subroute{{end}}">
+            <div class="trace-row {{if .IsFinal}}trace-final{{end}} {{if .IsSubroute}}trace-subroute{{end}} {{if not .IsEffective}}trace-only{{end}}">
                 <div class="trace-bar">
                     <span class="trace-bar-fill"></span>
                 </div>
@@ -187,6 +187,9 @@ repeat_interval: {{.Route.RepeatInterval}}{{end}}</pre>
                     <span class="trace-receiver">{{.Receiver}}</span>
                     {{if .IsSubroute}}
                     <span class="trace-subroute-badge">subroute (depth {{.Depth}})</span>
+                    {{end}}
+                    {{if not .IsEffective}}
+                    <span class="trace-trace-only-badge">trace only</span>
                     {{end}}
                     {{if .TypeLabel}}
                     <!-- TODO: Replace emoji with actual receiver logos -->

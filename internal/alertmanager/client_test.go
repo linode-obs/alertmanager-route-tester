@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -922,6 +923,30 @@ func TestFindMatchingRouteComprehensive(t *testing.T) {
 // ---------------------------------------------------------------------------
 // Subroute depth and parent-chain tests
 // ---------------------------------------------------------------------------
+
+func TestParentChainPreservesRepeatedReceivers(t *testing.T) {
+	cfg := &Config{Route: &Route{
+		Receiver: "default",
+		Routes: []*Route{{
+			Receiver: "team",
+			Routes: []*Route{{
+				Receiver: "team",
+				Routes:   []*Route{{Receiver: "leaf"}},
+			}},
+		}},
+	}}
+
+	_, matched, err := (&Client{}).FindMatchingRoute(map[string]string{}, cfg)
+	if err != nil {
+		t.Fatalf("FindMatchingRoute() error = %v", err)
+	}
+	if len(matched) != 3 {
+		t.Fatalf("matched routes = %d, want 3", len(matched))
+	}
+	if got := strings.Join(matched[2].ParentReceivers, " -> "); got != "team -> team" {
+		t.Fatalf("parent receivers = %q, want team -> team", got)
+	}
+}
 
 func TestSubrouteDepthAndParentChain(t *testing.T) {
 	// Config with three nesting levels: root → L1 → L2

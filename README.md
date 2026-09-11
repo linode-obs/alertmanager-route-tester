@@ -117,7 +117,7 @@ Unit tests cover:
 
 #### Integration Tests
 
-Integration tests verify behavior against a real Alertmanager instance. They use the instance on `localhost:9093` when it is available and skip cleanly otherwise.
+Integration tests verify behavior against a real Alertmanager instance. When `ALERTMANAGER_URL` is unset, they use `localhost:9093` and skip cleanly when it is unavailable. When `ALERTMANAGER_URL` is set, an unavailable endpoint fails the tests instead of being skipped.
 
 Run the full test workflow, including a managed Alertmanager instance:
 

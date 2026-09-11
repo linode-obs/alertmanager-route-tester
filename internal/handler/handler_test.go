@@ -76,6 +76,32 @@ func TestIndexTemplateLabelsCachedConfig(t *testing.T) {
 	}
 }
 
+func TestHandleIndexShowsCachedStatusAfterInitialLoad(t *testing.T) {
+	requests := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests++
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"config":{"original":"route:\n  receiver: default\nreceivers:\n- name: default\n"}}`))
+	}))
+	defer server.Close()
+
+	h := &Handler{client: alertmanager.NewClient(server.URL, false), tmpl: loadTemplates(t)}
+	first := httptest.NewRecorder()
+	h.HandleIndex(first, httptest.NewRequest(http.MethodGet, "/", http.NoBody))
+	if first.Code != http.StatusOK || !strings.Contains(first.Body.String(), "Connected to") {
+		t.Fatalf("first response = %d %q, want live connection status", first.Code, first.Body.String())
+	}
+
+	second := httptest.NewRecorder()
+	h.HandleIndex(second, httptest.NewRequest(http.MethodGet, "/", http.NoBody))
+	if second.Code != http.StatusOK || !strings.Contains(second.Body.String(), "Using cached config") {
+		t.Fatalf("second response = %d %q, want cached status", second.Code, second.Body.String())
+	}
+	if requests != 1 {
+		t.Fatalf("Alertmanager requests = %d, want one cached read", requests)
+	}
+}
+
 func TestBuildRouteSummaryTreatsNestedParentAsTraceOnly(t *testing.T) {
 	config := &alertmanager.Config{
 		Receivers: []alertmanager.Receiver{

@@ -40,8 +40,12 @@ type AppConfig struct {
 }
 
 type ServerConfig struct {
-	Enabled *bool  `yaml:"enabled"`
-	Listen  string `yaml:"listen"`
+	Enabled           *bool    `yaml:"enabled"`
+	Listen            string   `yaml:"listen"`
+	ReadHeaderTimeout Duration `yaml:"read_header_timeout"`
+	ReadTimeout       Duration `yaml:"read_timeout"`
+	WriteTimeout      Duration `yaml:"write_timeout"`
+	IdleTimeout       Duration `yaml:"idle_timeout"`
 }
 
 type AlertmanagerConfig struct {
@@ -143,6 +147,8 @@ func applyDefaults(cfg *Config) {
 		cfg.Alertmanager.Retry.Backoff = Duration{Duration: 300 * time.Millisecond}
 	}
 
+	applyServerTimeoutDefaults(cfg)
+
 	if cfg.Alertmanager.Pool.MaxIdleConns == 0 {
 		cfg.Alertmanager.Pool.MaxIdleConns = 100
 	}
@@ -155,6 +161,25 @@ func applyDefaults(cfg *Config) {
 	}
 	if cfg.App.CLITestMode.Labels == nil {
 		cfg.App.CLITestMode.Labels = map[string]string{}
+	}
+}
+
+func applyServerTimeoutDefaults(cfg *Config) {
+	retryBudget := cfg.Alertmanager.HTTP.Timeouts.Request.Duration * time.Duration(cfg.Alertmanager.Retry.MaxAttempts)
+	if cfg.Alertmanager.Retry.MaxAttempts > 1 {
+		retryBudget += cfg.Alertmanager.Retry.Backoff.Duration * time.Duration(cfg.Alertmanager.Retry.MaxAttempts-1)
+	}
+	if cfg.App.Server.ReadHeaderTimeout.Duration == 0 {
+		cfg.App.Server.ReadHeaderTimeout = Duration{Duration: 5 * time.Second}
+	}
+	if cfg.App.Server.WriteTimeout.Duration == 0 {
+		cfg.App.Server.WriteTimeout = Duration{Duration: retryBudget + 5*time.Second}
+	}
+	if cfg.App.Server.ReadTimeout.Duration == 0 {
+		cfg.App.Server.ReadTimeout = cfg.App.Server.WriteTimeout
+	}
+	if cfg.App.Server.IdleTimeout.Duration == 0 {
+		cfg.App.Server.IdleTimeout = Duration{Duration: 60 * time.Second}
 	}
 }
 

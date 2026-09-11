@@ -9,7 +9,6 @@ import (
 	"runtime"
 	"runtime/debug"
 	"strings"
-	"time"
 
 	"github.com/wbollock/alertmanager-route-tester/internal/alertmanager"
 	"github.com/wbollock/alertmanager-route-tester/internal/cli"
@@ -107,10 +106,10 @@ func main() {
 	server := &http.Server{
 		Addr:              cfg.App.Server.Listen,
 		Handler:           nil,
-		ReadHeaderTimeout: 5 * time.Second,
-		ReadTimeout:       15 * time.Second,
-		WriteTimeout:      15 * time.Second,
-		IdleTimeout:       60 * time.Second,
+		ReadHeaderTimeout: cfg.App.Server.ReadHeaderTimeout.Duration,
+		ReadTimeout:       cfg.App.Server.ReadTimeout.Duration,
+		WriteTimeout:      cfg.App.Server.WriteTimeout.Duration,
+		IdleTimeout:       cfg.App.Server.IdleTimeout.Duration,
 	}
 	if err := server.ListenAndServe(); err != nil {
 		slog.Error("server stopped", "error", err)

@@ -187,6 +187,20 @@ func validate(cfg *Config) error {
 	if cfg.Alertmanager.URL == "" {
 		return errors.New("alertmanager.url is required")
 	}
+	serverTimeouts := []struct {
+		name  string
+		value time.Duration
+	}{
+		{"read_header_timeout", cfg.App.Server.ReadHeaderTimeout.Duration},
+		{"read_timeout", cfg.App.Server.ReadTimeout.Duration},
+		{"write_timeout", cfg.App.Server.WriteTimeout.Duration},
+		{"idle_timeout", cfg.App.Server.IdleTimeout.Duration},
+	}
+	for _, timeout := range serverTimeouts {
+		if timeout.value < 0 {
+			return fmt.Errorf("alertmanager-route-tester.server.%s must be >= 0", timeout.name)
+		}
+	}
 
 	if cfg.Alertmanager.HTTP.TLS.CertFile != "" && cfg.Alertmanager.HTTP.TLS.KeyFile == "" {
 		return errors.New("alertmanager.http.tls.key_file is required when cert_file is set")

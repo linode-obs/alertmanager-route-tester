@@ -24,6 +24,18 @@ func TestServerTimeoutDefaultsCoverRetryBudget(t *testing.T) {
 	}
 }
 
+func TestNegativeServerTimeoutsAreRejected(t *testing.T) {
+	cfg := &Config{
+		Alertmanager: AlertmanagerConfig{URL: "http://localhost:9093"},
+		App:          AppConfig{Server: ServerConfig{WriteTimeout: Duration{Duration: -time.Second}}},
+	}
+	applyDefaults(cfg)
+
+	if err := validate(cfg); err == nil {
+		t.Fatal("validate() error = nil, want negative server timeout error")
+	}
+}
+
 func TestServerTimeoutsCanBeConfigured(t *testing.T) {
 	cfg := &Config{
 		App: AppConfig{Server: ServerConfig{

@@ -37,7 +37,7 @@ func TestPrintResultShowsFullSubrouteAncestry(t *testing.T) {
 	}
 
 	output := captureSimpleOutput(t, result)
-	if !strings.Contains(output, "[subroute of platform -> platform-prod]") {
+	if !strings.Contains(output, "[trace-only] [subroute of platform -> platform-prod]") {
 		t.Fatalf("output = %q, want full ancestry", output)
 	}
 }

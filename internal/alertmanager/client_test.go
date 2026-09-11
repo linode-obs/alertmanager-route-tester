@@ -1285,6 +1285,9 @@ func TestParentRouteWithNoReceiverFallsToDefault(t *testing.T) {
 		if len(matched) != 2 {
 			t.Errorf("expected 2 matched routes, got %d", len(matched))
 		}
+		if len(matched[1].ParentReceivers) != 1 || matched[1].ParentReceivers[0] != "root-default" {
+			t.Errorf("child parent receivers = %v, want [root-default]", matched[1].ParentReceivers)
+		}
 	})
 }
 

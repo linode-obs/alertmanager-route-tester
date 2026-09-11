@@ -100,6 +100,9 @@ func PrintResult(result *TestResult, format OutputFormat) error {
 					resolvedReceiver = route.Receiver
 				}
 				fmt.Printf("  %d. ", i+1)
+				if !mr.IsEffective {
+					fmt.Printf("[trace-only] ")
+				}
 				if mr.IsSubroute {
 					if len(mr.ParentReceivers) > 0 {
 						fmt.Printf("[subroute of %s] ", strings.Join(mr.ParentReceivers, " -> "))

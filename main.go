@@ -102,6 +102,7 @@ func main() {
 	http.HandleFunc("/", h.HandleIndex)
 	http.HandleFunc("/test", h.HandleTest)
 	http.HandleFunc("/config/labels", h.HandleConfigLabels)
+	http.HandleFunc("/config/reload", h.HandleReloadConfig)
 
 	slog.Info("starting server", "listen", cfg.App.Server.Listen)
 	slog.Info("using alertmanager", "url", cfg.Alertmanager.URL)

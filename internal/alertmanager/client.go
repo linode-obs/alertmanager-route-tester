@@ -12,6 +12,7 @@ import (
 	"os"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"gopkg.in/yaml.v3"
@@ -22,6 +23,11 @@ type Client struct {
 	httpClient       *http.Client
 	retryMaxAttempts int
 	retryBackoff     time.Duration
+
+	// Config cache
+	cacheMu        sync.RWMutex
+	cachedConfig   *Config
+	cacheTimestamp time.Time
 }
 
 type StatusResponse struct {
@@ -209,6 +215,16 @@ func (c *Client) CheckConnection() error {
 }
 
 func (c *Client) GetConfig() (*Config, error) {
+	// Fast path: return cached config when available.
+	c.cacheMu.RLock()
+	if c.cachedConfig != nil {
+		cfg := c.cachedConfig
+		c.cacheMu.RUnlock()
+		return cfg, nil
+	}
+	c.cacheMu.RUnlock()
+
+	// Slow path: fetch fresh config.
 	var status StatusResponse
 	var lastErr error
 
@@ -241,7 +257,30 @@ func (c *Client) GetConfig() (*Config, error) {
 		return nil, fmt.Errorf("failed to extract receiver configs: %w", err)
 	}
 
+	// Store in cache.
+	c.cacheMu.Lock()
+	c.cachedConfig = &config
+	c.cacheTimestamp = time.Now()
+	c.cacheMu.Unlock()
+
 	return &config, nil
+}
+
+// InvalidateConfig clears the cached configuration so the next call to
+// GetConfig() fetches a fresh copy from Alertmanager.
+func (c *Client) InvalidateConfig() {
+	c.cacheMu.Lock()
+	c.cachedConfig = nil
+	c.cacheTimestamp = time.Time{}
+	c.cacheMu.Unlock()
+}
+
+// ConfigCachedAt returns the time the configuration was last fetched from
+// Alertmanager, or the zero time if nothing has been cached yet.
+func (c *Client) ConfigCachedAt() time.Time {
+	c.cacheMu.RLock()
+	defer c.cacheMu.RUnlock()
+	return c.cacheTimestamp
 }
 
 func (c *Client) fetchStatus(status *StatusResponse) (bool, error) {
@@ -345,21 +384,38 @@ func buildTLSConfig(opts TLSOptions) (*tls.Config, error) {
 	return tlsConfig, nil
 }
 
-// FindMatchingRoute determines which receiver an alert would match
-func (c *Client) FindMatchingRoute(labels map[string]string, config *Config) (string, []*Route, error) {
+// MatchedRoute represents a route that matched an alert, along with its position
+// in the route tree expressed as a parent→child ancestry path.
+type MatchedRoute struct {
+	// Route is the matched route node.
+	Route *Route `json:"route"`
+	// Depth is 0 for direct children of the root route, 1 for their children, etc.
+	Depth int `json:"depth"`
+	// ParentReceivers is the ordered list of ancestor receivers from the root
+	// down to (but not including) this route.  Empty for top-level routes.
+	ParentReceivers []string `json:"parent_receivers,omitempty"`
+	// IsSubroute is true when Depth > 0, i.e. this route was reached by
+	// entering a nested `routes:` block of a parent that also matched.
+	IsSubroute bool `json:"is_subroute"`
+}
+
+// FindMatchingRoute determines which receiver an alert would match.
+// It returns a flat, ordered list of MatchedRoute entries that captures the
+// full parent→child traversal path so callers can reconstruct the chain.
+func (c *Client) FindMatchingRoute(labels map[string]string, config *Config) (string, []MatchedRoute, error) {
 	if config.Route == nil {
 		return "", nil, fmt.Errorf("no route configuration found")
 	}
 
-	matchedRoutes := []*Route{}
-	receiver := findMatchingRouteRecursive(labels, config.Route, &matchedRoutes)
+	var matched []MatchedRoute
+	receiver := findMatchingRouteRecursive(labels, config.Route, &matched, 0, nil)
 
 	// If no specific routes matched, use the root route's receiver as default
 	if receiver == "" && config.Route.Receiver != "" {
 		receiver = config.Route.Receiver
 	}
 
-	return receiver, matchedRoutes, nil
+	return receiver, matched, nil
 }
 
 // FindReceiverByName finds a receiver configuration by name
@@ -372,15 +428,30 @@ func (c *Client) FindReceiverByName(name string, config *Config) *Receiver {
 	return nil
 }
 
-func findMatchingRouteRecursive(labels map[string]string, route *Route, matchedRoutes *[]*Route) string {
+func findMatchingRouteRecursive(labels map[string]string, route *Route, matched *[]MatchedRoute, depth int, parentReceivers []string) string {
 	var finalReceiver string
 
 	for _, childRoute := range route.Routes {
 		if matchesRoute(labels, childRoute) {
-			*matchedRoutes = append(*matchedRoutes, childRoute)
+			mr := MatchedRoute{
+				Route:           childRoute,
+				Depth:           depth,
+				ParentReceivers: parentReceivers,
+				IsSubroute:      depth > 0,
+			}
+			*matched = append(*matched, mr)
+
+			// Build the ancestry list for this route's own children.
+			// Only include non-empty receiver names.
+			childParents := parentReceivers
+			if childRoute.Receiver != "" {
+				childParents = make([]string, len(parentReceivers)+1)
+				copy(childParents, parentReceivers)
+				childParents[len(parentReceivers)] = childRoute.Receiver
+			}
 
 			// Recursively check child routes first
-			if receiver := findMatchingRouteRecursive(labels, childRoute, matchedRoutes); receiver != "" {
+			if receiver := findMatchingRouteRecursive(labels, childRoute, matched, depth+1, childParents); receiver != "" {
 				finalReceiver = receiver
 			} else if childRoute.Receiver != "" {
 				// No child matched but this route has a receiver

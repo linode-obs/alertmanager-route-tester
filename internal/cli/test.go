@@ -10,11 +10,11 @@ import (
 
 // TestResult represents the output of a route test
 type TestResult struct {
-	Receiver       string                 `json:"receiver"`
-	ReceiverConfig *alertmanager.Receiver `json:"receiver_config,omitempty"`
-	MatchedRoutes  []*alertmanager.Route  `json:"matched_routes"`
-	Labels         map[string]string      `json:"labels"`
-	Error          string                 `json:"error,omitempty"`
+	Receiver       string                      `json:"receiver"`
+	ReceiverConfig *alertmanager.Receiver      `json:"receiver_config,omitempty"`
+	MatchedRoutes  []alertmanager.MatchedRoute `json:"matched_routes"`
+	Labels         map[string]string           `json:"labels"`
+	Error          string                      `json:"error,omitempty"`
 }
 
 // TestRouting tests alert routing using the exact same logic as the web UI
@@ -92,8 +92,12 @@ func PrintResult(result *TestResult, format OutputFormat) error {
 
 		if len(result.MatchedRoutes) > 0 {
 			fmt.Printf("Matched Routes:\n")
-			for i, route := range result.MatchedRoutes {
+			for i, mr := range result.MatchedRoutes {
+				route := mr.Route
 				fmt.Printf("  %d. ", i+1)
+				if mr.IsSubroute && len(mr.ParentReceivers) > 0 {
+					fmt.Printf("[subroute of %s] ", mr.ParentReceivers[len(mr.ParentReceivers)-1])
+				}
 				if route.Receiver != "" {
 					fmt.Printf("receiver=%s ", route.Receiver)
 				}

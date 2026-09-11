@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/wbollock/alertmanager-route-tester/internal/alertmanager"
 )
@@ -20,10 +21,10 @@ type TestRequest struct {
 }
 
 type TestResponse struct {
-	Receiver       string                 `json:"receiver"`
-	ReceiverConfig *alertmanager.Receiver `json:"receiver_config,omitempty"`
-	MatchedRoutes  []*alertmanager.Route  `json:"matched_routes"`
-	Labels         map[string]string      `json:"labels"`
+	Receiver       string                      `json:"receiver"`
+	ReceiverConfig *alertmanager.Receiver      `json:"receiver_config,omitempty"`
+	MatchedRoutes  []alertmanager.MatchedRoute `json:"matched_routes"`
+	Labels         map[string]string           `json:"labels"`
 }
 
 type RouteStep struct {
@@ -36,6 +37,10 @@ type RouteStep struct {
 	IsFinal   bool
 	TypeLabel string
 	TypeIcon  string
+	// Subroute context
+	Depth           int
+	ParentReceivers []string
+	IsSubroute      bool
 }
 
 type MatchSummary struct {
@@ -68,6 +73,7 @@ func New(client *alertmanager.Client) *Handler {
 func (h *Handler) HandleIndex(w http.ResponseWriter, r *http.Request) {
 	config, err := h.client.GetConfig()
 	connectionOK := err == nil
+	configCachedAt := h.client.ConfigCachedAt()
 
 	if err != nil {
 		slog.Error("error fetching config", "error", err)
@@ -78,6 +84,7 @@ func (h *Handler) HandleIndex(w http.ResponseWriter, r *http.Request) {
 			AlertmanagerURL  string
 			ConnectionStatus bool
 			ConnectionError  string
+			ConfigCachedAt   time.Time
 		}{
 			LabelSuggestions: []alertmanager.LabelSuggestion{},
 			SampleAlerts:     []alertmanager.SampleAlert{},
@@ -85,6 +92,7 @@ func (h *Handler) HandleIndex(w http.ResponseWriter, r *http.Request) {
 			AlertmanagerURL:  h.client.BaseURL(),
 			ConnectionStatus: false,
 			ConnectionError:  err.Error(),
+			ConfigCachedAt:   configCachedAt,
 		}
 		if err := h.tmpl.ExecuteTemplate(w, "index.html", data); err != nil {
 			slog.Error("error rendering template", "error", err)
@@ -103,6 +111,7 @@ func (h *Handler) HandleIndex(w http.ResponseWriter, r *http.Request) {
 		AlertmanagerURL  string
 		ConnectionStatus bool
 		ConnectionError  string
+		ConfigCachedAt   time.Time
 	}{
 		LabelSuggestions: labelSuggestions,
 		SampleAlerts:     sampleAlerts,
@@ -110,12 +119,38 @@ func (h *Handler) HandleIndex(w http.ResponseWriter, r *http.Request) {
 		AlertmanagerURL:  h.client.BaseURL(),
 		ConnectionStatus: connectionOK,
 		ConnectionError:  "",
+		ConfigCachedAt:   configCachedAt,
 	}
 
 	if err := h.tmpl.ExecuteTemplate(w, "index.html", data); err != nil {
 		slog.Error("error rendering template", "error", err)
 		http.Error(w, "Failed to render page", http.StatusInternalServerError)
 	}
+}
+
+// HandleReloadConfig refreshes the cached config, then redirects back to the
+// index page.
+func (h *Handler) HandleReloadConfig(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	slog.Info("reloading alertmanager config cache")
+	h.client.InvalidateConfig()
+	if _, err := h.client.GetConfig(); err != nil {
+		slog.Error("error reloading alertmanager config", "error", err)
+	}
+
+	// If this is an HTMX request, return a small snippet so the page can
+	// refresh itself without a full reload.
+	if r.Header.Get("HX-Request") == "true" {
+		w.Header().Set("HX-Refresh", "true")
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+
+	http.Redirect(w, r, "/", http.StatusSeeOther)
 }
 
 func (h *Handler) HandleTest(w http.ResponseWriter, r *http.Request) {
@@ -151,7 +186,7 @@ func (h *Handler) HandleTest(w http.ResponseWriter, r *http.Request) {
 	config, err := h.client.GetConfig()
 	var receiver string
 	var receiverConfig *alertmanager.Receiver
-	var matchedRoutes []*alertmanager.Route
+	var matchedRoutes []alertmanager.MatchedRoute
 	var errorMsg string
 
 	if err != nil {
@@ -179,7 +214,7 @@ func (h *Handler) HandleTest(w http.ResponseWriter, r *http.Request) {
 		data := struct {
 			Receiver                 string
 			ReceiverConfig           *alertmanager.Receiver
-			MatchedRoutes            []*alertmanager.Route
+			MatchedRoutes            []alertmanager.MatchedRoute
 			MatchedReceivers         []string
 			RouteSteps               []RouteStep
 			ContinueCount            int
@@ -196,7 +231,7 @@ func (h *Handler) HandleTest(w http.ResponseWriter, r *http.Request) {
 			RouteSteps:               routeSteps,
 			ContinueCount:            continueCount,
 			FinalMatch:               finalMatch,
-			DefaultRoot:              config != nil && len(matchedRoutes) == 0 && receiver == config.Route.Receiver,
+			DefaultRoot:              config != nil && config.Route != nil && len(matchedRoutes) == 0 && receiver == config.Route.Receiver,
 			MatchedReceiverSummaries: matchedReceiverSummaries,
 			Labels:                   labels,
 			Error:                    errorMsg,
@@ -238,7 +273,7 @@ func (h *Handler) HandleConfigLabels(w http.ResponseWriter, r *http.Request) {
 	json.NewEncoder(w).Encode(labelKeys)
 }
 
-func buildRouteSummary(matchedRoutes []*alertmanager.Route, finalReceiver string, config *alertmanager.Config) ([]RouteStep, []string, int, MatchSummary) {
+func buildRouteSummary(matchedRoutes []alertmanager.MatchedRoute, finalReceiver string, config *alertmanager.Config) ([]RouteStep, []string, int, MatchSummary) {
 	steps := make([]RouteStep, 0, len(matchedRoutes))
 	receivers := make([]string, 0, len(matchedRoutes))
 	seen := make(map[string]bool)
@@ -253,7 +288,8 @@ func buildRouteSummary(matchedRoutes []*alertmanager.Route, finalReceiver string
 		}
 	}
 
-	for i, route := range matchedRoutes {
+	for i, mr := range matchedRoutes {
+		route := mr.Route
 		if route.Continue {
 			continueCount++
 		}
@@ -266,14 +302,17 @@ func buildRouteSummary(matchedRoutes []*alertmanager.Route, finalReceiver string
 		}
 
 		step := RouteStep{
-			Index:     i + 1,
-			Receiver:  route.Receiver,
-			Match:     route.Match,
-			MatchRE:   route.MatchRE,
-			Matchers:  route.Matchers,
-			Continue:  route.Continue,
-			TypeLabel: typeLabel,
-			TypeIcon:  typeIcon,
+			Index:           i + 1,
+			Receiver:        route.Receiver,
+			Match:           route.Match,
+			MatchRE:         route.MatchRE,
+			Matchers:        route.Matchers,
+			Continue:        route.Continue,
+			TypeLabel:       typeLabel,
+			TypeIcon:        typeIcon,
+			Depth:           mr.Depth,
+			ParentReceivers: mr.ParentReceivers,
+			IsSubroute:      mr.IsSubroute,
 		}
 		steps = append(steps, step)
 
@@ -287,9 +326,10 @@ func buildRouteSummary(matchedRoutes []*alertmanager.Route, finalReceiver string
 		for i := len(steps) - 1; i >= 0; i-- {
 			if steps[i].Receiver == finalReceiver {
 				steps[i].IsFinal = true
-				finalMatch.Match = matchedRoutes[i].Match
-				finalMatch.MatchRE = matchedRoutes[i].MatchRE
-				finalMatch.Matchers = matchedRoutes[i].Matchers
+				route := matchedRoutes[i].Route
+				finalMatch.Match = route.Match
+				finalMatch.MatchRE = route.MatchRE
+				finalMatch.Matchers = route.Matchers
 				break
 			}
 		}
@@ -318,7 +358,7 @@ func receiverType(receiver *alertmanager.Receiver) (string, string) {
 	}
 }
 
-func buildReceiverSummaries(matchedRoutes []*alertmanager.Route, finalReceiver string, config *alertmanager.Config) []ReceiverSummary {
+func buildReceiverSummaries(matchedRoutes []alertmanager.MatchedRoute, finalReceiver string, config *alertmanager.Config) []ReceiverSummary {
 	if config == nil {
 		return nil
 	}
@@ -331,7 +371,8 @@ func buildReceiverSummaries(matchedRoutes []*alertmanager.Route, finalReceiver s
 
 	summaries := []ReceiverSummary{}
 	seen := map[string]bool{}
-	for _, route := range matchedRoutes {
+	for _, mr := range matchedRoutes {
+		route := mr.Route
 		if route.Receiver == "" || seen[route.Receiver] {
 			continue
 		}

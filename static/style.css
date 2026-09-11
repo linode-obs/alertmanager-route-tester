@@ -208,6 +208,30 @@ header h1 {
     font-family: var(--font-mono);
 }
 
+.config-cached-at {
+    font-size: 0.8em;
+    opacity: 0.7;
+    font-family: var(--font-mono);
+    margin-left: auto;
+}
+
+.btn-reload-config {
+    background: transparent;
+    border: 1px solid rgba(255, 255, 255, 0.4);
+    color: inherit;
+    padding: 3px 10px;
+    border-radius: 999px;
+    font-size: 0.78em;
+    cursor: pointer;
+    transition: background 0.15s, border-color 0.15s;
+    white-space: nowrap;
+}
+
+.btn-reload-config:hover {
+    background: rgba(255, 255, 255, 0.12);
+    border-color: rgba(255, 255, 255, 0.65);
+}
+
 main {
     display: grid;
     grid-template-columns: 1fr 1fr;
@@ -1184,6 +1208,33 @@ code {
     padding: 2px 8px;
     border-radius: 999px;
     font-size: 0.75em;
+}
+
+/* Subroute styling */
+.trace-row.trace-subroute .trace-meta {
+    border-left: 3px solid var(--accent-color, #6b7efa);
+    margin-left: 12px;
+}
+
+.trace-subroute-chain {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    font-size: 0.78em;
+    color: var(--text-muted, #8b95a1);
+    font-family: var(--font-mono);
+}
+
+.trace-parent {
+    opacity: 0.75;
+}
+
+.trace-subroute-badge {
+    border: 1px solid var(--accent-color, #6b7efa);
+    color: var(--accent-color, #6b7efa);
+    padding: 2px 8px;
+    border-radius: 999px;
+    font-size: 0.72em;
 }
 
 .trace-match {

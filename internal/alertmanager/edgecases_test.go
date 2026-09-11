@@ -33,7 +33,10 @@ func TestEdgeCases(t *testing.T) {
 				Route: &Route{
 					Receiver: "default",
 					Routes: []*Route{
-						{Receiver: "matches-all"},
+						{
+							MatchRE:  map[string]string{"any": ".*"},
+							Receiver: "matches-all",
+						},
 					},
 				},
 			},

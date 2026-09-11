@@ -231,7 +231,7 @@ func (h *Handler) HandleTest(w http.ResponseWriter, r *http.Request) {
 			RouteSteps:               routeSteps,
 			ContinueCount:            continueCount,
 			FinalMatch:               finalMatch,
-			DefaultRoot:              config != nil && config.Route != nil && len(matchedRoutes) == 0 && receiver == config.Route.Receiver,
+			DefaultRoot:              isDefaultRoot(receiver, matchedRoutes, config),
 			MatchedReceiverSummaries: matchedReceiverSummaries,
 			Labels:                   labels,
 			Error:                    errorMsg,
@@ -316,7 +316,7 @@ func buildRouteSummary(matchedRoutes []alertmanager.MatchedRoute, finalReceiver 
 		}
 		steps = append(steps, step)
 
-		if route.Receiver != "" && !seen[route.Receiver] {
+		if isEffectiveMatch(matchedRoutes, i) && route.Receiver != "" && !seen[route.Receiver] {
 			receivers = append(receivers, route.Receiver)
 			seen[route.Receiver] = true
 		}
@@ -371,9 +371,9 @@ func buildReceiverSummaries(matchedRoutes []alertmanager.MatchedRoute, finalRece
 
 	summaries := []ReceiverSummary{}
 	seen := map[string]bool{}
-	for _, mr := range matchedRoutes {
+	for i, mr := range matchedRoutes {
 		route := mr.Route
-		if route.Receiver == "" || seen[route.Receiver] {
+		if !isEffectiveMatch(matchedRoutes, i) || route.Receiver == "" || seen[route.Receiver] {
 			continue
 		}
 		receiver := receiverMap[route.Receiver]
@@ -397,6 +397,25 @@ func buildReceiverSummaries(matchedRoutes []alertmanager.MatchedRoute, finalRece
 	}
 
 	return summaries
+}
+
+func isEffectiveMatch(matchedRoutes []alertmanager.MatchedRoute, index int) bool {
+	if index == len(matchedRoutes)-1 {
+		return true
+	}
+	return matchedRoutes[index+1].Depth <= matchedRoutes[index].Depth
+}
+
+func isDefaultRoot(receiver string, matchedRoutes []alertmanager.MatchedRoute, config *alertmanager.Config) bool {
+	if config == nil || config.Route == nil || receiver == "" || receiver != config.Route.Receiver {
+		return false
+	}
+	for _, matched := range matchedRoutes {
+		if matched.Route != nil && matched.Route.Receiver == receiver {
+			return false
+		}
+	}
+	return true
 }
 
 func receiverTypeLabels(receiver *alertmanager.Receiver) []string {

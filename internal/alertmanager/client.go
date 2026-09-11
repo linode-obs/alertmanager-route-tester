@@ -215,14 +215,14 @@ func (c *Client) CheckConnection() error {
 }
 
 func (c *Client) GetConfig() (*Config, error) {
-	// Fast path: return cached config when available.
-	c.cacheMu.RLock()
+	// Hold the cache lock through a miss so concurrent fetches and invalidation
+	// cannot publish stale configuration.
+	c.cacheMu.Lock()
+	defer c.cacheMu.Unlock()
+
 	if c.cachedConfig != nil {
-		cfg := c.cachedConfig
-		c.cacheMu.RUnlock()
-		return cfg, nil
+		return c.cachedConfig, nil
 	}
-	c.cacheMu.RUnlock()
 
 	// Slow path: fetch fresh config.
 	var status StatusResponse
@@ -258,10 +258,8 @@ func (c *Client) GetConfig() (*Config, error) {
 	}
 
 	// Store in cache.
-	c.cacheMu.Lock()
 	c.cachedConfig = &config
 	c.cacheTimestamp = time.Now()
-	c.cacheMu.Unlock()
 
 	return &config, nil
 }
@@ -409,7 +407,7 @@ func (c *Client) FindMatchingRoute(labels map[string]string, config *Config) (st
 		return "", nil, fmt.Errorf("no route configuration found")
 	}
 
-	var matched []MatchedRoute
+	matched := []MatchedRoute{}
 	receiver := findMatchingRouteRecursive(labels, config.Route, &matched, 0, nil)
 
 	// If no specific routes matched, use the root route's receiver as default

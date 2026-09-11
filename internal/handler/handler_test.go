@@ -6,6 +6,7 @@ import (
 	"html/template"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"github.com/wbollock/alertmanager-route-tester/internal/alertmanager"
@@ -43,6 +44,41 @@ type resultData struct {
 	Error                    string
 }
 
+func TestBuildRouteSummaryTreatsNestedParentAsTraceOnly(t *testing.T) {
+	config := &alertmanager.Config{
+		Receivers: []alertmanager.Receiver{
+			{Name: "team-database"},
+			{Name: "pagerduty-database"},
+		},
+	}
+	matched := []alertmanager.MatchedRoute{
+		{Route: &alertmanager.Route{Receiver: "team-database"}},
+		{Route: &alertmanager.Route{Receiver: "pagerduty-database"}, Depth: 1, IsSubroute: true},
+	}
+
+	_, receivers, continueCount, _ := buildRouteSummary(matched, "pagerduty-database", config)
+	if got := strings.Join(receivers, ","); got != "pagerduty-database" {
+		t.Fatalf("matched receivers = %q, want pagerduty-database", got)
+	}
+	if continueCount != 0 {
+		t.Fatalf("continue count = %d, want 0", continueCount)
+	}
+
+	summaries := buildReceiverSummaries(matched, "pagerduty-database", config)
+	if len(summaries) != 1 || summaries[0].Name != "pagerduty-database" {
+		t.Fatalf("receiver summaries = %#v, want only pagerduty-database", summaries)
+	}
+}
+
+func TestIsDefaultRootRecognizesFallbackAfterMatchedParent(t *testing.T) {
+	config := &alertmanager.Config{Route: &alertmanager.Route{Receiver: "default"}}
+	matched := []alertmanager.MatchedRoute{{Route: &alertmanager.Route{Match: map[string]string{"component": "infrastructure"}}}}
+
+	if !isDefaultRoot("default", matched, config) {
+		t.Fatal("isDefaultRoot() = false, want true")
+	}
+}
+
 // TestResultTemplateRendersMatchedRoutes verifies that result.html renders
 // without error when MatchedRoutes is []alertmanager.MatchedRoute.
 //
@@ -55,7 +91,7 @@ func TestHandleTestRendersErrorForMissingRootRoute(t *testing.T) {
 			return
 		}
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"configYAML":{"original":"receivers:\n  - name: default\n"}}`))
+		_, _ = w.Write([]byte(`{"config":{"original":"receivers:\n  - name: default\n"}}`))
 	}))
 	defer server.Close()
 
@@ -87,7 +123,7 @@ func TestReloadConfigRefetchesConfig(t *testing.T) {
 		}
 		requests++
 		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"configYAML":{"original":"route:\n  receiver: default\nreceivers:\n  - name: default\n"}}`))
+		_, _ = w.Write([]byte(`{"config":{"original":"route:\n  receiver: default\nreceivers:\n  - name: default\n"}}`))
 	}))
 	defer server.Close()
 
@@ -102,10 +138,28 @@ func TestReloadConfigRefetchesConfig(t *testing.T) {
 		t.Fatalf("status = %d, want %d", response.Code, http.StatusSeeOther)
 	}
 	if requests != 1 {
-		t.Fatalf("status requests = %d, want 1", requests)
+		t.Fatalf("status requests after reload = %d, want 1", requests)
 	}
 	if client.ConfigCachedAt().IsZero() {
 		t.Fatal("expected config to be cached after reload")
+	}
+	config, err := client.GetConfig()
+	if err != nil {
+		t.Fatalf("cached GetConfig() error = %v", err)
+	}
+	if config.Route == nil || config.Route.Receiver != "default" {
+		t.Fatalf("cached route = %#v, want default root route", config.Route)
+	}
+	if requests != 1 {
+		t.Fatalf("status requests after cache hit = %d, want 1", requests)
+	}
+
+	client.InvalidateConfig()
+	if _, err := client.GetConfig(); err != nil {
+		t.Fatalf("GetConfig() after invalidation error = %v", err)
+	}
+	if requests != 2 {
+		t.Fatalf("status requests after invalidation = %d, want 2", requests)
 	}
 }
 
@@ -173,7 +227,7 @@ func TestResultTemplateRendersSubroute(t *testing.T) {
 			{Route: parentRoute, Depth: 0, IsSubroute: false},
 			{Route: childRoute, Depth: 1, ParentReceivers: []string{"team-database"}, IsSubroute: true},
 		},
-		MatchedReceivers: []string{"team-database", "pagerduty-database"},
+		MatchedReceivers: []string{"pagerduty-database"},
 		RouteSteps: []RouteStep{
 			{Index: 1, Receiver: "team-database", Match: map[string]string{"team": "database"}},
 			{Index: 2, Receiver: "pagerduty-database", Match: map[string]string{"severity": "critical"},
@@ -194,6 +248,9 @@ func TestResultTemplateRendersSubroute(t *testing.T) {
 	}
 	if !bytes.Contains(out, []byte("team-database")) {
 		t.Error("expected parent 'team-database' in rendered output")
+	}
+	if bytes.Contains(out, []byte("Multiple receivers will be notified")) {
+		t.Error("nested parent and child should not trigger multiple-receiver notice")
 	}
 }
 

@@ -40,3 +40,14 @@ func TestAlertmanagerURLUsesEnvironment(t *testing.T) {
 		t.Fatalf("alertmanagerURL() = %q, want configured URL", got)
 	}
 }
+
+func TestEmptyMatchedRoutesMarshalAsArray(t *testing.T) {
+	result := cli.TestResult{MatchedRoutes: []alertmanager.MatchedRoute{}}
+	encoded, err := json.Marshal(result)
+	if err != nil {
+		t.Fatalf("json.Marshal() error = %v", err)
+	}
+	if !strings.Contains(string(encoded), `"matched_routes":[]`) {
+		t.Fatalf("JSON output = %s, want an empty matched_routes array", encoded)
+	}
+}

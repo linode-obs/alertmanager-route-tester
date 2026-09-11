@@ -1,10 +1,102 @@
 package alertmanager
 
 import (
+	"net/http"
+	"net/http/httptest"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 )
+
+func TestFindMatchingRouteReturnsEmptySliceForRootFallback(t *testing.T) {
+	receiver, matched, err := (&Client{}).FindMatchingRoute(
+		map[string]string{"alertname": "unknown"},
+		&Config{Route: &Route{Receiver: "default"}},
+	)
+	if err != nil {
+		t.Fatalf("FindMatchingRoute() error = %v", err)
+	}
+	if receiver != "default" {
+		t.Fatalf("receiver = %q, want default", receiver)
+	}
+	if matched == nil {
+		t.Fatal("matched routes = nil, want an empty slice")
+	}
+	if len(matched) != 0 {
+		t.Fatalf("matched routes = %d, want 0", len(matched))
+	}
+}
+
+func TestGetConfigSerializesConcurrentCacheMisses(t *testing.T) {
+	var requests atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests.Add(1)
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"config":{"original":"route:\n  receiver: default\nreceivers:\n  - name: default\n"}}`))
+	}))
+	defer server.Close()
+
+	client := NewClient(server.URL, false)
+	const goroutines = 20
+	var wg sync.WaitGroup
+	for i := 0; i < goroutines; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			if _, err := client.GetConfig(); err != nil {
+				t.Errorf("GetConfig() error = %v", err)
+			}
+		}()
+	}
+	wg.Wait()
+
+	if got := requests.Load(); got != 1 {
+		t.Fatalf("status requests = %d, want 1", got)
+	}
+}
+
+func TestGetConfigDoesNotPublishFetchStartedBeforeInvalidation(t *testing.T) {
+	fetchStarted := make(chan struct{})
+	releaseFetch := make(chan struct{})
+	var requests atomic.Int32
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if requests.Add(1) == 1 {
+			close(fetchStarted)
+			<-releaseFetch
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"config":{"original":"route:\n  receiver: stale\nreceivers:\n  - name: stale\n"}}`))
+	}))
+	defer server.Close()
+
+	client := NewClient(server.URL, false)
+	result := make(chan error, 1)
+	go func() {
+		_, err := client.GetConfig()
+		result <- err
+	}()
+
+	<-fetchStarted
+	invalidated := make(chan struct{})
+	go func() {
+		client.InvalidateConfig()
+		close(invalidated)
+	}()
+	close(releaseFetch)
+	if err := <-result; err != nil {
+		t.Fatalf("initial GetConfig() error = %v", err)
+	}
+	<-invalidated
+
+	if _, err := client.GetConfig(); err != nil {
+		t.Fatalf("GetConfig() after invalidation error = %v", err)
+	}
+	if got := requests.Load(); got != 2 {
+		t.Fatalf("status requests = %d, want 2", got)
+	}
+}
 
 // ---------------------------------------------------------------------------
 // matchesRoute tests

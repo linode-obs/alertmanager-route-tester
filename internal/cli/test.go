@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"strings"
 
 	"github.com/wbollock/alertmanager-route-tester/internal/alertmanager"
 )
@@ -96,7 +97,7 @@ func PrintResult(result *TestResult, format OutputFormat) error {
 				route := mr.Route
 				fmt.Printf("  %d. ", i+1)
 				if mr.IsSubroute && len(mr.ParentReceivers) > 0 {
-					fmt.Printf("[subroute of %s] ", mr.ParentReceivers[len(mr.ParentReceivers)-1])
+					fmt.Printf("[subroute of %s] ", strings.Join(mr.ParentReceivers, " -> "))
 				}
 				if route.Receiver != "" {
 					fmt.Printf("receiver=%s ", route.Receiver)

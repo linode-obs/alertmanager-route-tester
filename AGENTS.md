@@ -104,10 +104,14 @@ JSON format:
   "receiver": "pagerduty-critical",
   "matched_routes": [
     {
-      "receiver": "pagerduty-critical",
-      "match": {
-        "severity": "critical"
-      }
+      "route": {
+        "receiver": "pagerduty-critical",
+        "match": {
+          "severity": "critical"
+        }
+      },
+      "depth": 0,
+      "is_subroute": false
     }
   ],
   "labels": {
@@ -116,6 +120,8 @@ JSON format:
   }
 }
 ```
+
+The `matched_routes` entries include the matched route under `route` plus nested-route metadata. This replaces the previous top-level `receiver` and `match` fields.
 
 ### Using CLI Mode in Go Tests
 

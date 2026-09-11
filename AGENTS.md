@@ -123,7 +123,7 @@ JSON format:
 }
 ```
 
-The `matched_routes` entries include the matched route under `route`, the resolved receiver after parent inheritance, and nested-route metadata. This replaces the previous top-level `receiver` and `match` fields.
+The `matched_routes` entries now wrap each matched route under `route` and add the resolved receiver plus nested-route metadata. The response-level `receiver` field remains unchanged.
 
 ### Using CLI Mode in Go Tests
 

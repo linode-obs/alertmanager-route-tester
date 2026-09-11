@@ -240,8 +240,8 @@ func TestReloadConfigReturnsHXErrorTriggerWhenFetchFails(t *testing.T) {
 
 	h.HandleReloadConfig(response, request)
 
-	if response.Code != http.StatusServiceUnavailable {
-		t.Fatalf("status = %d, want %d", response.Code, http.StatusServiceUnavailable)
+	if response.Code != http.StatusNoContent {
+		t.Fatalf("status = %d, want %d", response.Code, http.StatusNoContent)
 	}
 	if got := response.Header().Get("HX-Trigger"); got != "config-reload-error" {
 		t.Fatalf("HX-Trigger = %q, want config-reload-error", got)

@@ -146,6 +146,8 @@ func (h *Handler) HandleReloadConfig(w http.ResponseWriter, r *http.Request) {
 		slog.Error("error reloading alertmanager config", "error", err)
 		if r.Header.Get("HX-Request") == "true" {
 			w.Header().Set("HX-Trigger", "config-reload-error")
+			w.WriteHeader(http.StatusNoContent)
+			return
 		}
 		http.Error(w, "Failed to reload Alertmanager config", http.StatusServiceUnavailable)
 		return

@@ -1,6 +1,7 @@
 package alertmanager
 
 import (
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"sync"
@@ -88,6 +89,56 @@ func TestMatchedRoutesMarkResolvedBranches(t *testing.T) {
 	}
 	if !matched[2].IsEffective {
 		t.Error("sibling fallback route should be effective")
+	}
+}
+
+func TestCachedReaderDoesNotBlockDuringRefresh(t *testing.T) {
+	refreshStarted := make(chan struct{})
+	releaseRefresh := make(chan struct{})
+	var requests atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if requests.Add(1) == 2 {
+			close(refreshStarted)
+			<-releaseRefresh
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"config":{"original":"route:\n  receiver: default\nreceivers:\n  - name: default\n"}}`))
+	}))
+	defer server.Close()
+
+	client := NewClient(server.URL, false)
+	if _, err := client.GetConfig(); err != nil {
+		t.Fatalf("initial GetConfig() error = %v", err)
+	}
+
+	refreshResult := make(chan error, 1)
+	go func() {
+		_, err := client.RefreshConfig()
+		refreshResult <- err
+	}()
+	<-refreshStarted
+
+	readerResult := make(chan error, 1)
+	go func() {
+		config, err := client.GetConfig()
+		if err == nil && (config == nil || config.Route == nil || config.Route.Receiver != "default") {
+			err = fmt.Errorf("unexpected cached config: %#v", config)
+		}
+		readerResult <- err
+	}()
+
+	select {
+	case err := <-readerResult:
+		if err != nil {
+			t.Fatalf("cached GetConfig() error = %v", err)
+		}
+	case <-time.After(500 * time.Millisecond):
+		t.Fatal("cached GetConfig() blocked during refresh")
+	}
+
+	close(releaseRefresh)
+	if err := <-refreshResult; err != nil {
+		t.Fatalf("RefreshConfig() error = %v", err)
 	}
 }
 

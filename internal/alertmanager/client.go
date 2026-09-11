@@ -25,9 +25,11 @@ type Client struct {
 	retryBackoff     time.Duration
 
 	// Config cache
-	cacheMu        sync.RWMutex
-	cachedConfig   *Config
-	cacheTimestamp time.Time
+	cacheMu          sync.RWMutex
+	cachedConfig     *Config
+	cacheTimestamp   time.Time
+	cacheGeneration  uint64
+	configFetchMutex sync.Mutex
 }
 
 type StatusResponse struct {
@@ -215,28 +217,55 @@ func (c *Client) CheckConnection() error {
 }
 
 func (c *Client) GetConfig() (*Config, error) {
-	// Hold the cache lock through a miss so concurrent fetches and invalidation
-	// cannot publish stale configuration.
-	c.cacheMu.Lock()
-	defer c.cacheMu.Unlock()
-
+	c.cacheMu.RLock()
 	if c.cachedConfig != nil {
-		return c.cachedConfig, nil
+		config := c.cachedConfig
+		c.cacheMu.RUnlock()
+		return config, nil
 	}
+	generation := c.cacheGeneration
+	c.cacheMu.RUnlock()
 
-	return c.fetchConfigLocked()
+	c.configFetchMutex.Lock()
+	defer c.configFetchMutex.Unlock()
+
+	// Another fetch may have populated the cache while this caller waited.
+	c.cacheMu.RLock()
+	if c.cachedConfig != nil {
+		config := c.cachedConfig
+		c.cacheMu.RUnlock()
+		return config, nil
+	}
+	generation = c.cacheGeneration
+	c.cacheMu.RUnlock()
+
+	config, err := c.fetchConfig()
+	if err != nil {
+		return nil, err
+	}
+	c.publishConfig(config, generation)
+	return config, nil
 }
 
 // RefreshConfig fetches a fresh configuration and replaces the cached value
 // only after the fetch and parse succeed.
 func (c *Client) RefreshConfig() (*Config, error) {
-	c.cacheMu.Lock()
-	defer c.cacheMu.Unlock()
+	c.configFetchMutex.Lock()
+	defer c.configFetchMutex.Unlock()
 
-	return c.fetchConfigLocked()
+	c.cacheMu.RLock()
+	generation := c.cacheGeneration
+	c.cacheMu.RUnlock()
+
+	config, err := c.fetchConfig()
+	if err != nil {
+		return nil, err
+	}
+	c.publishConfig(config, generation)
+	return config, nil
 }
 
-func (c *Client) fetchConfigLocked() (*Config, error) {
+func (c *Client) fetchConfig() (*Config, error) {
 	var status StatusResponse
 	var lastErr error
 
@@ -267,10 +296,17 @@ func (c *Client) fetchConfigLocked() (*Config, error) {
 		return nil, fmt.Errorf("failed to extract receiver configs: %w", err)
 	}
 
-	c.cachedConfig = &config
-	c.cacheTimestamp = time.Now()
-
 	return &config, nil
+}
+
+func (c *Client) publishConfig(config *Config, generation uint64) {
+	c.cacheMu.Lock()
+	defer c.cacheMu.Unlock()
+	if generation != c.cacheGeneration {
+		return
+	}
+	c.cachedConfig = config
+	c.cacheTimestamp = time.Now()
 }
 
 // InvalidateConfig clears the cached configuration so the next call to
@@ -279,6 +315,7 @@ func (c *Client) InvalidateConfig() {
 	c.cacheMu.Lock()
 	c.cachedConfig = nil
 	c.cacheTimestamp = time.Time{}
+	c.cacheGeneration++
 	c.cacheMu.Unlock()
 }
 

@@ -105,12 +105,12 @@ func TestBuildRouteSummaryTreatsNestedParentAsTraceOnly(t *testing.T) {
 	}
 }
 
-func TestIsDefaultRootRecognizesFallbackAfterMatchedParent(t *testing.T) {
+func TestIsDefaultRootRejectsEffectiveTopLevelMatch(t *testing.T) {
 	config := &alertmanager.Config{Route: &alertmanager.Route{Receiver: "default"}}
 	matched := []alertmanager.MatchedRoute{{Route: &alertmanager.Route{Match: map[string]string{"component": "infrastructure"}}, IsEffective: true, ResolvedReceiver: "default"}}
 
-	if !isDefaultRoot("default", matched, config) {
-		t.Fatal("isDefaultRoot() = false, want true")
+	if isDefaultRoot("default", matched, config) {
+		t.Fatal("isDefaultRoot() = true, want false for an effective route match")
 	}
 }
 
@@ -312,9 +312,9 @@ func TestResultTemplateRendersRootFallbackWithMatchedParent(t *testing.T) {
 	tmpl := loadTemplates(t)
 	data := resultData{
 		Receiver:         "default",
-		MatchedRoutes:    []alertmanager.MatchedRoute{{Route: &alertmanager.Route{Match: map[string]string{"component": "infrastructure"}}}},
+		MatchedRoutes:    []alertmanager.MatchedRoute{{Route: &alertmanager.Route{Match: map[string]string{"component": "infrastructure"}}, IsEffective: true, ResolvedReceiver: "default"}},
 		MatchedReceivers: []string{"default"},
-		DefaultRoot:      true,
+		DefaultRoot:      false,
 		Labels:           map[string]string{"component": "infrastructure"},
 	}
 
@@ -323,11 +323,11 @@ func TestResultTemplateRendersRootFallbackWithMatchedParent(t *testing.T) {
 		t.Fatalf("result.html failed to render root fallback: %v", err)
 	}
 	output := buf.String()
-	if !strings.Contains(output, "root route's receiver") {
-		t.Fatal("root fallback notice is missing")
+	if strings.Contains(output, "root route's receiver") {
+		t.Fatal("effective route match should not show the root fallback notice")
 	}
-	if strings.Contains(output, "Matched Route Configuration") {
-		t.Fatal("root fallback should not be presented as an explicit matched route")
+	if !strings.Contains(output, "Matched Route Configuration") {
+		t.Fatal("effective route match should show the matched route")
 	}
 }
 

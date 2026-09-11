@@ -96,6 +96,42 @@ func TestMatchedRoutesMarkResolvedBranches(t *testing.T) {
 	}
 }
 
+func TestGetConfigWithStatusReportsConcurrentCacheHit(t *testing.T) {
+	fetchStarted := make(chan struct{})
+	releaseFetch := make(chan struct{})
+	var requests atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if requests.Add(1) == 1 {
+			close(fetchStarted)
+			<-releaseFetch
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"config":{"original":"route:\n  receiver: default\nreceivers:\n  - name: default\n"}}`))
+	}))
+	defer server.Close()
+
+	client := NewClient(server.URL, false)
+	type result struct{ hit bool }
+	results := make(chan result, 2)
+	for i := 0; i < 2; i++ {
+		go func() {
+			_, hit, err := client.GetConfigWithStatus()
+			if err != nil {
+				t.Errorf("GetConfigWithStatus() error = %v", err)
+			}
+			results <- result{hit: hit}
+		}()
+	}
+	<-fetchStarted
+	close(releaseFetch)
+
+	first := <-results
+	second := <-results
+	if first.hit == second.hit {
+		t.Fatalf("cache-hit results = %v and %v, want one fetch and one cache hit", first.hit, second.hit)
+	}
+}
+
 func TestCachedReaderDoesNotBlockDuringRefresh(t *testing.T) {
 	refreshStarted := make(chan struct{})
 	releaseRefresh := make(chan struct{})

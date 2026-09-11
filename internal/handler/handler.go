@@ -72,8 +72,7 @@ func New(client *alertmanager.Client) *Handler {
 }
 
 func (h *Handler) HandleIndex(w http.ResponseWriter, r *http.Request) {
-	configWasCached := h.client.HasCachedConfig()
-	config, err := h.client.GetConfig()
+	config, configWasCached, err := h.client.GetConfigWithStatus()
 	connectionOK := err == nil
 	configCachedAt := h.client.ConfigCachedAt()
 

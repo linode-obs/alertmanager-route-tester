@@ -218,11 +218,16 @@ func (c *Client) CheckConnection() error {
 }
 
 func (c *Client) GetConfig() (*Config, error) {
+	config, _, err := c.GetConfigWithStatus()
+	return config, err
+}
+
+func (c *Client) GetConfigWithStatus() (*Config, bool, error) {
 	c.cacheMu.RLock()
 	if c.cachedConfig != nil {
 		config := c.cachedConfig
 		c.cacheMu.RUnlock()
-		return config, nil
+		return config, true, nil
 	}
 	c.cacheMu.RUnlock()
 
@@ -234,17 +239,17 @@ func (c *Client) GetConfig() (*Config, error) {
 	if c.cachedConfig != nil {
 		config := c.cachedConfig
 		c.cacheMu.RUnlock()
-		return config, nil
+		return config, true, nil
 	}
 	generation := c.cacheGeneration
 	c.cacheMu.RUnlock()
 
 	config, err := c.fetchConfig()
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
 	c.publishConfig(config, generation)
-	return config, nil
+	return config, false, nil
 }
 
 // RefreshConfig fetches a fresh configuration and replaces the cached value
@@ -325,12 +330,6 @@ func (c *Client) ConfigCachedAt() time.Time {
 	c.cacheMu.RLock()
 	defer c.cacheMu.RUnlock()
 	return c.cacheTimestamp
-}
-
-func (c *Client) HasCachedConfig() bool {
-	c.cacheMu.RLock()
-	defer c.cacheMu.RUnlock()
-	return c.cachedConfig != nil
 }
 
 func (c *Client) fetchStatus(status *StatusResponse) (bool, error) {

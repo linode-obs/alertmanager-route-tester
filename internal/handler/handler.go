@@ -428,7 +428,10 @@ func isDefaultRoot(receiver string, matchedRoutes []alertmanager.MatchedRoute, c
 		return false
 	}
 	for _, matched := range matchedRoutes {
-		if matched.IsEffective && matched.Route != nil && matched.Route.Receiver == receiver {
+		if !matched.IsEffective || matched.Route == nil {
+			continue
+		}
+		if matched.Route.Receiver == receiver || (matched.Depth > 0 && matched.ResolvedReceiver == receiver) {
 			return false
 		}
 	}

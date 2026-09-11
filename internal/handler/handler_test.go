@@ -107,10 +107,22 @@ func TestBuildRouteSummaryTreatsNestedParentAsTraceOnly(t *testing.T) {
 
 func TestIsDefaultRootRecognizesFallbackAfterMatchedParent(t *testing.T) {
 	config := &alertmanager.Config{Route: &alertmanager.Route{Receiver: "default"}}
-	matched := []alertmanager.MatchedRoute{{Route: &alertmanager.Route{Match: map[string]string{"component": "infrastructure"}}}}
+	matched := []alertmanager.MatchedRoute{{Route: &alertmanager.Route{Match: map[string]string{"component": "infrastructure"}}, IsEffective: true, ResolvedReceiver: "default"}}
 
 	if !isDefaultRoot("default", matched, config) {
 		t.Fatal("isDefaultRoot() = false, want true")
+	}
+}
+
+func TestIsDefaultRootRejectsEffectiveNestedMatchUsingRootReceiver(t *testing.T) {
+	config := &alertmanager.Config{Route: &alertmanager.Route{Receiver: "default"}}
+	matched := []alertmanager.MatchedRoute{
+		{Route: &alertmanager.Route{}, Depth: 0, ResolvedReceiver: "default"},
+		{Route: &alertmanager.Route{}, Depth: 1, IsEffective: true, ResolvedReceiver: "default"},
+	}
+
+	if isDefaultRoot("default", matched, config) {
+		t.Fatal("isDefaultRoot() = true, want false for an effective nested match")
 	}
 }
 

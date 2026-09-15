@@ -1329,6 +1329,10 @@ func TestFindReceiverByName(t *testing.T) {
 		if r.Name != "pagerduty" {
 			t.Errorf("got receiver %q, want %q", r.Name, "pagerduty")
 		}
+		r.Name = "updated"
+		if config.Receivers[1].Name != "updated" {
+			t.Fatal("FindReceiverByName() returned a copy instead of the configured receiver")
+		}
 	})
 
 	t.Run("not found returns nil", func(t *testing.T) {

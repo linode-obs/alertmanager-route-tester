@@ -76,6 +76,18 @@ func TestIndexTemplateLabelsCachedConfig(t *testing.T) {
 	}
 }
 
+func TestHandleConfigLabelsRejectsNonGetRequests(t *testing.T) {
+	h := &Handler{}
+	request := httptest.NewRequest(http.MethodPost, "/config/labels", http.NoBody)
+	response := httptest.NewRecorder()
+
+	h.HandleConfigLabels(response, request)
+
+	if response.Code != http.StatusMethodNotAllowed {
+		t.Fatalf("status = %d, want %d", response.Code, http.StatusMethodNotAllowed)
+	}
+}
+
 func TestHandleIndexShowsCachedStatusAfterInitialLoad(t *testing.T) {
 	requests := 0
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

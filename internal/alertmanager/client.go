@@ -358,53 +358,58 @@ func (c *Client) fetchStatus(status *StatusResponse) (bool, error) {
 	return false, nil
 }
 
-// extractRawReceiverConfigs extracts the raw YAML for each receiver
+// extractRawReceiverConfigs extracts the YAML for each receiver from the
+// structured Alertmanager response instead of relying on line indentation.
 func (c *Client) extractRawReceiverConfigs(config *Config, originalYAML string) error {
-	lines := strings.Split(originalYAML, "\n")
+	var document yaml.Node
+	if err := yaml.Unmarshal([]byte(originalYAML), &document); err != nil {
+		return err
+	}
+	if len(document.Content) == 0 {
+		return nil
+	}
+
+	receiversNode := yamlMappingValue(document.Content[0], "receivers")
+	if receiversNode == nil || receiversNode.Kind != yaml.SequenceNode {
+		return nil
+	}
 
 	for i := range config.Receivers {
 		receiver := &config.Receivers[i]
-
-		// Find the receiver block in the original YAML
-		receiverStartLine := -1
-		for j, line := range lines {
-			if strings.Contains(line, "- name: '"+receiver.Name+"'") ||
-				strings.Contains(line, "- name: "+receiver.Name) ||
-				strings.Contains(line, "- name: \""+receiver.Name+"\"") {
-				receiverStartLine = j
-				break
+		for _, receiverNode := range receiversNode.Content {
+			if receiverNode.Kind != yaml.MappingNode {
+				continue
 			}
-		}
-
-		if receiverStartLine == -1 {
-			continue
-		}
-
-		// Extract the receiver block
-		var receiverLines []string
-		receiverLines = append(receiverLines, "- name: "+receiver.Name)
-
-		// Find the end of this receiver block
-		for j := receiverStartLine + 1; j < len(lines); j++ {
-			line := lines[j]
-
-			// If we hit another receiver or the end, stop
-			if strings.HasPrefix(line, "- name:") ||
-				(strings.HasPrefix(line, "templates:") && !strings.HasPrefix(line, "  ")) {
-				break
+			nameNode := yamlMappingValue(receiverNode, "name")
+			if nameNode == nil || nameNode.Value != receiver.Name {
+				continue
 			}
 
-			// Add lines that belong to this receiver
-			if strings.HasPrefix(line, "  ") || strings.TrimSpace(line) == "" {
-				receiverLines = append(receiverLines, line)
-			} else {
-				break
+			receiverSequence := yaml.Node{
+				Kind:    yaml.SequenceNode,
+				Content: []*yaml.Node{receiverNode},
 			}
+			rawConfig, err := yaml.Marshal(&receiverSequence)
+			if err != nil {
+				return err
+			}
+			receiver.RawConfig = strings.TrimSpace(string(rawConfig))
+			break
 		}
-
-		receiver.RawConfig = strings.Join(receiverLines, "\n")
 	}
 
+	return nil
+}
+
+func yamlMappingValue(mapping *yaml.Node, name string) *yaml.Node {
+	if mapping == nil || mapping.Kind != yaml.MappingNode {
+		return nil
+	}
+	for i := 0; i+1 < len(mapping.Content); i += 2 {
+		if mapping.Content[i].Value == name {
+			return mapping.Content[i+1]
+		}
+	}
 	return nil
 }
 
@@ -479,9 +484,9 @@ func (c *Client) FindMatchingRoute(labels map[string]string, config *Config) (st
 
 // FindReceiverByName finds a receiver configuration by name
 func (c *Client) FindReceiverByName(name string, config *Config) *Receiver {
-	for _, receiver := range config.Receivers {
-		if receiver.Name == name {
-			return &receiver
+	for i := range config.Receivers {
+		if config.Receivers[i].Name == name {
+			return &config.Receivers[i]
 		}
 	}
 	return nil

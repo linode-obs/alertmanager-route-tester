@@ -210,6 +210,23 @@ func validate(cfg *Config) error {
 		}
 	}
 
+	httpTimeouts := []struct {
+		name  string
+		value time.Duration
+	}{
+		{"request", cfg.Alertmanager.HTTP.Timeouts.Request.Duration},
+		{"dial", cfg.Alertmanager.HTTP.Timeouts.Dial.Duration},
+		{"tls_handshake", cfg.Alertmanager.HTTP.Timeouts.TLSHandshake.Duration},
+		{"response_header", cfg.Alertmanager.HTTP.Timeouts.ResponseHeader.Duration},
+		{"idle_conn", cfg.Alertmanager.HTTP.Timeouts.IdleConn.Duration},
+		{"expect_continue", cfg.Alertmanager.HTTP.Timeouts.ExpectContinue.Duration},
+	}
+	for _, timeout := range httpTimeouts {
+		if timeout.value < 0 {
+			return fmt.Errorf("alertmanager.http.timeouts.%s must be >= 0", timeout.name)
+		}
+	}
+
 	if cfg.Alertmanager.HTTP.TLS.CertFile != "" && cfg.Alertmanager.HTTP.TLS.KeyFile == "" {
 		return errors.New("alertmanager.http.tls.key_file is required when cert_file is set")
 	}

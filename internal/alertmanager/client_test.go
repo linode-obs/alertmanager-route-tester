@@ -11,6 +11,47 @@ import (
 	"time"
 )
 
+func TestExtractRawReceiverConfigsMatchesExactNames(t *testing.T) {
+	config := &Config{
+		Receivers: []Receiver{
+			{Name: "foo"},
+			{Name: "foo-bar"},
+		},
+	}
+	yaml := "receivers:\n" +
+		"  - name: foo-bar\n" +
+		"    webhook_configs:\n" +
+		"      - url: https://example.test/long\n" +
+		"  - name: foo\n" +
+		"    webhook_configs:\n" +
+		"      - url: https://example.test/short\n"
+
+	if err := (&Client{}).extractRawReceiverConfigs(config, yaml); err != nil {
+		t.Fatalf("extractRawReceiverConfigs() error = %v", err)
+	}
+	if !strings.Contains(config.Receivers[0].RawConfig, "https://example.test/short") {
+		t.Fatalf("foo raw config = %q, want foo receiver block", config.Receivers[0].RawConfig)
+	}
+	if strings.Contains(config.Receivers[0].RawConfig, "https://example.test/long") {
+		t.Fatalf("foo raw config = %q, included foo-bar receiver block", config.Receivers[0].RawConfig)
+	}
+}
+
+func TestExtractRawReceiverConfigsAllowsInlineNameComments(t *testing.T) {
+	config := &Config{Receivers: []Receiver{{Name: "foo"}}}
+	yaml := "receivers:\n" +
+		"  - name: foo # primary receiver\n" +
+		"    webhook_configs:\n" +
+		"      - url: https://example.test/foo\n"
+
+	if err := (&Client{}).extractRawReceiverConfigs(config, yaml); err != nil {
+		t.Fatalf("extractRawReceiverConfigs() error = %v", err)
+	}
+	if !strings.Contains(config.Receivers[0].RawConfig, "https://example.test/foo") {
+		t.Fatalf("foo raw config = %q, want receiver block", config.Receivers[0].RawConfig)
+	}
+}
+
 func TestFindMatchingRouteReturnsEmptySliceForRootFallback(t *testing.T) {
 	receiver, matched, err := (&Client{}).FindMatchingRoute(
 		map[string]string{"alertname": "unknown"},
@@ -1287,6 +1328,10 @@ func TestFindReceiverByName(t *testing.T) {
 		}
 		if r.Name != "pagerduty" {
 			t.Errorf("got receiver %q, want %q", r.Name, "pagerduty")
+		}
+		r.Name = "updated"
+		if config.Receivers[1].Name != "updated" {
+			t.Fatal("FindReceiverByName() returned a copy instead of the configured receiver")
 		}
 	})
 

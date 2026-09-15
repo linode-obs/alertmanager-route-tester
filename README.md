@@ -2,11 +2,13 @@
 
 Alertmanager Route Tester (ATR) is a web-app designed to help figure out where your Prometheus alerts will actually wind up given an Alertmanager configuration. It pulls Alertmanager's santizied configuration directly from an Alertmanager API and allows the user to see exactly what reciever(s) their alerts will route to.
 
-![Main view](images/main_view.png)
+### Browser UI
 
-Easily visualize complex alerting scenarions like `continue=true`:
+ATR uses a compact purple Qt-style layout in the browser. It has a system theme by default, with light and dark choices.
 
-![Continue view](images/continue_view.png)
+![System theme](docs/screenshots/qt-purple-system.png)
+
+![Nested route result](docs/screenshots/qt-purple-nested-route.png)
 
 ## Usage
 

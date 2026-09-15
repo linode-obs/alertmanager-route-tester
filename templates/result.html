@@ -1,23 +1,26 @@
 <div class="result-panel">
     {{if .Error}}
-    <div class="result-error">
+    <div class="result-surface result-error">
         <h2>Error</h2>
         <p>{{ .Error }}</p>
     </div>
     {{else if .Receiver}}
-    <div class="result-success {{if .DefaultRoot}}result-default{{end}}">
-        <h2>✓ Matched Receiver</h2>
+    <div class="result-surface result-success {{if .DefaultRoot}}result-default{{end}}">
+        <h2>{{if gt (len .MatchedReceivers) 1}}Matched receivers ({{len .MatchedReceivers}}){{else}}Matched receiver{{end}} <span class="help-tip" data-tooltip="Alertmanager sends the alert to this receiver." aria-label="Matched receiver help" tabindex="0">?</span></h2>
+        {{if gt (len .MatchedReceivers) 1}}
+        <p class="receiver-count-notice">Each receiver gets a copy.</p>
+        {{end}}
         <div class="receiver-name {{if .DefaultRoot}}receiver-default{{end}}">{{ .Receiver }}</div>
 
         {{if .DefaultRoot}}
         <div class="route-info">
-            <p class="default-route-notice">ℹ️ No specific sub-routes matched. This alert uses the <strong>root route's receiver</strong> ({{.Receiver}}) which acts as the default.</p>
+            <p class="default-route-notice">ℹ️ No child route matched. This alert uses the root receiver, <strong>{{.Receiver}}</strong>.</p>
         </div>
         {{end}}
 
         {{if .ReceiverConfig}}
-        <div class="receiver-config">
-            <h3>Receiver Configuration</h3>
+        <div class="receiver-config result-section">
+            <h3>Receiver configuration</h3>
             <div class="receiver-types">
                 {{if gt (len .ReceiverConfig.EmailConfigs) 0}}
                 <span class="receiver-type-chip">email_configs ({{len .ReceiverConfig.EmailConfigs}})</span>
@@ -46,9 +49,9 @@
         {{end}}
 
         {{if .MatchedReceiverSummaries}}
-        <div class="receiver-others">
-            <h3>Matched Receivers</h3>
-            <p class="route-explanation">All receivers matched by this alert (final receiver highlighted).</p>
+        <div class="receiver-others result-section">
+            <h3>Matched receivers</h3>
+            <p class="route-explanation">These receivers match the alert. The final receiver is marked.</p>
             <div class="receiver-summary-grid">
                 {{range .MatchedReceiverSummaries}}
                 <div class="receiver-summary-card {{if .IsFinal}}receiver-summary-final{{end}}">
@@ -73,12 +76,12 @@
     </div>
 
     {{if and .MatchedRoutes (not .DefaultRoot)}}
-    <div class="route-path">
-        <h3>Matched Route Configuration</h3>
-        <p class="route-explanation">Your alert matched the following route(s):</p>
+    <div class="route-path result-section">
+        <h3>Matched route rules <span class="help-tip" data-tooltip="These rules match the alert labels." aria-label="Matched route rules help" tabindex="0">?</span></h3>
+        <p class="route-explanation">These rules match the alert:</p>
         {{if gt (len .MatchedReceivers) 1}}
         <div class="multiple-receivers-notice">
-            ⚠️ <strong>Multiple receivers will be notified</strong> due to routes with <code>continue: true</code>
+            ⚠️ <strong>This alert is sent to all {{len .MatchedReceivers}} receivers.</strong> Each receiver gets a copy because <code>continue: true</code> keeps routing open.
         </div>
         {{end}}
         <div class="route-list">
@@ -104,12 +107,12 @@ repeat_interval: {{.Route.RepeatInterval}}{{end}}</pre>
         </div>
     </div>
 
-    <div class="receiver-why">
-        <h3>Why This Receiver</h3>
+    <div class="receiver-why result-section">
+        <h3>Why this receiver</h3>
         {{if .DefaultRoot}}
-        <p class="route-explanation">This receiver is the root default (no sub-routes matched).</p>
+        <p class="route-explanation">No child route matched. This is the root receiver.</p>
         {{else if or .FinalMatch.Match .FinalMatch.MatchRE .FinalMatch.Matchers}}
-        <p class="route-explanation">This receiver matched the route conditions below.</p>
+        <p class="route-explanation">These rules match this receiver:</p>
         <div class="why-grid">
             {{if .FinalMatch.Match}}
             <div class="why-card">
@@ -143,16 +146,16 @@ repeat_interval: {{.Route.RepeatInterval}}{{end}}</pre>
             {{end}}
         </div>
         {{else}}
-        <p class="route-explanation">No explicit match conditions found for the final receiver.</p>
+        <p class="route-explanation">No match rules are shown for this receiver.</p>
         {{end}}
     </div>
 
-    <div class="receiver-summary">
-        <h3>Receiver Path</h3>
+    <div class="receiver-summary result-section">
+        <h3>Receiver path</h3>
         {{if gt (len .MatchedReceivers) 1}}
-        <p class="route-explanation">Multiple receivers were matched. The final receiver is highlighted.</p>
+        <p class="route-explanation">Several receivers match. The final receiver is marked.</p>
         {{else}}
-        <p class="route-explanation">Single receiver matched.</p>
+        <p class="route-explanation">One receiver matches.</p>
         {{end}}
         <div class="receiver-chips">
             {{range .MatchedReceivers}}
@@ -161,18 +164,18 @@ repeat_interval: {{.Route.RepeatInterval}}{{end}}</pre>
         </div>
         {{if gt .ContinueCount 0}}
         <div class="continue-summary">
-            Continue matched on {{.ContinueCount}} route(s), so evaluation kept going.
+            The app kept checking after matching {{.ContinueCount}} route(s).
         </div>
         {{end}}
     </div>
 
     {{if .RouteSteps}}
     <div class="route-trace">
-        <h3>Route Trace</h3>
-        <p class="route-explanation">Evaluation order for routes that matched this alert.</p>
+        <h3>Route trace <span class="help-tip" data-tooltip="This shows the order of the matching rules." aria-label="Route trace help" tabindex="0">?</span></h3>
+        <p class="route-explanation">This is the order that Alertmanager checks the rules.</p>
         <div class="trace-timeline">
             {{range .RouteSteps}}
-            <div class="trace-row {{if .IsFinal}}trace-final{{end}} {{if .IsSubroute}}trace-subroute{{end}} {{if not .IsEffective}}trace-only{{end}}">
+            <div class="trace-row {{if .IsFinal}}trace-final{{end}} {{if .IsSubroute}}trace-subroute{{end}} {{if not .IsEffective}}trace-only{{end}}" style="--trace-depth: {{.Depth}};">
                 <div class="trace-bar">
                     <span class="trace-bar-fill"></span>
                 </div>
@@ -186,7 +189,7 @@ repeat_interval: {{.Route.RepeatInterval}}{{end}}</pre>
                     {{end}}
                     <span class="trace-receiver">{{.Receiver}}</span>
                     {{if .IsSubroute}}
-                    <span class="trace-subroute-badge">subroute (depth {{.Depth}})</span>
+                    <span class="trace-subroute-badge help-tip" data-tooltip="This rule is inside the parent rule." aria-label="Nested subroute" tabindex="0">subroute (level {{.Depth}})</span>
                     {{end}}
                     {{if not .IsEffective}}
                     <span class="trace-trace-only-badge">trace only</span>
@@ -245,8 +248,8 @@ repeat_interval: {{.Route.RepeatInterval}}{{end}}</pre>
     {{end}}
     {{end}}
 
-    <div class="alert-labels">
-        <h3>Alert Labels</h3>
+    <div class="alert-labels result-section">
+        <h3>Alert labels</h3>
         <div class="labels-list">
             {{range $key, $value := .Labels}}
             <div class="label-item">

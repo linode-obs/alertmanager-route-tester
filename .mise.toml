@@ -174,7 +174,10 @@ description = "Remove local Alertmanager install and data to force re-setup"
 run = """
 #!/bin/bash
 set -e
-rm -f ./bin/alertmanager
+if [ -d ./bin/alertmanager ]; then
+  find ./bin/alertmanager -mindepth 1 -delete
+  rmdir ./bin/alertmanager
+fi
 for dir in ./data/alertmanager ./data/alertmanager-test; do
   if [ -d "$dir" ]; then
     find "$dir" -mindepth 1 -delete
@@ -189,7 +192,11 @@ description = "Clean up all generated files"
 run = """
 #!/bin/bash
 set -e
-rm -f ./bin/alertmanager ./bin/alertmanager-route-tester
+if [ -d ./bin/alertmanager ]; then
+  find ./bin/alertmanager -mindepth 1 -delete
+  rmdir ./bin/alertmanager
+fi
+rm -f ./bin/alertmanager-route-tester
 for dir in ./data/alertmanager ./data/alertmanager-test; do
   if [ -d "$dir" ]; then
     find "$dir" -mindepth 1 -delete

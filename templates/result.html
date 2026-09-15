@@ -6,7 +6,10 @@
     </div>
     {{else if .Receiver}}
     <div class="result-surface result-success {{if .DefaultRoot}}result-default{{end}}">
-        <h2>Matched receiver <span class="help-tip" data-tooltip="Alertmanager sends the alert to this receiver." aria-label="Matched receiver help" tabindex="0">?</span></h2>
+        <h2>{{if gt (len .MatchedReceivers) 1}}Matched receivers ({{len .MatchedReceivers}}){{else}}Matched receiver{{end}} <span class="help-tip" data-tooltip="Alertmanager sends the alert to this receiver." aria-label="Matched receiver help" tabindex="0">?</span></h2>
+        {{if gt (len .MatchedReceivers) 1}}
+        <p class="receiver-count-notice">Each receiver gets a copy.</p>
+        {{end}}
         <div class="receiver-name {{if .DefaultRoot}}receiver-default{{end}}">{{ .Receiver }}</div>
 
         {{if .DefaultRoot}}

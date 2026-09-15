@@ -588,6 +588,8 @@ func TestResultTemplateIncludesRedesignHelp(t *testing.T) {
 		`trace-final`,
 		`trace-subroute`,
 		`data-tooltip="Alertmanager sends the alert to this receiver."`,
+		`Matched receivers (2)`,
+		`Each receiver gets a copy.`,
 	} {
 		if !strings.Contains(output, expected) {
 			t.Errorf("rendered result template does not contain %q", expected)

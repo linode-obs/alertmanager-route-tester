@@ -2589,3 +2589,64 @@ body {
 [data-theme="light"] .docs-link a:focus-visible {
     color: #4320a6;
 }
+
+/* Fit more of the route workspace in the first viewport. */
+html {
+    font-size: 15px;
+}
+
+body {
+    line-height: 1.5;
+}
+
+.container {
+    width: min(calc(100% - clamp(32px, 6vw, 96px)), 1440px);
+    padding-top: 20px;
+    padding-bottom: 32px;
+}
+
+.app-headerbar {
+    padding: 20px 24px 18px;
+    margin-bottom: 20px;
+}
+
+.app-headerbar h1 {
+    font-size: 1.6rem;
+}
+
+.workspace {
+    gap: 20px;
+}
+
+.workspace-pane {
+    padding: 20px;
+}
+
+.result-panel > * + * {
+    margin-top: 14px;
+}
+
+.result-success,
+.result-default,
+.result-error,
+.result-warning,
+.receiver-config,
+.receiver-others,
+.route-path,
+.receiver-why,
+.receiver-summary,
+.route-trace,
+.alert-labels {
+    padding: 14px;
+}
+
+.receiver-count-notice {
+    margin-top: 8px;
+    color: #b9f6cf;
+    font-size: .95em;
+    font-weight: 600;
+}
+
+[data-theme="light"] .receiver-count-notice {
+    color: #237847;
+}

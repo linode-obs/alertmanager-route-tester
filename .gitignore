@@ -49,3 +49,6 @@ Thumbs.db
 
 # Local developer config
 config.local.yaml
+
+# Local development worktrees
+.worktrees/

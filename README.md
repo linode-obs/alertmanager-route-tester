@@ -96,6 +96,55 @@ mise run build  # build binary
 mise run clean  # cleanup
 ```
 
+### Testing
+
+The project includes comprehensive unit and integration tests:
+
+#### Unit Tests
+
+Run unit tests only (no external dependencies required):
+
+```bash
+go test -short ./...
+```
+
+Unit tests cover:
+- Route matching logic (exact, regex, matchers)
+- Edge cases (empty routes, deep nesting, special characters, unicode)
+- Matcher parsing and validation
+- Continue semantics and route evaluation order
+- Config caching and invalidation
+
+#### Integration Tests
+
+Integration tests verify behavior against a real Alertmanager instance. When `ALERTMANAGER_URL` is unset, they use `localhost:9093` and skip cleanly when it is unavailable. When `ALERTMANAGER_URL` is set, an unavailable endpoint fails the tests instead of being skipped.
+
+Run the full test workflow, including a managed Alertmanager instance:
+
+```bash
+mise run test
+```
+
+Run only unit tests without starting Alertmanager:
+
+```bash
+go test -short ./...
+```
+
+The CI workflow starts an isolated Alertmanager on port `19093` before running the full suite. `mise run test` uses the same isolated port locally, so it does not reuse an unrelated Alertmanager process on port `9093`.
+
+Skip integration tests explicitly:
+
+```bash
+go test -short ./...
+SKIP_INTEGRATION_TESTS=1 go test ./...
+```
+
+Integration tests cover:
+- CLI test mode functionality
+- Config caching with live API
+- Complex routing scenarios with continue and nested routes
+
 ### Local Development Environment
 
 ```bash
@@ -132,17 +181,13 @@ The following features are planned for future releases:
 
 - Try to display how the alert will actually look using the specific receiver configs/template
   - Note: This requires loading Alertmanager template files and implementing the full Alertmanager template function set. Without that, many configs reference external templates (e.g. `{{ template "..." }}`) that cannot be rendered from the API response alone.
-- Subroute context support: make it explicit when an alert matched a parent route and then routed into a nested `routes:` entry, including the parent → child chain (not just `continue` matches).
 
 ### Go Code Architecture Improvements
 
 - Interface-Based Design: Extract core routing logic into well-defined interfaces for better testability and extensibility
 - Add proper context.Context support throughout the application for timeout handling and cancellation
 - Add opentelemetry metrics/traces
-- Expand test coverage with comprehensive table-driven tests for all routing scenarios
-  - Also try testcontainers-go for mocking an external Alertmanager
 - Proper error handling with context using fmt.Errorf and error wrapping patterns
-- Load in connected Alertmanager configuration once upon initial load then cache it for subsequent requests. Have button to reload config.
 
 ### CI/misc
 

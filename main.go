@@ -75,10 +75,7 @@ func main() {
 
 	// CLI test mode
 	if cfg.App.CLITestMode.Enabled {
-		result, err := cli.TestRouting(client, cfg.App.CLITestMode.Labels)
-		if err != nil {
-			// Error is already included in result
-		}
+		result, _ := cli.TestRouting(client, cfg.App.CLITestMode.Labels)
 
 		format := cli.OutputFormat(strings.ToLower(cfg.App.CLITestMode.Format))
 		if err := cli.PrintResult(result, format); err != nil {
@@ -102,10 +99,19 @@ func main() {
 	http.HandleFunc("/", h.HandleIndex)
 	http.HandleFunc("/test", h.HandleTest)
 	http.HandleFunc("/config/labels", h.HandleConfigLabels)
+	http.HandleFunc("/config/reload", h.HandleReloadConfig)
 
 	slog.Info("starting server", "listen", cfg.App.Server.Listen)
 	slog.Info("using alertmanager", "url", cfg.Alertmanager.URL)
-	if err := http.ListenAndServe(cfg.App.Server.Listen, nil); err != nil {
+	server := &http.Server{
+		Addr:              cfg.App.Server.Listen,
+		Handler:           nil,
+		ReadHeaderTimeout: cfg.App.Server.ReadHeaderTimeout.Duration,
+		ReadTimeout:       cfg.App.Server.ReadTimeout.Duration,
+		WriteTimeout:      cfg.App.Server.WriteTimeout.Duration,
+		IdleTimeout:       cfg.App.Server.IdleTimeout.Duration,
+	}
+	if err := server.ListenAndServe(); err != nil {
 		slog.Error("server stopped", "error", err)
 		os.Exit(1)
 	}

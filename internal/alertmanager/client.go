@@ -1,6 +1,7 @@
 package alertmanager
 
 import (
+	"context"
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/json"
@@ -12,6 +13,7 @@ import (
 	"os"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"gopkg.in/yaml.v3"
@@ -22,6 +24,13 @@ type Client struct {
 	httpClient       *http.Client
 	retryMaxAttempts int
 	retryBackoff     time.Duration
+
+	// Config cache
+	cacheMu          sync.RWMutex
+	cachedConfig     *Config
+	cacheTimestamp   time.Time
+	cacheGeneration  uint64
+	configFetchMutex sync.Mutex
 }
 
 type StatusResponse struct {
@@ -129,7 +138,7 @@ type PoolOptions struct {
 func NewClient(baseURL string, skipTLSVerify bool) *Client {
 	transport := &http.Transport{
 		TLSClientConfig: &tls.Config{
-			InsecureSkipVerify: skipTLSVerify,
+			InsecureSkipVerify: skipTLSVerify, // #nosec G402 -- TLS verification is explicitly configurable by the caller.
 		},
 	}
 
@@ -209,6 +218,59 @@ func (c *Client) CheckConnection() error {
 }
 
 func (c *Client) GetConfig() (*Config, error) {
+	config, _, err := c.GetConfigWithStatus()
+	return config, err
+}
+
+func (c *Client) GetConfigWithStatus() (*Config, bool, error) {
+	c.cacheMu.RLock()
+	if c.cachedConfig != nil {
+		config := c.cachedConfig
+		c.cacheMu.RUnlock()
+		return config, true, nil
+	}
+	c.cacheMu.RUnlock()
+
+	c.configFetchMutex.Lock()
+	defer c.configFetchMutex.Unlock()
+
+	// Another fetch may have populated the cache while this caller waited.
+	c.cacheMu.RLock()
+	if c.cachedConfig != nil {
+		config := c.cachedConfig
+		c.cacheMu.RUnlock()
+		return config, true, nil
+	}
+	generation := c.cacheGeneration
+	c.cacheMu.RUnlock()
+
+	config, err := c.fetchConfig()
+	if err != nil {
+		return nil, false, err
+	}
+	c.publishConfig(config, generation)
+	return config, false, nil
+}
+
+// RefreshConfig fetches a fresh configuration and replaces the cached value
+// only after the fetch and parse succeed.
+func (c *Client) RefreshConfig() (*Config, error) {
+	c.configFetchMutex.Lock()
+	defer c.configFetchMutex.Unlock()
+
+	c.cacheMu.RLock()
+	generation := c.cacheGeneration
+	c.cacheMu.RUnlock()
+
+	config, err := c.fetchConfig()
+	if err != nil {
+		return nil, err
+	}
+	c.publishConfig(config, generation)
+	return config, nil
+}
+
+func (c *Client) fetchConfig() (*Config, error) {
 	var status StatusResponse
 	var lastErr error
 
@@ -230,13 +292,11 @@ func (c *Client) GetConfig() (*Config, error) {
 		return nil, lastErr
 	}
 
-	// Parse the YAML configuration
 	var config Config
 	if err := yaml.Unmarshal([]byte(status.ConfigYAML.Original), &config); err != nil {
 		return nil, fmt.Errorf("failed to parse YAML config: %w", err)
 	}
 
-	// Extract raw receiver configurations from the original YAML
 	if err := c.extractRawReceiverConfigs(&config, status.ConfigYAML.Original); err != nil {
 		return nil, fmt.Errorf("failed to extract receiver configs: %w", err)
 	}
@@ -244,12 +304,46 @@ func (c *Client) GetConfig() (*Config, error) {
 	return &config, nil
 }
 
+func (c *Client) publishConfig(config *Config, generation uint64) {
+	c.cacheMu.Lock()
+	defer c.cacheMu.Unlock()
+	if generation != c.cacheGeneration {
+		return
+	}
+	c.cachedConfig = config
+	c.cacheTimestamp = time.Now()
+}
+
+// InvalidateConfig clears the cached configuration so the next call to
+// GetConfig() fetches a fresh copy from Alertmanager.
+func (c *Client) InvalidateConfig() {
+	c.cacheMu.Lock()
+	c.cachedConfig = nil
+	c.cacheTimestamp = time.Time{}
+	c.cacheGeneration++
+	c.cacheMu.Unlock()
+}
+
+// ConfigCachedAt returns the time the configuration was last fetched from
+// Alertmanager, or the zero time if nothing has been cached yet.
+func (c *Client) ConfigCachedAt() time.Time {
+	c.cacheMu.RLock()
+	defer c.cacheMu.RUnlock()
+	return c.cacheTimestamp
+}
+
 func (c *Client) fetchStatus(status *StatusResponse) (bool, error) {
-	resp, err := c.httpClient.Get(c.baseURL + "/api/v2/status")
+	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet, c.baseURL+"/api/v2/status", nil)
+	if err != nil {
+		return true, fmt.Errorf("failed to create status request: %w", err)
+	}
+	resp, err := c.httpClient.Do(req)
 	if err != nil {
 		return true, fmt.Errorf("failed to fetch status: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() {
+		_ = resp.Body.Close()
+	}()
 
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
@@ -316,7 +410,7 @@ func (c *Client) extractRawReceiverConfigs(config *Config, originalYAML string) 
 
 func buildTLSConfig(opts TLSOptions) (*tls.Config, error) {
 	tlsConfig := &tls.Config{
-		InsecureSkipVerify: opts.SkipVerify,
+		InsecureSkipVerify: opts.SkipVerify, // #nosec G402 -- TLS verification is explicitly configurable by the caller.
 	}
 
 	if opts.CAFile != "" {
@@ -345,21 +439,42 @@ func buildTLSConfig(opts TLSOptions) (*tls.Config, error) {
 	return tlsConfig, nil
 }
 
-// FindMatchingRoute determines which receiver an alert would match
-func (c *Client) FindMatchingRoute(labels map[string]string, config *Config) (string, []*Route, error) {
+// MatchedRoute represents a route that matched an alert, along with its position
+// in the route tree expressed as a parent→child ancestry path.
+type MatchedRoute struct {
+	// Route is the matched route node.
+	Route *Route `json:"route"`
+	// Depth is 0 for direct children of the root route, 1 for their children, etc.
+	Depth int `json:"depth"`
+	// ParentReceivers is the ordered list of ancestor receivers from the root
+	// down to (but not including) this route.  Empty for top-level routes.
+	ParentReceivers []string `json:"parent_receivers,omitempty"`
+	// IsSubroute is true when Depth > 0, i.e. this route was reached by
+	// entering a nested `routes:` block of a parent that also matched.
+	IsSubroute bool `json:"is_subroute"`
+	// IsEffective is true when this route supplies a receiver for its matched branch.
+	IsEffective bool `json:"is_effective"`
+	// ResolvedReceiver is the receiver after applying parent inheritance.
+	ResolvedReceiver string `json:"resolved_receiver,omitempty"`
+}
+
+// FindMatchingRoute determines which receiver an alert would match.
+// It returns a flat, ordered list of MatchedRoute entries that captures the
+// full parent→child traversal path so callers can reconstruct the chain.
+func (c *Client) FindMatchingRoute(labels map[string]string, config *Config) (string, []MatchedRoute, error) {
 	if config.Route == nil {
 		return "", nil, fmt.Errorf("no route configuration found")
 	}
 
-	matchedRoutes := []*Route{}
-	receiver := findMatchingRouteRecursive(labels, config.Route, &matchedRoutes)
+	matched := []MatchedRoute{}
+	receiver := findMatchingRouteRecursive(labels, config.Route, &matched, 0, nil, config.Route.Receiver)
 
 	// If no specific routes matched, use the root route's receiver as default
 	if receiver == "" && config.Route.Receiver != "" {
 		receiver = config.Route.Receiver
 	}
 
-	return receiver, matchedRoutes, nil
+	return receiver, matched, nil
 }
 
 // FindReceiverByName finds a receiver configuration by name
@@ -372,19 +487,42 @@ func (c *Client) FindReceiverByName(name string, config *Config) *Receiver {
 	return nil
 }
 
-func findMatchingRouteRecursive(labels map[string]string, route *Route, matchedRoutes *[]*Route) string {
+func findMatchingRouteRecursive(labels map[string]string, route *Route, matched *[]MatchedRoute, depth int, parentReceivers []string, inheritedReceiver string) string {
 	var finalReceiver string
 
 	for _, childRoute := range route.Routes {
 		if matchesRoute(labels, childRoute) {
-			*matchedRoutes = append(*matchedRoutes, childRoute)
+			receiverForRoute := childRoute.Receiver
+			if receiverForRoute == "" {
+				receiverForRoute = inheritedReceiver
+			}
 
-			// Recursively check child routes first
-			if receiver := findMatchingRouteRecursive(labels, childRoute, matchedRoutes); receiver != "" {
+			matchIndex := len(*matched)
+			mr := MatchedRoute{
+				Route:            childRoute,
+				Depth:            depth,
+				ParentReceivers:  parentReceivers,
+				IsSubroute:       depth > 0,
+				ResolvedReceiver: receiverForRoute,
+			}
+			*matched = append(*matched, mr)
+
+			// Build the ancestry list for this route's own children.
+			// Only include non-empty receiver names.
+			childParents := parentReceivers
+			if receiverForRoute != "" {
+				childParents = make([]string, len(parentReceivers)+1)
+				copy(childParents, parentReceivers)
+				childParents[len(parentReceivers)] = receiverForRoute
+			}
+
+			// Recursively check child routes first.
+			if receiver := findMatchingRouteRecursive(labels, childRoute, matched, depth+1, childParents, receiverForRoute); receiver != "" {
 				finalReceiver = receiver
-			} else if childRoute.Receiver != "" {
-				// No child matched but this route has a receiver
-				finalReceiver = childRoute.Receiver
+			} else if receiverForRoute != "" {
+				// No child matched, so this route inherits or supplies the receiver.
+				finalReceiver = receiverForRoute
+				(*matched)[matchIndex].IsEffective = true
 			}
 
 			// If continue is false, stop checking other routes at this level
@@ -658,7 +796,7 @@ func GenerateSampleAlerts(config *Config) []SampleAlert {
 	}
 
 	// Seed random number generator
-	rng := rand.New(rand.NewSource(time.Now().UnixNano()))
+	rng := rand.New(rand.NewSource(time.Now().UnixNano())) // #nosec G404 -- sample alert generation does not require cryptographic randomness.
 
 	// Shuffle and pick 2 from matching alerts
 	rng.Shuffle(len(matchingAlerts), func(i, j int) {

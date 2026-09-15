@@ -1,5 +1,6 @@
 [tools]
 go = "1.25"
+"aqua:vercel-labs/agent-browser" = "0.37.1"
 
 [tasks.start]
 description = "Start everything needed for local testing (Recommended)"
@@ -117,8 +118,52 @@ go run . -config config.yaml
 """
 
 [tasks.test]
-description = "Run all tests"
-run = "go test -v ./..."
+description = "Run unit and Alertmanager integration tests"
+depends = ["setup"]
+run = """
+#!/bin/bash
+set -e
+
+ALERTMANAGER_URL="http://localhost:19093"
+export ALERTMANAGER_URL
+ALERTMANAGER_PID=""
+cleanup() {
+  if [ -n "$ALERTMANAGER_PID" ]; then
+    kill "$ALERTMANAGER_PID" 2>/dev/null || true
+    wait "$ALERTMANAGER_PID" 2>/dev/null || true
+  fi
+}
+trap cleanup EXIT INT TERM
+
+if curl -fsS "$ALERTMANAGER_URL/api/v2/status" > /dev/null 2>&1; then
+  echo "Alertmanager test port 19093 is already in use" >&2
+  exit 1
+fi
+
+./bin/alertmanager/alertmanager \
+  --config.file=testdata/alertmanager.yml \
+  --web.listen-address=:19093 \
+  --storage.path=./data/alertmanager-test &
+ALERTMANAGER_PID=$!
+
+for i in {1..30}; do
+  if curl -fsS "$ALERTMANAGER_URL/api/v2/status" > /dev/null 2>&1; then
+    break
+  fi
+  if ! kill -0 "$ALERTMANAGER_PID" 2>/dev/null; then
+    echo "Alertmanager stopped before becoming ready" >&2
+    exit 1
+  fi
+  sleep 1
+done
+
+if ! curl -fsS "$ALERTMANAGER_URL/api/v2/status" > /dev/null 2>&1; then
+  echo "Alertmanager did not become ready" >&2
+  exit 1
+fi
+
+go test -v ./...
+"""
 
 [tasks.build]
 description = "Build the application"
@@ -130,10 +175,12 @@ run = """
 #!/bin/bash
 set -e
 rm -f ./bin/alertmanager
-if [ -d ./data/alertmanager ]; then
-  find ./data/alertmanager -mindepth 1 -delete
-  rmdir ./data/alertmanager 2>/dev/null || true
-fi
+for dir in ./data/alertmanager ./data/alertmanager-test; do
+  if [ -d "$dir" ]; then
+    find "$dir" -mindepth 1 -delete
+    rmdir "$dir" 2>/dev/null || true
+  fi
+done
 echo "Removed local Alertmanager binaries and data"
 """
 
@@ -143,10 +190,12 @@ run = """
 #!/bin/bash
 set -e
 rm -f ./bin/alertmanager ./bin/alertmanager-route-tester
-if [ -d ./data/alertmanager ]; then
-  find ./data/alertmanager -mindepth 1 -delete
-  rmdir ./data/alertmanager 2>/dev/null || true
-fi
+for dir in ./data/alertmanager ./data/alertmanager-test; do
+  if [ -d "$dir" ]; then
+    find "$dir" -mindepth 1 -delete
+    rmdir "$dir" 2>/dev/null || true
+  fi
+done
 rmdir ./bin 2>/dev/null || true
 rmdir ./data 2>/dev/null || true
 """

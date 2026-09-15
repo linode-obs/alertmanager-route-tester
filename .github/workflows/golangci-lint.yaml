@@ -24,8 +24,11 @@ jobs:
           go-version: '1.25.2'
           cache: false
           
+      - name: golangci-lint format
+        run: go run github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.5.0 fmt --diff
+
       - name: golangci-lint
-        uses: golangci/golangci-lint-action@v6
+        uses: golangci/golangci-lint-action@v7
         with:
-          version: latest
+          version: v2.5.0
           args: --timeout=5m

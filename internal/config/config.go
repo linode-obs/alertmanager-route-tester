@@ -40,8 +40,12 @@ type AppConfig struct {
 }
 
 type ServerConfig struct {
-	Enabled *bool  `yaml:"enabled"`
-	Listen  string `yaml:"listen"`
+	Enabled           *bool    `yaml:"enabled"`
+	Listen            string   `yaml:"listen"`
+	ReadHeaderTimeout Duration `yaml:"read_header_timeout"`
+	ReadTimeout       Duration `yaml:"read_timeout"`
+	WriteTimeout      Duration `yaml:"write_timeout"`
+	IdleTimeout       Duration `yaml:"idle_timeout"`
 }
 
 type AlertmanagerConfig struct {
@@ -90,7 +94,7 @@ type TestConfig struct {
 }
 
 func Load(path string) (*Config, error) {
-	contents, err := os.ReadFile(path)
+	contents, err := os.ReadFile(path) // #nosec G304 -- the path is the explicitly selected application config file.
 	if err != nil {
 		return nil, fmt.Errorf("failed to read config file %q: %w", path, err)
 	}
@@ -143,6 +147,8 @@ func applyDefaults(cfg *Config) {
 		cfg.Alertmanager.Retry.Backoff = Duration{Duration: 300 * time.Millisecond}
 	}
 
+	applyServerTimeoutDefaults(cfg)
+
 	if cfg.Alertmanager.Pool.MaxIdleConns == 0 {
 		cfg.Alertmanager.Pool.MaxIdleConns = 100
 	}
@@ -158,9 +164,50 @@ func applyDefaults(cfg *Config) {
 	}
 }
 
+func applyServerTimeoutDefaults(cfg *Config) {
+	attempts := cfg.Alertmanager.Retry.MaxAttempts
+	if attempts < 1 {
+		attempts = 1
+	}
+	backoff := cfg.Alertmanager.Retry.Backoff.Duration
+	if backoff < 0 {
+		backoff = 0
+	}
+	retryBudget := cfg.Alertmanager.HTTP.Timeouts.Request.Duration * time.Duration(attempts)
+	if attempts > 1 {
+		retryBudget += backoff * time.Duration(attempts-1)
+	}
+	if cfg.App.Server.ReadHeaderTimeout.Duration == 0 {
+		cfg.App.Server.ReadHeaderTimeout = Duration{Duration: 5 * time.Second}
+	}
+	if cfg.App.Server.WriteTimeout.Duration == 0 {
+		cfg.App.Server.WriteTimeout = Duration{Duration: retryBudget + 5*time.Second}
+	}
+	if cfg.App.Server.ReadTimeout.Duration == 0 {
+		cfg.App.Server.ReadTimeout = cfg.App.Server.WriteTimeout
+	}
+	if cfg.App.Server.IdleTimeout.Duration == 0 {
+		cfg.App.Server.IdleTimeout = Duration{Duration: 60 * time.Second}
+	}
+}
+
 func validate(cfg *Config) error {
 	if cfg.Alertmanager.URL == "" {
 		return errors.New("alertmanager.url is required")
+	}
+	serverTimeouts := []struct {
+		name  string
+		value time.Duration
+	}{
+		{"read_header_timeout", cfg.App.Server.ReadHeaderTimeout.Duration},
+		{"read_timeout", cfg.App.Server.ReadTimeout.Duration},
+		{"write_timeout", cfg.App.Server.WriteTimeout.Duration},
+		{"idle_timeout", cfg.App.Server.IdleTimeout.Duration},
+	}
+	for _, timeout := range serverTimeouts {
+		if timeout.value < 0 {
+			return fmt.Errorf("alertmanager-route-tester.server.%s must be >= 0", timeout.name)
+		}
 	}
 
 	if cfg.Alertmanager.HTTP.TLS.CertFile != "" && cfg.Alertmanager.HTTP.TLS.KeyFile == "" {
@@ -172,6 +219,9 @@ func validate(cfg *Config) error {
 
 	if cfg.Alertmanager.Retry.MaxAttempts < 1 {
 		return errors.New("alertmanager.retry.max_attempts must be >= 1")
+	}
+	if cfg.Alertmanager.Retry.Backoff.Duration < 0 {
+		return errors.New("alertmanager.retry.backoff must be >= 0")
 	}
 
 	if cfg.App.CLITestMode.Enabled && len(cfg.App.CLITestMode.Labels) == 0 {

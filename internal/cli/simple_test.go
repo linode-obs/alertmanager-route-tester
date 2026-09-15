@@ -11,9 +11,11 @@ import (
 // These tests verify against the sample Alertmanager config in testdata/alertmanager.yml
 
 func TestSimpleCriticalRouting(t *testing.T) {
+	skipIntegration(t)
+
 	// Test that critical alerts route to pagerduty-critical
 	// Based on: testdata/alertmanager.yml line 12-14
-	client := alertmanager.NewClient("http://localhost:9093", false)
+	client := alertmanager.NewClient(alertmanagerURL(), false)
 
 	labels := map[string]string{
 		"alertname": "HighCPU",
@@ -33,8 +35,8 @@ func TestSimpleCriticalRouting(t *testing.T) {
 	if result.Receiver != "pagerduty-critical" {
 		t.Errorf("Expected receiver 'pagerduty-critical', got '%s'", result.Receiver)
 		t.Logf("Matched routes:")
-		for i, route := range result.MatchedRoutes {
-			t.Logf("  %d. receiver=%s match=%v", i+1, route.Receiver, route.Match)
+		for i, mr := range result.MatchedRoutes {
+			t.Logf("  %d. receiver=%s match=%v", i+1, mr.Route.Receiver, mr.Route.Match)
 		}
 	}
 
@@ -47,9 +49,11 @@ func TestSimpleCriticalRouting(t *testing.T) {
 }
 
 func TestSimpleDatabaseTeamRouting(t *testing.T) {
+	skipIntegration(t)
+
 	// Test that database team alerts route correctly
 	// Based on: testdata/alertmanager.yml line 63-72
-	client := alertmanager.NewClient("http://localhost:9093", false)
+	client := alertmanager.NewClient(alertmanagerURL(), false)
 
 	labels := map[string]string{
 		"alertname": "PostgreSQLSlowQueries",
@@ -80,9 +84,9 @@ func TestSimpleDatabaseTeamRouting(t *testing.T) {
 	if !matched {
 		t.Errorf("Expected receiver to be one of %v, got '%s'", expectedReceivers, result.Receiver)
 		t.Logf("Matched routes:")
-		for i, route := range result.MatchedRoutes {
+		for i, mr := range result.MatchedRoutes {
 			t.Logf("  %d. receiver=%s match=%v match_re=%v",
-				i+1, route.Receiver, route.Match, route.MatchRE)
+				i+1, mr.Route.Receiver, mr.Route.Match, mr.Route.MatchRE)
 		}
 	}
 
@@ -96,10 +100,12 @@ func TestSimpleDatabaseTeamRouting(t *testing.T) {
 }
 
 func TestRoutingWithContinue(t *testing.T) {
+	skipIntegration(t)
+
 	// Test that 'continue' routes work correctly - alerts match multiple routes
 	// Based on: testdata/alertmanager.yml line 22-30
 	// Warning alerts match severity:warning (continue=true) AND monitoring-team (continue=true)
-	client := alertmanager.NewClient("http://localhost:9093", false)
+	client := alertmanager.NewClient(alertmanagerURL(), false)
 
 	labels := map[string]string{
 		"alertname": "DiskSpaceLow",
@@ -127,7 +133,7 @@ func TestRoutingWithContinue(t *testing.T) {
 	}
 
 	t.Logf("✓ Warning alert matches %d routes (continue behavior works)", len(result.MatchedRoutes))
-	for i, route := range result.MatchedRoutes {
-		t.Logf("  %d. receiver=%s continue=%v", i+1, route.Receiver, route.Continue)
+	for i, mr := range result.MatchedRoutes {
+		t.Logf("  %d. receiver=%s continue=%v", i+1, mr.Route.Receiver, mr.Route.Continue)
 	}
 }

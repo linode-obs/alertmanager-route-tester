@@ -14,8 +14,10 @@ import (
 // Use: mise run test
 
 func TestCriticalAlertsRouting(t *testing.T) {
+	skipIntegration(t)
+
 	// This test verifies that critical alerts always go to the correct receiver
-	client := alertmanager.NewClient("http://localhost:9093", false)
+	client := alertmanager.NewClient(alertmanagerURL(), false)
 
 	testCases := []struct {
 		name             string
@@ -33,13 +35,13 @@ func TestCriticalAlertsRouting(t *testing.T) {
 			shouldMatch:      true,
 		},
 		{
-			name: "critical security alert should route to pagerduty-security",
+			name: "critical security alert follows the first matching critical route",
 			labels: map[string]string{
 				"alertname": "SecurityBreach",
 				"category":  "security",
 				"severity":  "critical",
 			},
-			expectedReceiver: "pagerduty-security",
+			expectedReceiver: "pagerduty-critical",
 			shouldMatch:      true,
 		},
 		{
@@ -77,8 +79,10 @@ func TestCriticalAlertsRouting(t *testing.T) {
 }
 
 func TestTeamBasedRouting(t *testing.T) {
+	skipIntegration(t)
+
 	// This test ensures team-based routing works correctly
-	client := alertmanager.NewClient("http://localhost:9093", false)
+	client := alertmanager.NewClient(alertmanagerURL(), false)
 
 	testCases := []struct {
 		name             string
@@ -97,9 +101,9 @@ func TestTeamBasedRouting(t *testing.T) {
 			name: "frontend team alert",
 			labels: map[string]string{
 				"alertname": "JSError",
-				"team":      "frontend",
+				"service":   "frontend",
 			},
-			expectedReceiver: "team-frontend",
+			expectedReceiver: "team-platform",
 		},
 		{
 			name: "infrastructure west region",
@@ -127,9 +131,11 @@ func TestTeamBasedRouting(t *testing.T) {
 }
 
 func TestComplexRoutingWithContinue(t *testing.T) {
+	skipIntegration(t)
+
 	// This test verifies that 'continue' routing works correctly
 	// Some alerts should match multiple routes
-	client := alertmanager.NewClient("http://localhost:9093", false)
+	client := alertmanager.NewClient(alertmanagerURL(), false)
 
 	testCases := []struct {
 		name              string
@@ -139,17 +145,17 @@ func TestComplexRoutingWithContinue(t *testing.T) {
 		routeDescriptions []string
 	}{
 		{
-			name: "security alert with continue should match multiple routes",
+			name: "security warning continues to the security route",
 			labels: map[string]string{
 				"alertname": "SecurityIssue",
 				"category":  "security",
-				"severity":  "critical",
+				"severity":  "warning",
 			},
-			expectedReceiver: "pagerduty-security",
-			minMatchedRoutes: 2, // Should match both security and critical routes
+			expectedReceiver: "security-team",
+			minMatchedRoutes: 2,
 			routeDescriptions: []string{
+				"warning route (with continue)",
 				"security route (with continue)",
-				"critical route",
 			},
 		},
 		{
@@ -157,10 +163,10 @@ func TestComplexRoutingWithContinue(t *testing.T) {
 			labels: map[string]string{
 				"alertname": "DiskSpace",
 				"severity":  "warning",
-				"service":   "web",
+				"team":      "monitoring",
 			},
-			expectedReceiver: "slack-warnings",
-			minMatchedRoutes: 1,
+			expectedReceiver: "monitoring-team",
+			minMatchedRoutes: 2,
 		},
 	}
 
@@ -185,8 +191,10 @@ func TestComplexRoutingWithContinue(t *testing.T) {
 }
 
 func TestDefaultReceiverFallback(t *testing.T) {
+	skipIntegration(t)
+
 	// This test verifies that alerts with no matching routes fall back to default receiver
-	client := alertmanager.NewClient("http://localhost:9093", false)
+	client := alertmanager.NewClient(alertmanagerURL(), false)
 
 	labels := map[string]string{
 		"alertname": "UnknownAlert",
@@ -204,8 +212,8 @@ func TestDefaultReceiverFallback(t *testing.T) {
 	}
 
 	// The default receiver should be the root route's receiver
-	if result.Receiver != "team-platform" {
-		t.Logf("Warning: Default receiver is %q, expected 'team-platform'", result.Receiver)
+	if result.Receiver != "default" {
+		t.Errorf("Expected root default receiver 'default', got %q", result.Receiver)
 	}
 
 	t.Logf("Default receiver: %s", result.Receiver)
@@ -213,8 +221,10 @@ func TestDefaultReceiverFallback(t *testing.T) {
 }
 
 func TestReceiverConfiguration(t *testing.T) {
+	skipIntegration(t)
+
 	// This test verifies that receiver configurations are correctly retrieved
-	client := alertmanager.NewClient("http://localhost:9093", false)
+	client := alertmanager.NewClient(alertmanagerURL(), false)
 
 	labels := map[string]string{
 		"alertname": "TestAlert",
@@ -244,8 +254,10 @@ func TestReceiverConfiguration(t *testing.T) {
 }
 
 func TestRegexMatching(t *testing.T) {
+	skipIntegration(t)
+
 	// This test verifies regex-based routing (match_re)
-	client := alertmanager.NewClient("http://localhost:9093", false)
+	client := alertmanager.NewClient(alertmanagerURL(), false)
 
 	testCases := []struct {
 		name             string
@@ -270,7 +282,7 @@ func TestRegexMatching(t *testing.T) {
 				"service":     "api",
 				"environment": "staging",
 			},
-			expectedReceiver: "slack-platform-nonprod",
+			expectedReceiver: "slack-platform-staging",
 			shouldMatch:      true,
 		},
 	}
@@ -293,7 +305,7 @@ func TestRegexMatching(t *testing.T) {
 
 // BenchmarkRouting benchmarks the routing logic
 func BenchmarkRouting(b *testing.B) {
-	client := alertmanager.NewClient("http://localhost:9093", false)
+	client := alertmanager.NewClient(alertmanagerURL(), false)
 
 	labels := map[string]string{
 		"alertname": "HighCPU",

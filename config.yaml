@@ -2,6 +2,10 @@ alertmanager-route-tester:
   server:
     enabled: true
     listen: ":8080"
+    read_header_timeout: 5s
+    read_timeout: 50.6s
+    write_timeout: 50.6s
+    idle_timeout: 60s
   cli-test-mode:
     enabled: false # set true to run in CLI test mode instead of web server mode
     format: "simple"

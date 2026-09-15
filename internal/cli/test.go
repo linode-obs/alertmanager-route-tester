@@ -4,17 +4,18 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"strings"
 
 	"github.com/wbollock/alertmanager-route-tester/internal/alertmanager"
 )
 
 // TestResult represents the output of a route test
 type TestResult struct {
-	Receiver       string                 `json:"receiver"`
-	ReceiverConfig *alertmanager.Receiver `json:"receiver_config,omitempty"`
-	MatchedRoutes  []*alertmanager.Route  `json:"matched_routes"`
-	Labels         map[string]string      `json:"labels"`
-	Error          string                 `json:"error,omitempty"`
+	Receiver       string                      `json:"receiver"`
+	ReceiverConfig *alertmanager.Receiver      `json:"receiver_config,omitempty"`
+	MatchedRoutes  []alertmanager.MatchedRoute `json:"matched_routes"`
+	Labels         map[string]string           `json:"labels"`
+	Error          string                      `json:"error,omitempty"`
 }
 
 // TestRouting tests alert routing using the exact same logic as the web UI
@@ -92,10 +93,25 @@ func PrintResult(result *TestResult, format OutputFormat) error {
 
 		if len(result.MatchedRoutes) > 0 {
 			fmt.Printf("Matched Routes:\n")
-			for i, route := range result.MatchedRoutes {
+			for i, mr := range result.MatchedRoutes {
+				route := mr.Route
+				resolvedReceiver := mr.ResolvedReceiver
+				if resolvedReceiver == "" {
+					resolvedReceiver = route.Receiver
+				}
 				fmt.Printf("  %d. ", i+1)
-				if route.Receiver != "" {
-					fmt.Printf("receiver=%s ", route.Receiver)
+				if !mr.IsEffective {
+					fmt.Printf("[trace-only] ")
+				}
+				if mr.IsSubroute {
+					if len(mr.ParentReceivers) > 0 {
+						fmt.Printf("[subroute of %s] ", strings.Join(mr.ParentReceivers, " -> "))
+					} else {
+						fmt.Printf("[subroute] ")
+					}
+				}
+				if resolvedReceiver != "" {
+					fmt.Printf("receiver=%s ", resolvedReceiver)
 				}
 				if len(route.Match) > 0 {
 					fmt.Printf("match=%v ", route.Match)

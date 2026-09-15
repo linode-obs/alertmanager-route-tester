@@ -5,11 +5,11 @@
         <p>{{ .Error }}</p>
     </div>
     {{else if .Receiver}}
-    <div class="result-success {{if not .MatchedRoutes}}result-default{{end}}">
+    <div class="result-success {{if .DefaultRoot}}result-default{{end}}">
         <h2>✓ Matched Receiver</h2>
-        <div class="receiver-name {{if not .MatchedRoutes}}receiver-default{{end}}">{{ .Receiver }}</div>
+        <div class="receiver-name {{if .DefaultRoot}}receiver-default{{end}}">{{ .Receiver }}</div>
 
-        {{if not .MatchedRoutes}}
+        {{if .DefaultRoot}}
         <div class="route-info">
             <p class="default-route-notice">ℹ️ No specific sub-routes matched. This alert uses the <strong>root route's receiver</strong> ({{.Receiver}}) which acts as the default.</p>
         </div>
@@ -72,11 +72,11 @@
         {{end}}
     </div>
 
-    {{if .MatchedRoutes}}
+    {{if and .MatchedRoutes (not .DefaultRoot)}}
     <div class="route-path">
         <h3>Matched Route Configuration</h3>
         <p class="route-explanation">Your alert matched the following route(s):</p>
-        {{if gt (len .MatchedRoutes) 1}}
+        {{if gt (len .MatchedReceivers) 1}}
         <div class="multiple-receivers-notice">
             ⚠️ <strong>Multiple receivers will be notified</strong> due to routes with <code>continue: true</code>
         </div>
@@ -85,19 +85,19 @@
             {{range .MatchedRoutes}}
             <div class="route-item">
                 <div class="route-config-block">
-                    <pre class="yaml-config">receiver: {{.Receiver}}{{if .Match}}
-match:{{range $key, $value := .Match}}
-  {{$key}}: {{$value}}{{end}}{{end}}{{if .MatchRE}}
-match_re:{{range $key, $value := .MatchRE}}
-  {{$key}}: {{$value}}{{end}}{{end}}{{if .Continue}}
-continue: {{.Continue}}{{end}}{{if .Matchers}}
-matchers:{{range .Matchers}}
-  - {{.}}{{end}}{{end}}{{if .GroupBy}}
-group_by:{{range .GroupBy}}
-- {{.}}{{end}}{{end}}{{if .GroupWait}}
-group_wait: {{.GroupWait}}{{end}}{{if .GroupInterval}}
-group_interval: {{.GroupInterval}}{{end}}{{if .RepeatInterval}}
-repeat_interval: {{.RepeatInterval}}{{end}}</pre>
+                    <pre class="yaml-config">receiver: {{.Route.Receiver}}{{if .Route.Match}}
+match:{{range $key, $value := .Route.Match}}
+  {{$key}}: {{$value}}{{end}}{{end}}{{if .Route.MatchRE}}
+match_re:{{range $key, $value := .Route.MatchRE}}
+  {{$key}}: {{$value}}{{end}}{{end}}{{if .Route.Continue}}
+continue: {{.Route.Continue}}{{end}}{{if .Route.Matchers}}
+matchers:{{range .Route.Matchers}}
+  - {{.}}{{end}}{{end}}{{if .Route.GroupBy}}
+group_by:{{range .Route.GroupBy}}
+- {{.}}{{end}}{{end}}{{if .Route.GroupWait}}
+group_wait: {{.Route.GroupWait}}{{end}}{{if .Route.GroupInterval}}
+group_interval: {{.Route.GroupInterval}}{{end}}{{if .Route.RepeatInterval}}
+repeat_interval: {{.Route.RepeatInterval}}{{end}}</pre>
                 </div>
             </div>
             {{end}}
@@ -172,14 +172,25 @@ repeat_interval: {{.RepeatInterval}}{{end}}</pre>
         <p class="route-explanation">Evaluation order for routes that matched this alert.</p>
         <div class="trace-timeline">
             {{range .RouteSteps}}
-            <div class="trace-row {{if .IsFinal}}trace-final{{end}}">
+            <div class="trace-row {{if .IsFinal}}trace-final{{end}} {{if .IsSubroute}}trace-subroute{{end}} {{if not .IsEffective}}trace-only{{end}}">
                 <div class="trace-bar">
                     <span class="trace-bar-fill"></span>
                 </div>
                 <div class="trace-meta">
                 <div class="trace-header">
                     <span class="trace-index">#{{.Index}}</span>
+                    {{if .IsSubroute}}
+                    <span class="trace-subroute-chain">
+                        {{range .ParentReceivers}}<span class="trace-parent">{{.}}</span> &rarr; {{end}}
+                    </span>
+                    {{end}}
                     <span class="trace-receiver">{{.Receiver}}</span>
+                    {{if .IsSubroute}}
+                    <span class="trace-subroute-badge">subroute (depth {{.Depth}})</span>
+                    {{end}}
+                    {{if not .IsEffective}}
+                    <span class="trace-trace-only-badge">trace only</span>
+                    {{end}}
                     {{if .TypeLabel}}
                     <!-- TODO: Replace emoji with actual receiver logos -->
                     <span class="trace-type">

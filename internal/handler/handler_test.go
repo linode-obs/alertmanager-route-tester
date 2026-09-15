@@ -349,7 +349,7 @@ func TestResultTemplateRendersRootFallbackWithMatchedParent(t *testing.T) {
 	if strings.Contains(output, "root route's receiver") {
 		t.Fatal("effective route match should not show the root fallback notice")
 	}
-	if !strings.Contains(output, "Matched Route Configuration") {
+	if !strings.Contains(output, "Matched route config") {
 		t.Fatal("effective route match should show the matched route")
 	}
 }
@@ -524,7 +524,73 @@ func TestResultTemplateRendersDefaultRoot(t *testing.T) {
 		t.Fatalf("result.html failed to render with default root: %v", err)
 	}
 	output := buf.String()
-	if !strings.Contains(output, "root route's receiver") || !strings.Contains(output, "result-default") {
+	if !strings.Contains(output, "root receiver") || !strings.Contains(output, "result-default") {
 		t.Fatalf("default root output = %q, want default notice and styling", output)
+	}
+}
+
+func TestIndexTemplateIncludesRedesignControls(t *testing.T) {
+	tmpl := loadTemplates(t)
+	data := struct {
+		LabelSuggestions []alertmanager.LabelSuggestion
+		SampleAlerts     []alertmanager.SampleAlert
+		Config           *alertmanager.Config
+		AlertmanagerURL  string
+		ConnectionStatus bool
+		ConnectionError  string
+		ConfigCachedAt   time.Time
+		ConfigWasCached  bool
+	}{AlertmanagerURL: "http://localhost:9093", ConnectionStatus: true, ConfigCachedAt: time.Now()}
+
+	var buf bytes.Buffer
+	if err := tmpl.ExecuteTemplate(&buf, "index.html", data); err != nil {
+		t.Fatalf("index.html failed to render: %v", err)
+	}
+
+	output := buf.String()
+	for _, expected := range []string{
+		`class="app-headerbar"`,
+		`class="theme-switch"`,
+		`aria-label="Test the alert route"`,
+		`aria-live="polite"`,
+		`textContent = key`,
+	} {
+		if !strings.Contains(output, expected) {
+			t.Errorf("rendered index template does not contain %q", expected)
+		}
+	}
+}
+
+func TestResultTemplateIncludesRedesignHelp(t *testing.T) {
+	tmpl := loadTemplates(t)
+	data := resultData{
+		Receiver: "pagerduty-database",
+		MatchedRoutes: []alertmanager.MatchedRoute{
+			{Route: &alertmanager.Route{Receiver: "team-database"}},
+			{Route: &alertmanager.Route{Receiver: "pagerduty-database"}, Depth: 1, IsSubroute: true, IsEffective: true, ParentReceivers: []string{"team-database"}},
+		},
+		RouteSteps: []RouteStep{
+			{Index: 1, Receiver: "team-database"},
+			{Index: 2, Receiver: "pagerduty-database", Depth: 1, IsSubroute: true, IsEffective: true, ParentReceivers: []string{"team-database"}, IsFinal: true},
+		},
+		MatchedReceivers: []string{"team-database", "pagerduty-database"},
+		Labels:           map[string]string{"team": "database"},
+	}
+
+	var buf bytes.Buffer
+	if err := tmpl.ExecuteTemplate(&buf, "result.html", data); err != nil {
+		t.Fatalf("result.html failed to render: %v", err)
+	}
+
+	output := buf.String()
+	for _, expected := range []string{
+		`class="route-trace"`,
+		`trace-final`,
+		`trace-subroute`,
+		`data-tooltip="Alertmanager sends the alert to this receiver."`,
+	} {
+		if !strings.Contains(output, expected) {
+			t.Errorf("rendered result template does not contain %q", expected)
+		}
 	}
 }

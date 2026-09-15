@@ -1,31 +1,42 @@
 <!DOCTYPE html>
-<html lang="en" data-theme="dark">
+<html lang="en" data-theme="light" data-theme-preference="system">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Alertmanager Route Tester</title>
     <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
     <script src="https://unpkg.com/htmx.org@1.9.10"></script>
+    <script>
+        (function() {
+            const savedTheme = localStorage.getItem('theme');
+            const preference = savedTheme === 'light' || savedTheme === 'dark' ? savedTheme : 'system';
+            const systemDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+            document.documentElement.dataset.themePreference = preference;
+            document.documentElement.dataset.theme = preference === 'system' ? (systemDark ? 'dark' : 'light') : preference;
+        })();
+    </script>
     <link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
-    <div class="container">
-        <header>
+    <div class="container app-shell">
+        <header class="app-headerbar">
             <div class="header-content">
                 <div>
                     <h1>Alertmanager Route Tester</h1>
-                    <p class="subtitle">Test where your alerts route in the Alertmanager configuration</p>
-                    <div class="disclaimer">
-                        ℹ️ This tool only tests routing configurations pulled from Alertmanager - it does not send actual alerts or notifications!
+                    <p class="subtitle">See where an alert goes.</p>
+                    <div class="disclaimer" title="This tool checks routes. It does not send alerts.">
+                        ℹ️ This tool checks routes. It does not send alerts.
                     </div>
                 </div>
-                <button id="dark-mode-toggle" class="dark-mode-btn" onclick="toggleDarkMode()">
-                    <span id="dark-mode-icon">🌙</span>
-                </button>
+                <div class="theme-switch" role="radiogroup" aria-label="Color theme" title="Choose light, dark, or system appearance">
+                    <button type="button" class="theme-choice" data-theme-choice="system" role="radio" aria-label="Use system theme" onclick="setTheme('system')">System</button>
+                    <button type="button" class="theme-choice" data-theme-choice="light" role="radio" aria-label="Use light theme" onclick="setTheme('light')">Light</button>
+                    <button type="button" class="theme-choice" data-theme-choice="dark" role="radio" aria-label="Use dark theme" onclick="setTheme('dark')">Dark</button>
+                </div>
             </div>
             <div class="connection-status">
                 {{if .ConnectionStatus}}
-                <div class="status-indicator status-success">
+                <div class="connection-strip connection-success" title="Alertmanager is connected. The current config is loaded.">
                     <span class="status-dot"></span>
                     {{if .ConfigWasCached}}
                     <span>Using cached config from <a href="{{.AlertmanagerURL}}" target="_blank" class="am-link">{{.AlertmanagerURL}}</a></span>
@@ -38,23 +49,25 @@
                     <form method="POST" action="/config/reload" style="display:inline"
                           hx-post="/config/reload" hx-swap="none"
                           hx-on:config-reload-error="this.querySelector('.reload-error').hidden = false">
-                        <button type="submit" class="btn-reload-config" title="Reload configuration from Alertmanager">
-                            Reload Config
+                        <button type="submit" class="btn-reload-config" aria-label="Reload Alertmanager config" title="Load the config again">
+                            Reload
+
                         </button>
                         <span class="reload-error" hidden>Reload failed, using cached config.</span>
                     </form>
                 </div>
                 {{else}}
-                <div class="status-indicator status-error">
+                <div class="connection-strip connection-error" title="Alertmanager did not return its config.">
                     <span class="status-dot"></span>
-                    <span>Failed to connect to <a href="{{.AlertmanagerURL}}" target="_blank" class="am-link">{{.AlertmanagerURL}}</a></span>
+                    <span>Cannot connect to <a href="{{.AlertmanagerURL}}" target="_blank" class="am-link">{{.AlertmanagerURL}}</a></span>
                     {{if .ConnectionError}}
                     <div class="error-details">{{.ConnectionError}}</div>
                     {{end}}
                     <form method="POST" action="/config/reload" style="display:inline"
                           hx-post="/config/reload" hx-swap="none"
                           hx-on:config-reload-error="this.querySelector('.reload-error').hidden = false">
-                        <button type="submit" class="btn-reload-config" title="Retry connecting to Alertmanager">
+                        <button type="submit" class="btn-reload-config" aria-label="Try the Alertmanager connection again" title="Try again">
+
                             Retry
                         </button>
                         <span class="reload-error" hidden>Retry failed.</span>
@@ -64,17 +77,17 @@
             </div>
         </header>
 
-        <main>
-            <div class="panel">
+        <main class="workspace">
+            <div class="panel workspace-pane workspace-input-pane">
                 <h2>Build Your Alert</h2>
 
                 {{if .SampleAlerts}}
                 <div class="quick-start-section">
-                    <h3>Quick Start Examples</h3>
-                    <p class="help-text">Click an example to instantly test it</p>
+                    <h3>Quick examples</h3>
+                    <p class="help-text">Choose an example to load its labels.</p>
                     <div class="sample-alerts-grid">
                         {{range $i, $sample := .SampleAlerts}}
-                        <div class="sample-alert-card" onclick="loadSampleAlertByIndex({{$i}})">
+                        <div class="sample-alert-card" role="button" tabindex="0" aria-label="Load sample alert {{$sample.Name}}" onclick="loadSampleAlertByIndex({{$i}})" onkeydown="if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); loadSampleAlertByIndex({{$i}}); }">
                             <div class="sample-name">{{$sample.Name}}</div>
                             <div class="sample-description">{{$sample.Description}}</div>
                             <div class="sample-labels">
@@ -89,24 +102,27 @@
                 {{end}}
 
                 <div class="input-mode-toggle">
-                    <button id="ui-mode-btn" class="active" onclick="switchMode('ui')">UI Builder</button>
-                    <button id="raw-mode-btn" onclick="switchMode('raw')">Raw Input</button>
+                    <button id="ui-mode-btn" class="active" aria-pressed="true" title="Build labels with key and value fields" onclick="switchMode('ui')">UI Builder</button>
+                    <button id="raw-mode-btn" aria-pressed="false" title="Paste labels as Prometheus-style YAML" onclick="switchMode('raw')">Raw Input</button>
                 </div>
 
                 <form id="alert-form" hx-post="/test" hx-target="#result" hx-swap="innerHTML">
                     <div id="ui-builder">
                         <div class="label-section">
-                            <h3>Alert Labels</h3>
-                            <p class="help-text">Click to add labels from your config, or enter custom key=value pairs.</p>
+                            <h3>Alert labels <span class="help-tip" data-tooltip="A route matches only when its labels match." aria-label="Alert label help" tabindex="0">?</span></h3>
+                            <p class="help-text">Add labels from the config or enter your own.</p>
 
                             <div id="current-labels" class="current-labels">
                                 <!-- Labels will appear here as badges -->
                             </div>
 
-                            <div class="add-label-form">
+                            <div class="add-label-form" aria-label="Add alert label">
                                 <input type="text"
                                        id="label-key-input"
                                        placeholder="key"
+                                       aria-label="Alert label key"
+                                       aria-describedby="label-input-error"
+                                       aria-invalid="false"
                                        list="all-keys"
                                        class="label-key-input">
                                 <datalist id="all-keys">
@@ -118,31 +134,35 @@
                                 <input type="text"
                                        id="label-value-input"
                                        placeholder="value"
+                                       aria-label="Alert label value"
+                                       aria-describedby="label-input-error"
+                                       aria-invalid="false"
                                        list="current-values"
                                        class="label-value-input">
                                 <datalist id="current-values"></datalist>
-                                <button type="button" class="btn-add-label" onclick="addLabel()">Add</button>
+                                <button type="button" class="btn-add-label" aria-label="Add alert label" title="Add this label" onclick="addLabel()">Add</button>
                             </div>
+                            <p id="label-input-error" class="field-error" role="alert" aria-live="polite" hidden></p>
                         </div>
                     </div>
 
                     <div id="raw-builder" style="display: none;">
                         <div class="label-section">
-                            <label for="raw-input">Paste Prometheus Alert Labels (YAML)</label>
+                            <label for="raw-input">Paste labels as YAML <span class="help-tip" data-tooltip="Use one key: value pair per line." aria-label="Raw input help" tabindex="0">?</span></label>
                             <textarea id="raw-input" rows="10" placeholder='alertname: HighErrorRate
 severity: critical
 job: api
 instance: web-01
 team: platform'></textarea>
-                            <button type="button" class="btn-secondary" onclick="parseRawInput()">Load Labels</button>
+                            <button type="button" class="btn-secondary" title="Load these labels" onclick="parseRawInput()">Load labels</button>
                         </div>
                     </div>
 
-                    <button type="submit" class="btn-primary">Test Route</button>
+                    <button type="submit" class="btn-primary btn-test-route" aria-label="Test the alert route" title="Check these labels against the routes">Test route</button>
                 </form>
             </div>
 
-            <div class="panel" id="result">
+            <div class="panel workspace-pane workspace-result-pane" id="result" aria-live="polite" aria-atomic="true">
                 <div class="placeholder">
                     <p>Configure your alert labels above and click "Test Route" to see which receiver it matches.</p>
                 </div>
@@ -175,20 +195,48 @@ team: platform'></textarea>
         // Render labels as badges
         function renderLabels() {
             const container = document.getElementById('current-labels');
-            container.innerHTML = '';
+            container.replaceChildren();
 
             if (Object.keys(currentLabels).length === 0) {
-                container.innerHTML = '<p class="no-labels-text">No labels added yet. Add labels above to test routing.</p>';
+                const emptyMessage = document.createElement('p');
+                emptyMessage.className = 'no-labels-text';
+                emptyMessage.textContent = 'No labels added yet. Add labels above to test routing.';
+                container.appendChild(emptyMessage);
                 return;
             }
 
             for (const [key, value] of Object.entries(currentLabels)) {
                 const badge = document.createElement('div');
-                badge.className = 'label-badge';
-                badge.innerHTML = `
-                    <span class="label-badge-text">${key}=${value}</span>
-                    <button type="button" class="label-badge-remove" onclick="removeLabel('${key}')">×</button>
-                `;
+                badge.className = 'label-row label-badge';
+
+                const labelText = document.createElement('span');
+                labelText.className = 'label-badge-text';
+
+                const labelKey = document.createElement('span');
+                labelKey.className = 'label-badge-key';
+                labelKey.textContent = key;
+
+                const equals = document.createElement('span');
+                equals.className = 'label-badge-equals';
+                equals.textContent = '=';
+
+                const labelValue = document.createElement('span');
+                labelValue.className = 'label-badge-value';
+                labelValue.textContent = value;
+
+                const removeButton = document.createElement('button');
+                removeButton.type = 'button';
+                removeButton.className = 'label-badge-remove';
+                removeButton.setAttribute('aria-label', `Remove alert label ${key}`);
+                removeButton.title = `Remove ${key}`;
+                removeButton.dataset.labelKey = key;
+                removeButton.textContent = '×';
+                removeButton.addEventListener('click', function() {
+                    removeLabel(this.dataset.labelKey);
+                });
+
+                labelText.append(labelKey, equals, labelValue);
+                badge.append(labelText, removeButton);
                 container.appendChild(badge);
             }
         }
@@ -200,11 +248,21 @@ team: platform'></textarea>
             const key = keyInput.value.trim();
             const value = valueInput.value.trim();
 
+            const inputError = document.getElementById('label-input-error');
             if (!key || !value) {
+                const message = !key && !value ? 'Enter both a label key and value.' : !key ? 'Enter a label key.' : 'Enter a label value.';
+                inputError.textContent = message;
+                inputError.hidden = false;
+                keyInput.setAttribute('aria-invalid', String(!key));
+                valueInput.setAttribute('aria-invalid', String(!value));
                 alert('Please enter both key and value');
                 return;
             }
 
+            inputError.textContent = '';
+            inputError.hidden = true;
+            keyInput.setAttribute('aria-invalid', 'false');
+            valueInput.setAttribute('aria-invalid', 'false');
             currentLabels[key] = value;
             renderLabels();
 
@@ -213,6 +271,33 @@ team: platform'></textarea>
             valueInput.value = '';
             keyInput.focus();
         }
+
+        function syncLabelValidationState() {
+            const keyInput = document.getElementById('label-key-input');
+            const valueInput = document.getElementById('label-value-input');
+            const inputError = document.getElementById('label-input-error');
+            const key = keyInput.value.trim();
+            const value = valueInput.value.trim();
+
+            if (inputError.hidden) {
+                keyInput.setAttribute('aria-invalid', 'false');
+                valueInput.setAttribute('aria-invalid', 'false');
+                return;
+            }
+
+            keyInput.setAttribute('aria-invalid', String(!key));
+            valueInput.setAttribute('aria-invalid', String(!value));
+
+            if (key && value) {
+                inputError.textContent = '';
+                inputError.hidden = true;
+            } else {
+                inputError.textContent = !key && !value ? 'Enter both a label key and value.' : !key ? 'Enter a label key.' : 'Enter a label value.';
+            }
+        }
+
+        document.getElementById('label-key-input').addEventListener('input', syncLabelValidationState);
+        document.getElementById('label-value-input').addEventListener('input', syncLabelValidationState);
 
         // Remove a label
         function removeLabel(key) {
@@ -254,12 +339,16 @@ team: platform'></textarea>
                 uiBuilder.style.display = 'block';
                 rawBuilder.style.display = 'none';
                 uiBtn.classList.add('active');
+                uiBtn.setAttribute('aria-pressed', 'true');
                 rawBtn.classList.remove('active');
+                rawBtn.setAttribute('aria-pressed', 'false');
             } else {
                 uiBuilder.style.display = 'none';
                 rawBuilder.style.display = 'block';
                 uiBtn.classList.remove('active');
+                uiBtn.setAttribute('aria-pressed', 'false');
                 rawBtn.classList.add('active');
+                rawBtn.setAttribute('aria-pressed', 'true');
             }
         }
 
@@ -336,27 +425,47 @@ team: platform'></textarea>
             }
         });
 
-        // Dark mode toggle
-        function toggleDarkMode() {
+        // Theme selection
+        function applyTheme(preference) {
             const html = document.documentElement;
-            const currentTheme = html.getAttribute('data-theme');
-            const newTheme = currentTheme === 'dark' ? 'light' : 'dark';
-            const icon = document.getElementById('dark-mode-icon');
+            const systemDark = window.matchMedia('(prefers-color-scheme: dark)').matches;
+            const theme = preference === 'system' ? (systemDark ? 'dark' : 'light') : preference;
 
-            html.setAttribute('data-theme', newTheme);
-            localStorage.setItem('theme', newTheme);
-            icon.textContent = newTheme === 'dark' ? '☀️' : '🌙';
+            html.setAttribute('data-theme-preference', preference);
+            html.setAttribute('data-theme', theme);
+            document.querySelectorAll('[data-theme-choice]').forEach(button => {
+                const selected = button.dataset.themeChoice === preference;
+                button.classList.toggle('active', selected);
+                button.setAttribute('aria-checked', selected ? 'true' : 'false');
+            });
         }
 
-        // Load saved theme on page load
-        (function() {
-            const savedTheme = localStorage.getItem('theme') || 'dark';
-            const icon = document.getElementById('dark-mode-icon');
-            document.documentElement.setAttribute('data-theme', savedTheme);
-            if (savedTheme === 'dark') {
-                icon.textContent = '☀️';
+        function setTheme(preference) {
+            if (!['system', 'light', 'dark'].includes(preference)) {
+                return;
             }
-        })();
+
+            if (preference === 'system') {
+                localStorage.removeItem('theme');
+            } else {
+                localStorage.setItem('theme', preference);
+            }
+            applyTheme(preference);
+        }
+
+        function toggleDarkMode() {
+            const preference = document.documentElement.dataset.themePreference;
+            setTheme(preference === 'dark' ? 'light' : 'dark');
+        }
+
+        const systemTheme = window.matchMedia('(prefers-color-scheme: dark)');
+        systemTheme.addEventListener('change', function() {
+            if (document.documentElement.dataset.themePreference === 'system') {
+                applyTheme('system');
+            }
+        });
+
+        applyTheme(document.documentElement.dataset.themePreference || 'system');
     </script>
 </body>
 </html>

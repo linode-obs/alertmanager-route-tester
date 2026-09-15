@@ -23,10 +23,11 @@
             <div class="header-content">
                 <div>
                     <h1>Alertmanager Route Tester</h1>
-                    <p class="subtitle">See where an alert goes.</p>
+                    <p class="subtitle">Find the receiver for an alert.</p>
                     <div class="disclaimer" title="This tool checks routes. It does not send alerts.">
                         ℹ️ This tool checks routes. It does not send alerts.
                     </div>
+                    <p class="docs-link">Need more information? <a href="https://prometheus.io/docs/alerting/latest/configuration/" target="_blank" rel="noopener noreferrer">Read the Alertmanager configuration docs.</a></p>
                 </div>
                 <div class="theme-switch" role="radiogroup" aria-label="Color theme" title="Choose light, dark, or system appearance">
                     <button type="button" class="theme-choice" data-theme-choice="system" role="radio" aria-label="Use system theme" onclick="setTheme('system')">System</button>
@@ -36,42 +37,44 @@
             </div>
             <div class="connection-status">
                 {{if .ConnectionStatus}}
-                <div class="connection-strip connection-success" title="Alertmanager is connected. The current config is loaded.">
-                    <span class="status-dot"></span>
-                    {{if .ConfigWasCached}}
-                    <span>Using cached config from <a href="{{.AlertmanagerURL}}" target="_blank" class="am-link">{{.AlertmanagerURL}}</a></span>
-                    {{else}}
-                    <span>Connected to <a href="{{.AlertmanagerURL}}" target="_blank" class="am-link">{{.AlertmanagerURL}}</a></span>
-                    {{end}}
-                    {{if not .ConfigCachedAt.IsZero}}
-                    <span class="config-cached-at">Config loaded {{.ConfigCachedAt.Format "15:04:05"}}</span>
-                    {{end}}
-                    <form method="POST" action="/config/reload" style="display:inline"
-                          hx-post="/config/reload" hx-swap="none"
-                          hx-on:config-reload-error="this.querySelector('.reload-error').hidden = false">
-                        <button type="submit" class="btn-reload-config" aria-label="Reload Alertmanager config" title="Load the config again">
-                            Reload
-
-                        </button>
-                        <span class="reload-error" hidden>Reload failed, using cached config.</span>
-                    </form>
+                <div class="connection-strip connection-success" title="Alertmanager is connected. The current configuration is loaded.">
+                    <div class="connection-main">
+                        <span class="status-dot"></span>
+                        {{if .ConfigWasCached}}
+                        <span>Connected to Alertmanager at <a href="{{.AlertmanagerURL}}" target="_blank" class="am-link">{{.AlertmanagerURL}}</a> (cached configuration)</span>
+                        {{else}}
+                        <span>Connected to Alertmanager at <a href="{{.AlertmanagerURL}}" target="_blank" class="am-link">{{.AlertmanagerURL}}</a></span>
+                        {{end}}
+                    </div>
+                    <div class="connection-actions">
+                        {{if not .ConfigCachedAt.IsZero}}
+                        <span class="config-cached-at">Configuration loaded at {{.ConfigCachedAt.Format "15:04:05"}}</span>
+                        {{end}}
+                        <form method="POST" action="/config/reload"
+                              hx-post="/config/reload" hx-swap="none"
+                              hx-on:config-reload-error="this.querySelector('.reload-error').hidden = false">
+                            <button type="submit" class="btn-reload-config" aria-label="Reload Alertmanager config" title="Load the config again">Reload</button>
+                            <span class="reload-error" hidden>Reload failed. Using cached configuration.</span>
+                        </form>
+                    </div>
                 </div>
                 {{else}}
-                <div class="connection-strip connection-error" title="Alertmanager did not return its config.">
-                    <span class="status-dot"></span>
-                    <span>Cannot connect to <a href="{{.AlertmanagerURL}}" target="_blank" class="am-link">{{.AlertmanagerURL}}</a></span>
+                <div class="connection-strip connection-error" title="Alertmanager did not return its configuration.">
+                    <div class="connection-main">
+                        <span class="status-dot"></span>
+                        <span>Cannot connect to <a href="{{.AlertmanagerURL}}" target="_blank" class="am-link">{{.AlertmanagerURL}}</a></span>
+                    </div>
                     {{if .ConnectionError}}
                     <div class="error-details">{{.ConnectionError}}</div>
                     {{end}}
-                    <form method="POST" action="/config/reload" style="display:inline"
-                          hx-post="/config/reload" hx-swap="none"
-                          hx-on:config-reload-error="this.querySelector('.reload-error').hidden = false">
-                        <button type="submit" class="btn-reload-config" aria-label="Try the Alertmanager connection again" title="Try again">
-
-                            Retry
-                        </button>
-                        <span class="reload-error" hidden>Retry failed.</span>
-                    </form>
+                    <div class="connection-actions">
+                        <form method="POST" action="/config/reload"
+                              hx-post="/config/reload" hx-swap="none"
+                              hx-on:config-reload-error="this.querySelector('.reload-error').hidden = false">
+                            <button type="submit" class="btn-reload-config" aria-label="Try the Alertmanager connection again" title="Try again">Retry</button>
+                            <span class="reload-error" hidden>Retry failed.</span>
+                        </form>
+                    </div>
                 </div>
                 {{end}}
             </div>
@@ -79,12 +82,12 @@
 
         <main class="workspace">
             <div class="panel workspace-pane workspace-input-pane">
-                <h2>Build Your Alert</h2>
+                <h2>Build your alert</h2>
 
                 {{if .SampleAlerts}}
                 <div class="quick-start-section">
                     <h3>Quick examples</h3>
-                    <p class="help-text">Choose an example to load its labels.</p>
+                    <p class="help-text">Choose an example. The app loads its labels.</p>
                     <div class="sample-alerts-grid">
                         {{range $i, $sample := .SampleAlerts}}
                         <div class="sample-alert-card" role="button" tabindex="0" aria-label="Load sample alert {{$sample.Name}}" onclick="loadSampleAlertByIndex({{$i}})" onkeydown="if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); loadSampleAlertByIndex({{$i}}); }">
@@ -102,15 +105,15 @@
                 {{end}}
 
                 <div class="input-mode-toggle">
-                    <button id="ui-mode-btn" class="active" aria-pressed="true" title="Build labels with key and value fields" onclick="switchMode('ui')">UI Builder</button>
-                    <button id="raw-mode-btn" aria-pressed="false" title="Paste labels as Prometheus-style YAML" onclick="switchMode('raw')">Raw Input</button>
+                    <button id="ui-mode-btn" class="active" aria-pressed="true" title="Build labels with key and value fields" onclick="switchMode('ui')">Label editor</button>
+                    <button id="raw-mode-btn" aria-pressed="false" title="Paste labels as YAML" onclick="switchMode('raw')">Paste YAML</button>
                 </div>
 
                 <form id="alert-form" hx-post="/test" hx-target="#result" hx-swap="innerHTML">
                     <div id="ui-builder">
                         <div class="label-section">
                             <h3>Alert labels <span class="help-tip" data-tooltip="A route matches only when its labels match." aria-label="Alert label help" tabindex="0">?</span></h3>
-                            <p class="help-text">Add labels from the config or enter your own.</p>
+                            <p class="help-text">Add labels from the configuration, or enter them.</p>
 
                             <div id="current-labels" class="current-labels">
                                 <!-- Labels will appear here as badges -->
@@ -164,7 +167,7 @@ team: platform'></textarea>
 
             <div class="panel workspace-pane workspace-result-pane" id="result" aria-live="polite" aria-atomic="true">
                 <div class="placeholder">
-                    <p>Configure your alert labels above and click "Test Route" to see which receiver it matches.</p>
+                    <p>Add labels, then select "Test route". The app shows the matching receiver.</p>
                 </div>
             </div>
         </main>
@@ -200,7 +203,7 @@ team: platform'></textarea>
             if (Object.keys(currentLabels).length === 0) {
                 const emptyMessage = document.createElement('p');
                 emptyMessage.className = 'no-labels-text';
-                emptyMessage.textContent = 'No labels added yet. Add labels above to test routing.';
+                emptyMessage.textContent = 'No labels added. Add labels above, then test the route.';
                 container.appendChild(emptyMessage);
                 return;
             }
@@ -255,7 +258,7 @@ team: platform'></textarea>
                 inputError.hidden = false;
                 keyInput.setAttribute('aria-invalid', String(!key));
                 valueInput.setAttribute('aria-invalid', String(!value));
-                alert('Please enter both key and value');
+                alert('Enter a label key and value.');
                 return;
             }
 
@@ -394,7 +397,7 @@ team: platform'></textarea>
                 }
 
                 if (Object.keys(labels).length === 0) {
-                    alert('No valid YAML key: value pairs found. Please use format:\nkey: value');
+                    alert('No valid YAML labels found. Use this format:\nkey: value');
                     return;
                 }
 

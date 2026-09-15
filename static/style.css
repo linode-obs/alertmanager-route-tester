@@ -2452,3 +2452,140 @@ body {
     border-color: #8e6be5;
     color: #faf8ff;
 }
+
+/* Keep connection status, metadata, and reload actions visually distinct. */
+.connection-strip {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 18px;
+    min-width: 0;
+}
+
+.connection-main {
+    display: flex;
+    align-items: center;
+    min-width: 0;
+    gap: 10px;
+    flex: 1 1 24rem;
+}
+
+.connection-main > span:last-child {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.connection-actions {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+    flex: 0 0 auto;
+    margin-left: auto;
+}
+
+.connection-actions form {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.connection-actions .config-cached-at {
+    margin-left: 0;
+    padding-right: 16px;
+    border-right: 1px solid rgba(185, 246, 207, .25);
+    white-space: nowrap;
+}
+
+.connection-actions .reload-error {
+    margin-left: 0;
+}
+
+.connection-error .error-details {
+    flex: 1 1 100%;
+    min-width: 100%;
+    order: 3;
+}
+
+@media (max-width: 700px) {
+    .connection-strip {
+        align-items: stretch;
+        gap: 12px;
+    }
+
+    .connection-main {
+        flex-basis: 100%;
+    }
+
+    .connection-actions {
+        width: 100%;
+        justify-content: flex-end;
+        margin-left: 28px;
+    }
+
+    .connection-actions .config-cached-at {
+        margin-left: 0;
+    }
+
+    .connection-error .connection-actions {
+        justify-content: flex-start;
+    }
+}
+
+.trace-meta,
+.trace-header {
+    min-width: 0;
+}
+
+.trace-header > * {
+    min-width: 0;
+}
+
+.trace-subroute-badge {
+    max-width: min(18rem, 28vw);
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.trace-subroute-badge.help-tip {
+    width: auto;
+    height: auto;
+    margin-left: 0;
+    padding: 2px 8px;
+    border-radius: 999px;
+    line-height: 1.4;
+    vertical-align: middle;
+}
+
+@media (max-width: 860px) {
+    .trace-subroute-badge {
+        max-width: 100%;
+        white-space: normal;
+    }
+}
+
+.docs-link {
+    display: block;
+    margin: 12px 0 0;
+    font-size: .9em;
+    line-height: 1.4;
+}
+
+.docs-link a {
+    color: #c1acff;
+}
+
+.docs-link a:hover,
+.docs-link a:focus-visible {
+    color: #f0eaff;
+}
+
+[data-theme="light"] .docs-link a {
+    color: #5f36d0;
+}
+
+[data-theme="light"] .docs-link a:hover,
+[data-theme="light"] .docs-link a:focus-visible {
+    color: #4320a6;
+}

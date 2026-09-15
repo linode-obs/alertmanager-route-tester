@@ -68,10 +68,10 @@ func TestIndexTemplateLabelsCachedConfig(t *testing.T) {
 		t.Fatalf("index.html failed to render: %v", err)
 	}
 	output := buf.String()
-	if !strings.Contains(output, "Using cached config") {
+	if !strings.Contains(output, "Using cached configuration") {
 		t.Fatal("cached config status is missing")
 	}
-	if !strings.Contains(output, "config-reload-error") || !strings.Contains(output, "Reload failed, using cached config") {
+	if !strings.Contains(output, "config-reload-error") || !strings.Contains(output, "Reload failed. Using cached configuration.") {
 		t.Fatal("reload error feedback is missing")
 	}
 }
@@ -94,7 +94,7 @@ func TestHandleIndexShowsCachedStatusAfterInitialLoad(t *testing.T) {
 
 	second := httptest.NewRecorder()
 	h.HandleIndex(second, httptest.NewRequest(http.MethodGet, "/", http.NoBody))
-	if second.Code != http.StatusOK || !strings.Contains(second.Body.String(), "Using cached config") {
+	if second.Code != http.StatusOK || !strings.Contains(second.Body.String(), "Using cached configuration") {
 		t.Fatalf("second response = %d %q, want cached status", second.Code, second.Body.String())
 	}
 	if requests != 1 {
@@ -349,7 +349,7 @@ func TestResultTemplateRendersRootFallbackWithMatchedParent(t *testing.T) {
 	if strings.Contains(output, "root route's receiver") {
 		t.Fatal("effective route match should not show the root fallback notice")
 	}
-	if !strings.Contains(output, "Matched route config") {
+	if !strings.Contains(output, "Matched route rules") {
 		t.Fatal("effective route match should show the matched route")
 	}
 }

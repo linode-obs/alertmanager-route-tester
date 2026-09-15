@@ -365,13 +365,14 @@ func (c *Client) extractRawReceiverConfigs(config *Config, originalYAML string) 
 	for i := range config.Receivers {
 		receiver := &config.Receivers[i]
 
-		// Find the receiver block in the original YAML
+		// Find the receiver block in the original YAML.
 		receiverStartLine := -1
+		receiverIndent := 0
 		for j, line := range lines {
-			if strings.Contains(line, "- name: '"+receiver.Name+"'") ||
-				strings.Contains(line, "- name: "+receiver.Name) ||
-				strings.Contains(line, "- name: \""+receiver.Name+"\"") {
+			name, ok := receiverNameFromYAMLLine(line)
+			if ok && name == receiver.Name {
 				receiverStartLine = j
+				receiverIndent = yamlIndent(line)
 				break
 			}
 		}
@@ -388,9 +389,11 @@ func (c *Client) extractRawReceiverConfigs(config *Config, originalYAML string) 
 		for j := receiverStartLine + 1; j < len(lines); j++ {
 			line := lines[j]
 
-			// If we hit another receiver or the end, stop
-			if strings.HasPrefix(line, "- name:") ||
-				(strings.HasPrefix(line, "templates:") && !strings.HasPrefix(line, "  ")) {
+			// If we hit another receiver at the same list level or the end, stop.
+			if _, ok := receiverNameFromYAMLLine(line); ok && yamlIndent(line) == receiverIndent {
+				break
+			}
+			if strings.TrimSpace(line) == "templates:" && yamlIndent(line) == 0 {
 				break
 			}
 
@@ -406,6 +409,30 @@ func (c *Client) extractRawReceiverConfigs(config *Config, originalYAML string) 
 	}
 
 	return nil
+}
+
+func receiverNameFromYAMLLine(line string) (string, bool) {
+	trimmed := strings.TrimSpace(line)
+	if !strings.HasPrefix(trimmed, "- name:") {
+		return "", false
+	}
+
+	name := strings.TrimSpace(strings.TrimPrefix(trimmed, "- name:"))
+	if len(name) >= 1 && (name[0] == '\'' || name[0] == '"') {
+		quote := name[0]
+		if end := strings.IndexByte(name[1:], quote); end >= 0 {
+			return name[1 : end+1], true
+		}
+		return "", false
+	}
+	if comment := strings.Index(name, " #"); comment >= 0 {
+		name = strings.TrimSpace(name[:comment])
+	}
+	return name, true
+}
+
+func yamlIndent(line string) int {
+	return len(line) - len(strings.TrimLeft(line, " \t"))
 }
 
 func buildTLSConfig(opts TLSOptions) (*tls.Config, error) {

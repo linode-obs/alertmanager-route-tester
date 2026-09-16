@@ -161,7 +161,11 @@ team: platform'></textarea>
                         </div>
                     </div>
 
-                    <button type="submit" class="btn-primary btn-test-route" aria-label="Test the alert route" title="Check these labels against the routes">Test route</button>
+                    <div class="form-actions">
+                        <button type="submit" class="btn-primary btn-test-route" aria-label="Test the alert route" title="Check these labels against the routes">Test route</button>
+                        <button type="button" class="btn-secondary" onclick="shareLabels()" title="Copy a link containing these labels">Share link</button>
+                    </div>
+                    <p id="share-status" class="field-status" role="status" aria-live="polite" hidden></p>
                 </form>
             </div>
 
@@ -428,6 +432,93 @@ team: platform'></textarea>
             }
         });
 
+        function setShareStatus(message, isError) {
+            const status = document.getElementById('share-status');
+            status.textContent = message;
+            status.classList.toggle('field-error', isError);
+            status.hidden = false;
+        }
+
+        function encodeSharedLabels(labels) {
+            const payload = JSON.stringify({ version: 1, labels });
+            const bytes = new TextEncoder().encode(payload);
+            let binary = '';
+            for (const byte of bytes) {
+                binary += String.fromCharCode(byte);
+            }
+            return btoa(binary).split('+').join('-').split('/').join('_').replace(/=+$/, '');
+        }
+
+        function decodeSharedLabels(value) {
+            if (!value) {
+                throw new Error('the link does not contain label data');
+            }
+            const padded = value.split('-').join('+').split('_').join('/') + '='.repeat((4 - value.length % 4) % 4);
+            const binary = atob(padded);
+            const bytes = Uint8Array.from(binary, character => character.charCodeAt(0));
+            const payload = JSON.parse(new TextDecoder().decode(bytes));
+            if (!payload || payload.version !== 1 || !payload.labels || Array.isArray(payload.labels) || typeof payload.labels !== 'object') {
+                throw new Error('the link uses unsupported label data');
+            }
+            const labels = {};
+            for (const [key, labelValue] of Object.entries(payload.labels)) {
+                if (!key || typeof labelValue !== 'string') {
+                    throw new Error('labels must have non-empty names and string values');
+                }
+                labels[key] = labelValue;
+            }
+            return labels;
+        }
+
+        function loadSharedLabels() {
+            if (!window.location.hash) {
+                return;
+            }
+            const prefix = '#labels=';
+            if (!window.location.hash.startsWith(prefix)) {
+                setShareStatus('This link contains unsupported data.', true);
+                return;
+            }
+            try {
+                currentLabels = decodeSharedLabels(window.location.hash.slice(prefix.length));
+                renderLabels();
+                setShareStatus('Labels loaded from the shared link.', false);
+            } catch (error) {
+                setShareStatus(`Could not load shared labels: ${error.message}.`, true);
+            }
+        }
+
+        async function copyShareURL(url) {
+            if (navigator.clipboard && window.isSecureContext) {
+                await navigator.clipboard.writeText(url);
+                return;
+            }
+            const input = document.createElement('textarea');
+            input.value = url;
+            input.style.position = 'fixed';
+            input.style.opacity = '0';
+            document.body.appendChild(input);
+            input.select();
+            const copied = document.execCommand('copy');
+            input.remove();
+            if (!copied) {
+                throw new Error('clipboard access is unavailable');
+            }
+        }
+
+        async function shareLabels() {
+            try {
+                const url = new URL(window.location.href);
+                url.searchParams.delete('alertmanager');
+                url.hash = `labels=${encodeSharedLabels(currentLabels)}`;
+                await copyShareURL(url.toString());
+                history.replaceState(null, '', url.toString());
+                setShareStatus('Share link copied. It contains labels only.', false);
+            } catch (error) {
+                setShareStatus(`Could not copy share link: ${error.message}.`, true);
+            }
+        }
+
         // Theme selection
         function applyTheme(preference) {
             const html = document.documentElement;
@@ -469,6 +560,7 @@ team: platform'></textarea>
         });
 
         applyTheme(document.documentElement.dataset.themePreference || 'system');
+        loadSharedLabels();
     </script>
 </body>
 </html>

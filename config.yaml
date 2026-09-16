@@ -11,25 +11,26 @@ alertmanager-route-tester:
     format: "simple"
     labels: {} # required when cli-test-mode.enabled is true
 
-alertmanager:
-  url: "http://localhost:9093"
-  http:
-    tls:
-      skip_verify: false
-      ca_file: ""
-      cert_file: ""
-      key_file: ""
-    timeouts:
-      request: 15s
-      dial: 5s
-      tls_handshake: 5s
-      response_header: 10s
-      idle_conn: 90s
-      expect_continue: 1s
-  retry:
-    max_attempts: 3
-    backoff: 300ms
-  pool:
-    max_idle_conns: 100
-    max_idle_conns_per_host: 10
-    max_conns_per_host: 0
+alertmanagers:
+  local:
+    url: "http://localhost:9093"
+    http:
+      tls:
+        skip_verify: false
+        ca_file: ""
+        cert_file: ""
+        key_file: ""
+      timeouts:
+        request: 15s
+        dial: 5s
+        tls_handshake: 5s
+        response_header: 10s
+        idle_conn: 90s
+        expect_continue: 1s
+    retry:
+      max_attempts: 3
+      backoff: 300ms
+    pool:
+      max_idle_conns: 100
+      max_idle_conns_per_host: 10
+      max_conns_per_host: 0

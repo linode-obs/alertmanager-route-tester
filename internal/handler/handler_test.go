@@ -600,6 +600,22 @@ func TestResultTemplateRendersDefaultRoot(t *testing.T) {
 	}
 }
 
+func TestIndexTemplateIncludesShareLinkControls(t *testing.T) {
+	tmpl := loadTemplates(t)
+	data := IndexData{}
+	var buf bytes.Buffer
+	if err := tmpl.ExecuteTemplate(&buf, "index.html", data); err != nil {
+		t.Fatalf("index.html failed to render: %v", err)
+	}
+	output := buf.String()
+	if !strings.Contains(output, "Share link") {
+		t.Fatal("share link control is missing")
+	}
+	if !strings.Contains(output, "loadSharedLabels") {
+		t.Fatal("share link loading behavior is missing")
+	}
+}
+
 func TestIndexTemplateIncludesRedesignControls(t *testing.T) {
 	tmpl := loadTemplates(t)
 	data := struct {

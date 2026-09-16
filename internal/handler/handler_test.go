@@ -543,7 +543,16 @@ func TestResultTemplateRendersDefaultRoot(t *testing.T) {
 
 func TestIndexTemplateIncludesShareLinkControls(t *testing.T) {
 	tmpl := loadTemplates(t)
-	data := IndexData{}
+	data := struct {
+		LabelSuggestions []alertmanager.LabelSuggestion
+		SampleAlerts     []alertmanager.SampleAlert
+		Config           *alertmanager.Config
+		AlertmanagerURL  string
+		ConnectionStatus bool
+		ConnectionError  string
+		ConfigCachedAt   time.Time
+		ConfigWasCached  bool
+	}{}
 	var buf bytes.Buffer
 	if err := tmpl.ExecuteTemplate(&buf, "index.html", data); err != nil {
 		t.Fatalf("index.html failed to render: %v", err)

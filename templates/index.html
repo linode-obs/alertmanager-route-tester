@@ -35,6 +35,16 @@
                     <button type="button" class="theme-choice" data-theme-choice="dark" role="radio" aria-label="Use dark theme" onclick="setTheme('dark')">Dark</button>
                 </div>
             </div>
+            {{if gt (len .AlertmanagerNames) 1}}
+            <form class="alertmanager-selector" method="GET" action="/">
+                <label for="alertmanager-select">Alertmanager</label>
+                <select id="alertmanager-select" name="alertmanager" onchange="this.form.submit()">
+                    {{range $name := .AlertmanagerNames}}
+                    <option value="{{$name}}" {{if eq $name $.SelectedAlertmanager}}selected{{end}}>{{$name}}</option>
+                    {{end}}
+                </select>
+            </form>
+            {{end}}
             <div class="connection-status">
                 {{if .ConnectionStatus}}
                 <div class="connection-strip connection-success" title="Alertmanager is connected. The current configuration is loaded.">
@@ -53,6 +63,7 @@
                         <form method="POST" action="/config/reload"
                               hx-post="/config/reload" hx-swap="none"
                               hx-on:config-reload-error="this.querySelector('.reload-error').hidden = false">
+                            <input type="hidden" name="alertmanager" value="{{.SelectedAlertmanager}}">
                             <button type="submit" class="btn-reload-config" aria-label="Reload Alertmanager config" title="Load the config again">Reload</button>
                             <span class="reload-error" hidden>Reload failed. Using cached configuration.</span>
                         </form>
@@ -71,6 +82,7 @@
                         <form method="POST" action="/config/reload"
                               hx-post="/config/reload" hx-swap="none"
                               hx-on:config-reload-error="this.querySelector('.reload-error').hidden = false">
+                            <input type="hidden" name="alertmanager" value="{{.SelectedAlertmanager}}">
                             <button type="submit" class="btn-reload-config" aria-label="Try the Alertmanager connection again" title="Try again">Retry</button>
                             <span class="reload-error" hidden>Retry failed.</span>
                         </form>
@@ -110,6 +122,7 @@
                 </div>
 
                 <form id="alert-form" hx-post="/test" hx-target="#result" hx-swap="innerHTML">
+                    <input type="hidden" name="alertmanager" value="{{.SelectedAlertmanager}}">
                     <div id="ui-builder">
                         <div class="label-section">
                             <h3>Alert labels <span class="help-tip" data-tooltip="A route matches only when its labels match." aria-label="Alert label help" tabindex="0">?</span></h3>

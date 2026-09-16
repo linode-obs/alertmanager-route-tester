@@ -8,6 +8,7 @@ import (
 	"os"
 	"runtime"
 	"runtime/debug"
+	"sort"
 	"strings"
 
 	"github.com/wbollock/alertmanager-route-tester/internal/alertmanager"
@@ -26,50 +27,31 @@ func main() {
 		os.Exit(1)
 	}
 
-	client, err := alertmanager.NewClientWithOptions(alertmanager.ClientOptions{
-		BaseURL: cfg.Alertmanager.URL,
-		TLS: alertmanager.TLSOptions{
-			SkipVerify: cfg.Alertmanager.HTTP.TLS.SkipVerify,
-			CAFile:     cfg.Alertmanager.HTTP.TLS.CAFile,
-			CertFile:   cfg.Alertmanager.HTTP.TLS.CertFile,
-			KeyFile:    cfg.Alertmanager.HTTP.TLS.KeyFile,
-		},
-		Timeouts: alertmanager.TimeoutOptions{
-			Request:        cfg.Alertmanager.HTTP.Timeouts.Request.Duration,
-			Dial:           cfg.Alertmanager.HTTP.Timeouts.Dial.Duration,
-			TLSHandshake:   cfg.Alertmanager.HTTP.Timeouts.TLSHandshake.Duration,
-			ResponseHeader: cfg.Alertmanager.HTTP.Timeouts.ResponseHeader.Duration,
-			IdleConn:       cfg.Alertmanager.HTTP.Timeouts.IdleConn.Duration,
-			ExpectContinue: cfg.Alertmanager.HTTP.Timeouts.ExpectContinue.Duration,
-		},
-		Retry: alertmanager.RetryOptions{
-			MaxAttempts: cfg.Alertmanager.Retry.MaxAttempts,
-			Backoff:     cfg.Alertmanager.Retry.Backoff.Duration,
-		},
-		Pool: alertmanager.PoolOptions{
-			MaxIdleConns:        cfg.Alertmanager.Pool.MaxIdleConns,
-			MaxIdleConnsPerHost: cfg.Alertmanager.Pool.MaxIdleConnsPerHost,
-			MaxConnsPerHost:     cfg.Alertmanager.Pool.MaxConnsPerHost,
-		},
-	})
+	clients, names, err := newClients(cfg)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err.Error())
 		os.Exit(1)
 	}
+	defaultName := names[0]
+	client := clients[defaultName]
 
 	version, revision, modified, goVersion := buildInfo()
-	connectionErr := client.CheckConnection()
+	connectionErrors := make(map[string]string)
+	for _, name := range names {
+		if err := clients[name].CheckConnection(); err != nil {
+			connectionErrors[name] = err.Error()
+		}
+	}
 	slog.Info("startup",
 		"listen", cfg.App.Server.Listen,
-		"alertmanager_url", cfg.Alertmanager.URL,
+		"alertmanagers", names,
 		"server_enabled", cfg.ServerEnabled(),
 		"cli_test_enabled", cfg.App.CLITestMode.Enabled,
 		"version", version,
 		"vcs_revision", revision,
 		"vcs_modified", modified,
 		"go_version", goVersion,
-		"connection_ok", connectionErr == nil,
-		"connection_error", errString(connectionErr),
+		"connection_errors", connectionErrors,
 		"config_path", *configPath,
 	)
 
@@ -93,7 +75,7 @@ func main() {
 	}
 
 	// Web server mode
-	h := handler.New(client)
+	h := handler.NewWithClients(clients, names, defaultName)
 
 	http.Handle("/static/", http.StripPrefix("/static/", http.FileServer(http.Dir("static"))))
 	http.HandleFunc("/", h.HandleIndex)
@@ -102,7 +84,7 @@ func main() {
 	http.HandleFunc("/config/reload", h.HandleReloadConfig)
 
 	slog.Info("starting server", "listen", cfg.App.Server.Listen)
-	slog.Info("using alertmanager", "url", cfg.Alertmanager.URL)
+	slog.Info("using alertmanager", "name", defaultName, "url", clients[defaultName].BaseURL())
 	server := &http.Server{
 		Addr:              cfg.App.Server.Listen,
 		Handler:           nil,
@@ -115,6 +97,50 @@ func main() {
 		slog.Error("server stopped", "error", err)
 		os.Exit(1)
 	}
+}
+
+func newClients(cfg *appconfig.Config) (map[string]*alertmanager.Client, []string, error) {
+	names := make([]string, 0, len(cfg.Alertmanagers))
+	for name := range cfg.Alertmanagers {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+
+	clients := make(map[string]*alertmanager.Client, len(names))
+	for _, name := range names {
+		am := cfg.Alertmanagers[name]
+		client, err := alertmanager.NewClientWithOptions(alertmanager.ClientOptions{
+			BaseURL: am.URL,
+			TLS: alertmanager.TLSOptions{
+				SkipVerify: am.HTTP.TLS.SkipVerify,
+				CAFile:     am.HTTP.TLS.CAFile,
+				CertFile:   am.HTTP.TLS.CertFile,
+				KeyFile:    am.HTTP.TLS.KeyFile,
+			},
+			Timeouts: alertmanager.TimeoutOptions{
+				Request:        am.HTTP.Timeouts.Request.Duration,
+				Dial:           am.HTTP.Timeouts.Dial.Duration,
+				TLSHandshake:   am.HTTP.Timeouts.TLSHandshake.Duration,
+				ResponseHeader: am.HTTP.Timeouts.ResponseHeader.Duration,
+				IdleConn:       am.HTTP.Timeouts.IdleConn.Duration,
+				ExpectContinue: am.HTTP.Timeouts.ExpectContinue.Duration,
+			},
+			Retry: alertmanager.RetryOptions{
+				MaxAttempts: am.Retry.MaxAttempts,
+				Backoff:     am.Retry.Backoff.Duration,
+			},
+			Pool: alertmanager.PoolOptions{
+				MaxIdleConns:        am.Pool.MaxIdleConns,
+				MaxIdleConnsPerHost: am.Pool.MaxIdleConnsPerHost,
+				MaxConnsPerHost:     am.Pool.MaxConnsPerHost,
+			},
+		})
+		if err != nil {
+			return nil, nil, fmt.Errorf("create Alertmanager client %q: %w", name, err)
+		}
+		clients[name] = client
+	}
+	return clients, names, nil
 }
 
 func buildInfo() (version string, revision string, modified bool, goVersion string) {

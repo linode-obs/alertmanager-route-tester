@@ -30,8 +30,8 @@ func (d *Duration) UnmarshalYAML(value *yaml.Node) error {
 }
 
 type Config struct {
-	App          AppConfig          `yaml:"alertmanager-route-tester"`
-	Alertmanager AlertmanagerConfig `yaml:"alertmanager"`
+	App           AppConfig                     `yaml:"alertmanager-route-tester"`
+	Alertmanagers map[string]AlertmanagerConfig `yaml:"alertmanagers"`
 }
 
 type AppConfig struct {
@@ -121,40 +121,11 @@ func applyDefaults(cfg *Config) {
 		cfg.App.Server.Enabled = &enabled
 	}
 
-	if cfg.Alertmanager.HTTP.Timeouts.Request.Duration == 0 {
-		cfg.Alertmanager.HTTP.Timeouts.Request = Duration{Duration: 15 * time.Second}
+	for name, alertmanager := range cfg.Alertmanagers {
+		applyAlertmanagerDefaults(&alertmanager)
+		cfg.Alertmanagers[name] = alertmanager
 	}
-	if cfg.Alertmanager.HTTP.Timeouts.Dial.Duration == 0 {
-		cfg.Alertmanager.HTTP.Timeouts.Dial = Duration{Duration: 5 * time.Second}
-	}
-	if cfg.Alertmanager.HTTP.Timeouts.TLSHandshake.Duration == 0 {
-		cfg.Alertmanager.HTTP.Timeouts.TLSHandshake = Duration{Duration: 5 * time.Second}
-	}
-	if cfg.Alertmanager.HTTP.Timeouts.ResponseHeader.Duration == 0 {
-		cfg.Alertmanager.HTTP.Timeouts.ResponseHeader = Duration{Duration: 10 * time.Second}
-	}
-	if cfg.Alertmanager.HTTP.Timeouts.IdleConn.Duration == 0 {
-		cfg.Alertmanager.HTTP.Timeouts.IdleConn = Duration{Duration: 90 * time.Second}
-	}
-	if cfg.Alertmanager.HTTP.Timeouts.ExpectContinue.Duration == 0 {
-		cfg.Alertmanager.HTTP.Timeouts.ExpectContinue = Duration{Duration: 1 * time.Second}
-	}
-
-	if cfg.Alertmanager.Retry.MaxAttempts == 0 {
-		cfg.Alertmanager.Retry.MaxAttempts = 3
-	}
-	if cfg.Alertmanager.Retry.Backoff.Duration == 0 {
-		cfg.Alertmanager.Retry.Backoff = Duration{Duration: 300 * time.Millisecond}
-	}
-
 	applyServerTimeoutDefaults(cfg)
-
-	if cfg.Alertmanager.Pool.MaxIdleConns == 0 {
-		cfg.Alertmanager.Pool.MaxIdleConns = 100
-	}
-	if cfg.Alertmanager.Pool.MaxIdleConnsPerHost == 0 {
-		cfg.Alertmanager.Pool.MaxIdleConnsPerHost = 10
-	}
 
 	if cfg.App.CLITestMode.Format == "" {
 		cfg.App.CLITestMode.Format = "simple"
@@ -164,18 +135,53 @@ func applyDefaults(cfg *Config) {
 	}
 }
 
+func applyAlertmanagerDefaults(cfg *AlertmanagerConfig) {
+	if cfg.HTTP.Timeouts.Request.Duration == 0 {
+		cfg.HTTP.Timeouts.Request = Duration{Duration: 15 * time.Second}
+	}
+	if cfg.HTTP.Timeouts.Dial.Duration == 0 {
+		cfg.HTTP.Timeouts.Dial = Duration{Duration: 5 * time.Second}
+	}
+	if cfg.HTTP.Timeouts.TLSHandshake.Duration == 0 {
+		cfg.HTTP.Timeouts.TLSHandshake = Duration{Duration: 5 * time.Second}
+	}
+	if cfg.HTTP.Timeouts.ResponseHeader.Duration == 0 {
+		cfg.HTTP.Timeouts.ResponseHeader = Duration{Duration: 10 * time.Second}
+	}
+	if cfg.HTTP.Timeouts.IdleConn.Duration == 0 {
+		cfg.HTTP.Timeouts.IdleConn = Duration{Duration: 90 * time.Second}
+	}
+	if cfg.HTTP.Timeouts.ExpectContinue.Duration == 0 {
+		cfg.HTTP.Timeouts.ExpectContinue = Duration{Duration: time.Second}
+	}
+	if cfg.Retry.MaxAttempts == 0 {
+		cfg.Retry.MaxAttempts = 3
+	}
+	if cfg.Retry.Backoff.Duration == 0 {
+		cfg.Retry.Backoff = Duration{Duration: 300 * time.Millisecond}
+	}
+	if cfg.Pool.MaxIdleConns == 0 {
+		cfg.Pool.MaxIdleConns = 100
+	}
+	if cfg.Pool.MaxIdleConnsPerHost == 0 {
+		cfg.Pool.MaxIdleConnsPerHost = 10
+	}
+}
+
 func applyServerTimeoutDefaults(cfg *Config) {
-	attempts := cfg.Alertmanager.Retry.MaxAttempts
-	if attempts < 1 {
-		attempts = 1
-	}
-	backoff := cfg.Alertmanager.Retry.Backoff.Duration
-	if backoff < 0 {
-		backoff = 0
-	}
-	retryBudget := cfg.Alertmanager.HTTP.Timeouts.Request.Duration * time.Duration(attempts)
-	if attempts > 1 {
-		retryBudget += backoff * time.Duration(attempts-1)
+	var retryBudget time.Duration
+	for _, alertmanager := range cfg.Alertmanagers {
+		attempts := alertmanager.Retry.MaxAttempts
+		if attempts < 1 {
+			attempts = 1
+		}
+		budget := alertmanager.HTTP.Timeouts.Request.Duration * time.Duration(attempts)
+		if attempts > 1 {
+			budget += alertmanager.Retry.Backoff.Duration * time.Duration(attempts-1)
+		}
+		if budget > retryBudget {
+			retryBudget = budget
+		}
 	}
 	if cfg.App.Server.ReadHeaderTimeout.Duration == 0 {
 		cfg.App.Server.ReadHeaderTimeout = Duration{Duration: 5 * time.Second}
@@ -192,59 +198,56 @@ func applyServerTimeoutDefaults(cfg *Config) {
 }
 
 func validate(cfg *Config) error {
-	if cfg.Alertmanager.URL == "" {
-		return errors.New("alertmanager.url is required")
+	if len(cfg.Alertmanagers) == 0 {
+		return errors.New("alertmanagers is required and must contain at least one named instance")
 	}
-	serverTimeouts := []struct {
-		name  string
-		value time.Duration
-	}{
-		{"read_header_timeout", cfg.App.Server.ReadHeaderTimeout.Duration},
-		{"read_timeout", cfg.App.Server.ReadTimeout.Duration},
-		{"write_timeout", cfg.App.Server.WriteTimeout.Duration},
-		{"idle_timeout", cfg.App.Server.IdleTimeout.Duration},
-	}
-	for _, timeout := range serverTimeouts {
-		if timeout.value < 0 {
-			return fmt.Errorf("alertmanager-route-tester.server.%s must be >= 0", timeout.name)
+	for name, alertmanager := range cfg.Alertmanagers {
+		if name == "" {
+			return errors.New("alertmanagers contains an empty instance name")
+		}
+		if alertmanager.URL == "" {
+			return fmt.Errorf("alertmanagers.%s.url is required", name)
+		}
+		for field, value := range map[string]time.Duration{
+			"request":         alertmanager.HTTP.Timeouts.Request.Duration,
+			"dial":            alertmanager.HTTP.Timeouts.Dial.Duration,
+			"tls_handshake":   alertmanager.HTTP.Timeouts.TLSHandshake.Duration,
+			"response_header": alertmanager.HTTP.Timeouts.ResponseHeader.Duration,
+			"idle_conn":       alertmanager.HTTP.Timeouts.IdleConn.Duration,
+			"expect_continue": alertmanager.HTTP.Timeouts.ExpectContinue.Duration,
+		} {
+			if value < 0 {
+				return fmt.Errorf("alertmanagers.%s.http.timeouts.%s must be >= 0", name, field)
+			}
+		}
+		if alertmanager.HTTP.TLS.CertFile != "" && alertmanager.HTTP.TLS.KeyFile == "" {
+			return fmt.Errorf("alertmanagers.%s.http.tls.key_file is required when cert_file is set", name)
+		}
+		if alertmanager.HTTP.TLS.KeyFile != "" && alertmanager.HTTP.TLS.CertFile == "" {
+			return fmt.Errorf("alertmanagers.%s.http.tls.cert_file is required when key_file is set", name)
+		}
+		if alertmanager.Retry.MaxAttempts < 1 {
+			return fmt.Errorf("alertmanagers.%s.retry.max_attempts must be >= 1", name)
+		}
+		if alertmanager.Retry.Backoff.Duration < 0 {
+			return fmt.Errorf("alertmanagers.%s.retry.backoff must be >= 0", name)
 		}
 	}
 
-	httpTimeouts := []struct {
-		name  string
-		value time.Duration
-	}{
-		{"request", cfg.Alertmanager.HTTP.Timeouts.Request.Duration},
-		{"dial", cfg.Alertmanager.HTTP.Timeouts.Dial.Duration},
-		{"tls_handshake", cfg.Alertmanager.HTTP.Timeouts.TLSHandshake.Duration},
-		{"response_header", cfg.Alertmanager.HTTP.Timeouts.ResponseHeader.Duration},
-		{"idle_conn", cfg.Alertmanager.HTTP.Timeouts.IdleConn.Duration},
-		{"expect_continue", cfg.Alertmanager.HTTP.Timeouts.ExpectContinue.Duration},
+	serverTimeouts := map[string]time.Duration{
+		"read_header_timeout": cfg.App.Server.ReadHeaderTimeout.Duration,
+		"read_timeout":        cfg.App.Server.ReadTimeout.Duration,
+		"write_timeout":       cfg.App.Server.WriteTimeout.Duration,
+		"idle_timeout":        cfg.App.Server.IdleTimeout.Duration,
 	}
-	for _, timeout := range httpTimeouts {
-		if timeout.value < 0 {
-			return fmt.Errorf("alertmanager.http.timeouts.%s must be >= 0", timeout.name)
+	for name, value := range serverTimeouts {
+		if value < 0 {
+			return fmt.Errorf("alertmanager-route-tester.server.%s must be >= 0", name)
 		}
 	}
-
-	if cfg.Alertmanager.HTTP.TLS.CertFile != "" && cfg.Alertmanager.HTTP.TLS.KeyFile == "" {
-		return errors.New("alertmanager.http.tls.key_file is required when cert_file is set")
-	}
-	if cfg.Alertmanager.HTTP.TLS.KeyFile != "" && cfg.Alertmanager.HTTP.TLS.CertFile == "" {
-		return errors.New("alertmanager.http.tls.cert_file is required when key_file is set")
-	}
-
-	if cfg.Alertmanager.Retry.MaxAttempts < 1 {
-		return errors.New("alertmanager.retry.max_attempts must be >= 1")
-	}
-	if cfg.Alertmanager.Retry.Backoff.Duration < 0 {
-		return errors.New("alertmanager.retry.backoff must be >= 0")
-	}
-
 	if cfg.App.CLITestMode.Enabled && len(cfg.App.CLITestMode.Labels) == 0 {
 		return errors.New("alertmanager-route-tester.cli-test-mode.labels is required when cli-test-mode.enabled is true")
 	}
-
 	return nil
 }
 

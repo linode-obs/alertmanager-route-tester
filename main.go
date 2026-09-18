@@ -80,7 +80,7 @@ func main() {
 			}
 		}
 		if len(labels) == 0 {
-			fmt.Fprintln(os.Stderr, "alertmanager-route-tester.cli-test-mode.labels is required in CLI test mode")
+			fmt.Fprintln(os.Stderr, "at least one CLI label is required in CLI test mode")
 			os.Exit(1)
 		}
 		result, _ := cli.TestRouting(client, labels)

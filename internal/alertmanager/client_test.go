@@ -691,6 +691,9 @@ func TestParseMatcher(t *testing.T) {
 		{`  severity = "critical" `, true, "severity", "=", "critical"}, // whitespace
 		{`"severity"="critical"`, true, "severity", "=", "critical"},
 		{`"foo bar"="x"`, true, "foo bar", "=", "x"},
+		{`"føø"="x"`, true, "føø", "=", "x"},
+		{`"foo\"bar"="x"`, true, `foo"bar`, "=", "x"},
+		{"severity\u00a0= \"critical\"", true, "severity", "=", "critical"},
 		{`notavalidmatcher`, false, "", "", ""},
 		{`=value`, false, "", "", ""},
 	}

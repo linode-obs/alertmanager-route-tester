@@ -717,10 +717,14 @@ func parseMatcherToken(input string) (string, string, bool) {
 	}
 
 	end := 0
-	for end < len(input) && !unicode.IsSpace(rune(input[end])) && !strings.ContainsRune("=!~", rune(input[end])) {
-		end++
+	for end < len(input) {
+		r, size := utf8.DecodeRuneInString(input[end:])
+		if unicode.IsSpace(r) || strings.ContainsRune("=!~", r) {
+			break
+		}
+		end += size
 	}
-	if end == 0 {
+	if end == 0 || !utf8.ValidString(input[:end]) {
 		return "", input, false
 	}
 	return input[:end], input[end:], true

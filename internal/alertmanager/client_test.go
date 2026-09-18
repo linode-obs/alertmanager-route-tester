@@ -196,9 +196,21 @@ func TestAlertmanagerMatcherSemantics(t *testing.T) {
 			want:   true,
 		},
 		{
-			name:   "unknown escape remains literal",
-			labels: map[string]string{"message": `a\tb`},
+			name:   "tab escape is decoded",
+			labels: map[string]string{"message": "a\tb"},
 			route:  &Route{Matchers: []string{`message="a\tb"`}},
+			want:   true,
+		},
+		{
+			name:   "unicode escape is decoded",
+			labels: map[string]string{"message": "bar"},
+			route:  &Route{Matchers: []string{`message="\u0062ar"`}},
+			want:   true,
+		},
+		{
+			name:   "unknown escape remains literal",
+			labels: map[string]string{"message": `a\qb`},
+			route:  &Route{Matchers: []string{`message="a\qb"`}},
 			want:   true,
 		},
 	}

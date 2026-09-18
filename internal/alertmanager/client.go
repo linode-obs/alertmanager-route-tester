@@ -16,6 +16,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode"
 	"unicode/utf8"
 
 	"gopkg.in/yaml.v3"
@@ -676,32 +677,73 @@ func matchesRegex(pattern, value string) (bool, error) {
 	return regexp.MatchString("^(?:"+pattern+")$", value)
 }
 
-var matcherPattern = regexp.MustCompile(`^\s*([^=!~\s]+)\s*(=~|!~|=|!=)\s*(.*?)\s*$`)
-
 func parseMatcher(input string) (parsedMatcher, bool) {
-	matches := matcherPattern.FindStringSubmatch(input)
-	if len(matches) != 4 {
+	input = strings.TrimSpace(input)
+	label, rest, ok := parseMatcherToken(input)
+	if !ok {
 		return parsedMatcher{}, false
 	}
 
-	value := strings.TrimSpace(matches[3])
-	if len(value) >= 2 {
-		if value[0] == '"' && value[len(value)-1] == '"' {
-			unquoted, err := unquoteMatcherValue(value)
-			if err != nil {
-				return parsedMatcher{}, false
-			}
-			value = unquoted
-		} else if value[0] == '\'' && value[len(value)-1] == '\'' {
-			value = value[1 : len(value)-1]
+	rest = strings.TrimLeftFunc(rest, unicode.IsSpace)
+	operator := ""
+	for _, candidate := range []string{"=~", "!~", "!=", "="} {
+		if strings.HasPrefix(rest, candidate) {
+			operator = candidate
+			rest = rest[len(candidate):]
+			break
 		}
 	}
+	if operator == "" {
+		return parsedMatcher{}, false
+	}
 
-	return parsedMatcher{
-		Label:    matches[1],
-		Operator: matches[2],
-		Value:    value,
-	}, true
+	value := strings.TrimSpace(rest)
+	if strings.HasPrefix(value, `"`) {
+		unquoted, remaining, ok := parseMatcherToken(value)
+		if !ok || strings.TrimSpace(remaining) != "" {
+			return parsedMatcher{}, false
+		}
+		value = unquoted
+	} else if len(value) >= 2 && value[0] == '\'' && value[len(value)-1] == '\'' {
+		value = value[1 : len(value)-1]
+	}
+
+	return parsedMatcher{Label: label, Operator: operator, Value: value}, true
+}
+
+func parseMatcherToken(input string) (string, string, bool) {
+	if strings.HasPrefix(input, `"`) {
+		return parseQuotedMatcherToken(input)
+	}
+
+	end := 0
+	for end < len(input) && !unicode.IsSpace(rune(input[end])) && !strings.ContainsRune("=!~", rune(input[end])) {
+		end++
+	}
+	if end == 0 {
+		return "", input, false
+	}
+	return input[:end], input[end:], true
+}
+
+func parseQuotedMatcherToken(input string) (string, string, bool) {
+	escaped := false
+	for i := 1; i < len(input); i++ {
+		switch input[i] {
+		case '\\':
+			escaped = !escaped
+		case '"':
+			if escaped {
+				escaped = false
+				continue
+			}
+			value, err := unquoteMatcherValue(input[:i+1])
+			return value, input[i+1:], err == nil
+		default:
+			escaped = false
+		}
+	}
+	return "", input, false
 }
 
 func unquoteMatcherValue(value string) (string, error) {

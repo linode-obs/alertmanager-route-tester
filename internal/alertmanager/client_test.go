@@ -689,6 +689,8 @@ func TestParseMatcher(t *testing.T) {
 		{`severity='critical'`, true, "severity", "=", "critical"},      // single-quote stripping
 		{`severity=critical`, true, "severity", "=", "critical"},        // unquoted value
 		{`  severity = "critical" `, true, "severity", "=", "critical"}, // whitespace
+		{`"severity"="critical"`, true, "severity", "=", "critical"},
+		{`"foo bar"="x"`, true, "foo bar", "=", "x"},
 		{`notavalidmatcher`, false, "", "", ""},
 		{`=value`, false, "", "", ""},
 	}

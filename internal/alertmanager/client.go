@@ -680,7 +680,8 @@ func matchesRegex(pattern, value string) (bool, error) {
 
 func parseMatcher(input string) (parsedMatcher, bool) {
 	input = strings.TrimSpace(input)
-	label, rest, ok := parseMatcherToken(input, unquoteMatcherName)
+	labelIsQuoted := strings.HasPrefix(input, `"`)
+	label, rest, ok := parseMatcherToken(input, unquoteStrictMatcherToken)
 	if !ok {
 		return parsedMatcher{}, false
 	}
@@ -700,7 +701,11 @@ func parseMatcher(input string) (parsedMatcher, bool) {
 
 	value := strings.TrimSpace(rest)
 	if strings.HasPrefix(value, `"`) {
-		unquoted, remaining, ok := parseMatcherToken(value, unquoteMatcherValue)
+		unquote := unquoteMatcherValue
+		if labelIsQuoted {
+			unquote = unquoteStrictMatcherToken
+		}
+		unquoted, remaining, ok := parseMatcherToken(value, unquote)
 		if !ok || strings.TrimSpace(remaining) != "" {
 			return parsedMatcher{}, false
 		}
@@ -751,13 +756,13 @@ func parseQuotedMatcherToken(input string, unquote func(string) (string, error))
 	return "", input, false
 }
 
-func unquoteMatcherName(value string) (string, error) {
+func unquoteStrictMatcherToken(value string) (string, error) {
 	unquoted, err := strconv.Unquote(value)
 	if err != nil {
 		return "", err
 	}
 	if !utf8.ValidString(unquoted) {
-		return "", fmt.Errorf("matcher name is not valid UTF-8")
+		return "", fmt.Errorf("matcher token is not valid UTF-8")
 	}
 	return unquoted, nil
 }

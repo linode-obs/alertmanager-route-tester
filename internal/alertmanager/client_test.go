@@ -214,6 +214,12 @@ func TestAlertmanagerMatcherSemantics(t *testing.T) {
 			want:   true,
 		},
 		{
+			name:   "quoted UTF-8 name uses strict value escaping",
+			labels: map[string]string{"foo bar": "a\tb"},
+			route:  &Route{Matchers: []string{`"foo bar"="a\tb"`}},
+			want:   true,
+		},
+		{
 			name:   "unknown escape remains literal",
 			labels: map[string]string{"message": `a\qb`},
 			route:  &Route{Matchers: []string{`message="a\qb"`}},

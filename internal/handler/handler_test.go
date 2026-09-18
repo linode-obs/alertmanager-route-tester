@@ -130,6 +130,19 @@ func TestHandleTestRejectsTrailingJSONValue(t *testing.T) {
 	}
 }
 
+func TestHandleTestRejectsOversizedForm(t *testing.T) {
+	body := strings.Repeat("label=x&", int(maxTestRequestBodyBytes/7)+1)
+	request := httptest.NewRequest(http.MethodPost, "/test", strings.NewReader(body))
+	request.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	response := httptest.NewRecorder()
+
+	(&Handler{}).HandleTest(response, request)
+
+	if response.Code != http.StatusRequestEntityTooLarge {
+		t.Fatalf("status = %d, want %d", response.Code, http.StatusRequestEntityTooLarge)
+	}
+}
+
 func TestHandleTestUsesSelectedAlertmanager(t *testing.T) {
 	server := func(t *testing.T, receiver string) *httptest.Server {
 		t.Helper()

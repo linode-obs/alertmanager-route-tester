@@ -37,7 +37,7 @@ func TestLoadForCLIAllowsLabelsFromCommandLine(t *testing.T) {
 	path := filepath.Join(dir, "config.yaml")
 	contents := []byte(`alertmanager-route-tester:
   cli-test-mode:
-    enabled: false
+    enabled: true
     labels: {}
 alertmanagers:
   production:

@@ -13,6 +13,7 @@ import (
 	"net/http"
 	"os"
 	"regexp"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -679,7 +680,7 @@ func matchesRegex(pattern, value string) (bool, error) {
 
 func parseMatcher(input string) (parsedMatcher, bool) {
 	input = strings.TrimSpace(input)
-	label, rest, ok := parseMatcherToken(input)
+	label, rest, ok := parseMatcherToken(input, unquoteMatcherName)
 	if !ok {
 		return parsedMatcher{}, false
 	}
@@ -699,7 +700,7 @@ func parseMatcher(input string) (parsedMatcher, bool) {
 
 	value := strings.TrimSpace(rest)
 	if strings.HasPrefix(value, `"`) {
-		unquoted, remaining, ok := parseMatcherToken(value)
+		unquoted, remaining, ok := parseMatcherToken(value, unquoteMatcherValue)
 		if !ok || strings.TrimSpace(remaining) != "" {
 			return parsedMatcher{}, false
 		}
@@ -711,9 +712,9 @@ func parseMatcher(input string) (parsedMatcher, bool) {
 	return parsedMatcher{Label: label, Operator: operator, Value: value}, true
 }
 
-func parseMatcherToken(input string) (string, string, bool) {
+func parseMatcherToken(input string, unquote func(string) (string, error)) (string, string, bool) {
 	if strings.HasPrefix(input, `"`) {
-		return parseQuotedMatcherToken(input)
+		return parseQuotedMatcherToken(input, unquote)
 	}
 
 	end := 0
@@ -730,7 +731,7 @@ func parseMatcherToken(input string) (string, string, bool) {
 	return input[:end], input[end:], true
 }
 
-func parseQuotedMatcherToken(input string) (string, string, bool) {
+func parseQuotedMatcherToken(input string, unquote func(string) (string, error)) (string, string, bool) {
 	escaped := false
 	for i := 1; i < len(input); i++ {
 		switch input[i] {
@@ -741,13 +742,24 @@ func parseQuotedMatcherToken(input string) (string, string, bool) {
 				escaped = false
 				continue
 			}
-			value, err := unquoteMatcherValue(input[:i+1])
+			value, err := unquote(input[:i+1])
 			return value, input[i+1:], err == nil
 		default:
 			escaped = false
 		}
 	}
 	return "", input, false
+}
+
+func unquoteMatcherName(value string) (string, error) {
+	unquoted, err := strconv.Unquote(value)
+	if err != nil {
+		return "", err
+	}
+	if !utf8.ValidString(unquoted) {
+		return "", fmt.Errorf("matcher name is not valid UTF-8")
+	}
+	return unquoted, nil
 }
 
 func unquoteMatcherValue(value string) (string, error) {

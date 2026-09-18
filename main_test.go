@@ -9,6 +9,15 @@ import (
 	"time"
 )
 
+func TestAlertmanagerRequestOnlyAppliesInCLIMode(t *testing.T) {
+	if got := alertmanagerRequest(false, "staging"); got != "" {
+		t.Fatalf("web alertmanager request = %q, want empty", got)
+	}
+	if got := alertmanagerRequest(true, "staging"); got != "staging" {
+		t.Fatalf("CLI alertmanager request = %q, want staging", got)
+	}
+}
+
 func TestSelectAlertmanager(t *testing.T) {
 	name, err := selectAlertmanager([]string{"production", "staging"}, "staging")
 	if err != nil {

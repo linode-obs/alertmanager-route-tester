@@ -49,7 +49,9 @@ func main() {
 		fmt.Fprintln(os.Stderr, err.Error())
 		os.Exit(1)
 	}
-	defaultName, err := selectAlertmanager(names, *alertmanagerName)
+	cliMode := cfg.App.CLITestMode.Enabled || *labelsJSON != ""
+	requestedAlertmanager := alertmanagerRequest(cliMode, *alertmanagerName)
+	defaultName, err := selectAlertmanager(names, requestedAlertmanager)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err.Error())
 		os.Exit(1)
@@ -70,7 +72,7 @@ func main() {
 	)
 
 	// CLI test mode
-	if cfg.App.CLITestMode.Enabled || *labelsJSON != "" {
+	if cliMode {
 		labels := cfg.App.CLITestMode.Labels
 		if *labelsJSON != "" {
 			labels, err = parseLabelsJSON(*labelsJSON)
@@ -133,6 +135,13 @@ func main() {
 		slog.Error("server stopped", "error", err)
 		os.Exit(1)
 	}
+}
+
+func alertmanagerRequest(cliMode bool, requested string) string {
+	if cliMode {
+		return requested
+	}
+	return ""
 }
 
 func selectAlertmanager(names []string, requested string) (string, error) {

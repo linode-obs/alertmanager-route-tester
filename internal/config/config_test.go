@@ -47,6 +47,18 @@ func TestLoadRejectsSingularAlertmanagerConfiguration(t *testing.T) {
 	}
 }
 
+func TestServerDefaultsBindToLoopback(t *testing.T) {
+	cfg := &Config{Alertmanagers: map[string]AlertmanagerConfig{
+		"test": {URL: "http://localhost:9093"},
+	}}
+
+	applyDefaults(cfg)
+
+	if got := cfg.App.Server.Listen; got != "127.0.0.1:8080" {
+		t.Fatalf("Listen = %q, want 127.0.0.1:8080", got)
+	}
+}
+
 func TestServerTimeoutDefaultsCoverRetryBudget(t *testing.T) {
 	cfg := &Config{
 		Alertmanagers: map[string]AlertmanagerConfig{

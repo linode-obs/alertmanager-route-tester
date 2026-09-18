@@ -26,7 +26,7 @@ Build your alert using the UI or paste YAML Prometheus alert labels. Hit "Test R
 alertmanager-route-tester:
   server:
     enabled: true
-    listen: ":8080"
+    listen: "127.0.0.1:8080"
   cli-test-mode:
     enabled: false # set true to run in CLI test mode instead of web server mode
     format: "simple"

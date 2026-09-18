@@ -114,7 +114,7 @@ func Load(path string) (*Config, error) {
 
 func applyDefaults(cfg *Config) {
 	if cfg.App.Server.Listen == "" {
-		cfg.App.Server.Listen = ":8080"
+		cfg.App.Server.Listen = "127.0.0.1:8080"
 	}
 	if cfg.App.Server.Enabled == nil {
 		enabled := true

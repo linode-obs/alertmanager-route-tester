@@ -32,37 +32,45 @@ alertmanager-route-tester:
     format: "simple"
     labels: {} # required when cli-test-mode.enabled is true
 
-alertmanager:
-  url: "http://localhost:9093"
-  http:
-    tls:
-      skip_verify: false
-      ca_file: ""
-      cert_file: ""
-      key_file: ""
-    timeouts:
-      request: 15s
-      dial: 5s
-      tls_handshake: 5s
-      response_header: 10s
-      idle_conn: 90s
-      expect_continue: 1s
-  retry:
-    max_attempts: 3
-    backoff: 300ms
-  pool:
-    max_idle_conns: 100
-    max_idle_conns_per_host: 10
-    max_conns_per_host: 0
+alertmanagers:
+  production:
+    url: "https://alerts.example.com"
+    http:
+      tls:
+        skip_verify: false
+        ca_file: ""
+        cert_file: ""
+        key_file: ""
+      timeouts:
+        request: 15s
+        dial: 5s
+        tls_handshake: 5s
+        response_header: 10s
+        idle_conn: 90s
+        expect_continue: 1s
+    retry:
+      max_attempts: 3
+      backoff: 300ms
+    pool:
+      max_idle_conns: 100
+      max_idle_conns_per_host: 10
+      max_conns_per_host: 0
+  staging:
+    url: "https://alerts-staging.example.com"
 ```
+
+Each entry under `alertmanagers` has a name and URL. HTTP, TLS, retry, and connection-pool settings can be configured per instance. When more than one instance is configured, the web UI shows an Alertmanager selector above the connection status. Changing the selection reloads the route suggestions and uses that instance for route tests and config reloads.
+
+The selected instance is not included in shareable label links. Shared links contain alert labels only, so opening one cannot change the configured Alertmanager connection.
 
 ### Local Alertmanager
 
 If you are running Alertmanager locally (default port `9093`), set:
 
 ```yaml
-alertmanager:
-  url: "http://localhost:9093"
+alertmanagers:
+  local:
+    url: "http://localhost:9093"
 ```
 
 ### Local Config Overrides
@@ -75,7 +83,7 @@ go run . -config config.local.yaml
 
 ## CLI Test Mode
 
-Run route tests from the command line using the exact same routing logic as the web UI.
+Run route tests from the command line using the exact same routing logic as the web UI. CLI mode uses the lexicographically smallest named Alertmanager when several are configured.
 
 ```yaml
 alertmanager-route-tester:

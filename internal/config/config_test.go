@@ -1,15 +1,60 @@
 package config
 
 import (
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 )
 
+func TestLoadNamedAlertmanagers(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.yaml")
+	contents := []byte(`alertmanagers:
+  production:
+    url: http://production.example.test
+  staging:
+    url: http://staging.example.test
+`)
+	if err := os.WriteFile(path, contents, 0600); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if len(cfg.Alertmanagers) != 2 {
+		t.Fatalf("Alertmanagers = %#v, want two entries", cfg.Alertmanagers)
+	}
+	if got := cfg.Alertmanagers["production"].URL; got != "http://production.example.test" {
+		t.Fatalf("production URL = %q, want production URL", got)
+	}
+}
+
+func TestLoadRejectsSingularAlertmanagerConfiguration(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.yaml")
+	contents := []byte(`alertmanager:
+  url: http://localhost:9093
+`)
+	if err := os.WriteFile(path, contents, 0600); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := Load(path); err == nil {
+		t.Fatal("Load() error = nil, want singular configuration error")
+	}
+}
+
 func TestServerTimeoutDefaultsCoverRetryBudget(t *testing.T) {
 	cfg := &Config{
-		Alertmanager: AlertmanagerConfig{
-			HTTP:  HTTPConfig{Timeouts: TimeoutConfig{Request: Duration{Duration: 15 * time.Second}}},
-			Retry: RetryConfig{MaxAttempts: 3, Backoff: Duration{Duration: 300 * time.Millisecond}},
+		Alertmanagers: map[string]AlertmanagerConfig{
+			"test": {
+				URL:   "http://localhost:9093",
+				HTTP:  HTTPConfig{Timeouts: TimeoutConfig{Request: Duration{Duration: 15 * time.Second}}},
+				Retry: RetryConfig{MaxAttempts: 3, Backoff: Duration{Duration: 300 * time.Millisecond}},
+			},
 		},
 	}
 
@@ -26,9 +71,11 @@ func TestServerTimeoutDefaultsCoverRetryBudget(t *testing.T) {
 
 func TestNegativeRetryValuesAreRejected(t *testing.T) {
 	cfg := &Config{
-		Alertmanager: AlertmanagerConfig{
-			URL:   "http://localhost:9093",
-			Retry: RetryConfig{MaxAttempts: -1, Backoff: Duration{Duration: -time.Second}},
+		Alertmanagers: map[string]AlertmanagerConfig{
+			"test": {
+				URL:   "http://localhost:9093",
+				Retry: RetryConfig{MaxAttempts: -1, Backoff: Duration{Duration: -time.Second}},
+			},
 		},
 	}
 	applyDefaults(cfg)
@@ -40,8 +87,10 @@ func TestNegativeRetryValuesAreRejected(t *testing.T) {
 
 func TestNegativeServerTimeoutsAreRejected(t *testing.T) {
 	cfg := &Config{
-		Alertmanager: AlertmanagerConfig{URL: "http://localhost:9093"},
-		App:          AppConfig{Server: ServerConfig{WriteTimeout: Duration{Duration: -time.Second}}},
+		Alertmanagers: map[string]AlertmanagerConfig{
+			"test": {URL: "http://localhost:9093"},
+		},
+		App: AppConfig{Server: ServerConfig{WriteTimeout: Duration{Duration: -time.Second}}},
 	}
 	applyDefaults(cfg)
 
@@ -52,9 +101,11 @@ func TestNegativeServerTimeoutsAreRejected(t *testing.T) {
 
 func TestNegativeHTTPTimeoutsAreRejected(t *testing.T) {
 	cfg := &Config{
-		Alertmanager: AlertmanagerConfig{
-			URL:  "http://localhost:9093",
-			HTTP: HTTPConfig{Timeouts: TimeoutConfig{Request: Duration{Duration: -time.Second}}},
+		Alertmanagers: map[string]AlertmanagerConfig{
+			"test": {
+				URL:  "http://localhost:9093",
+				HTTP: HTTPConfig{Timeouts: TimeoutConfig{Request: Duration{Duration: -time.Second}}},
+			},
 		},
 	}
 	applyDefaults(cfg)
@@ -72,9 +123,12 @@ func TestServerTimeoutsCanBeConfigured(t *testing.T) {
 			WriteTimeout:      Duration{Duration: 4 * time.Second},
 			IdleTimeout:       Duration{Duration: 5 * time.Second},
 		}},
-		Alertmanager: AlertmanagerConfig{
-			HTTP:  HTTPConfig{Timeouts: TimeoutConfig{Request: Duration{Duration: time.Second}}},
-			Retry: RetryConfig{MaxAttempts: 1},
+		Alertmanagers: map[string]AlertmanagerConfig{
+			"test": {
+				URL:   "http://localhost:9093",
+				HTTP:  HTTPConfig{Timeouts: TimeoutConfig{Request: Duration{Duration: time.Second}}},
+				Retry: RetryConfig{MaxAttempts: 1},
+			},
 		},
 	}
 

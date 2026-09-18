@@ -6,6 +6,7 @@ import (
 	"html/template"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"testing"
 	"time"
@@ -48,14 +49,16 @@ type resultData struct {
 func TestIndexTemplateLabelsCachedConfig(t *testing.T) {
 	tmpl := loadTemplates(t)
 	data := struct {
-		LabelSuggestions []alertmanager.LabelSuggestion
-		SampleAlerts     []alertmanager.SampleAlert
-		Config           *alertmanager.Config
-		AlertmanagerURL  string
-		ConnectionStatus bool
-		ConnectionError  string
-		ConfigCachedAt   time.Time
-		ConfigWasCached  bool
+		LabelSuggestions     []alertmanager.LabelSuggestion
+		SampleAlerts         []alertmanager.SampleAlert
+		Config               *alertmanager.Config
+		AlertmanagerURL      string
+		AlertmanagerNames    []string
+		SelectedAlertmanager string
+		ConnectionStatus     bool
+		ConnectionError      string
+		ConfigCachedAt       time.Time
+		ConfigWasCached      bool
 	}{
 		AlertmanagerURL:  "http://localhost:9093",
 		ConnectionStatus: true,
@@ -73,6 +76,111 @@ func TestIndexTemplateLabelsCachedConfig(t *testing.T) {
 	}
 	if !strings.Contains(output, "config-reload-error") || !strings.Contains(output, "Reload failed. Using cached configuration.") {
 		t.Fatal("reload error feedback is missing")
+	}
+}
+
+func TestHandleTestUsesSelectedAlertmanager(t *testing.T) {
+	server := func(t *testing.T, receiver string) *httptest.Server {
+		t.Helper()
+		return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"config":{"original":"route:\n  receiver: ` + receiver + `\nreceivers:\n- name: ` + receiver + `\n"}}`))
+		}))
+	}
+	production := server(t, "production-default")
+	defer production.Close()
+	staging := server(t, "staging-default")
+	defer staging.Close()
+
+	h := &Handler{
+		clients: map[string]*alertmanager.Client{
+			"production": alertmanager.NewClient(production.URL, false),
+			"staging":    alertmanager.NewClient(staging.URL, false),
+		},
+		alertmanagerNames:   []string{"production", "staging"},
+		defaultAlertmanager: "production",
+		tmpl:                loadTemplates(t),
+	}
+	request := httptest.NewRequest(http.MethodPost, "/test?alertmanager=staging", bytes.NewBufferString(`{"labels":{"alertname":"Test"}}`))
+	request.Header.Set("Content-Type", "application/json")
+	response := httptest.NewRecorder()
+
+	h.HandleTest(response, request)
+
+	if response.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", response.Code, response.Body.String())
+	}
+	var result TestResponse
+	if err := json.Unmarshal(response.Body.Bytes(), &result); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if result.Receiver != "staging-default" {
+		t.Fatalf("receiver = %q, want staging-default", result.Receiver)
+	}
+}
+
+func TestHandleTestUsesSelectedAlertmanagerFromForm(t *testing.T) {
+	server := func(t *testing.T, receiver string) *httptest.Server {
+		t.Helper()
+		return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"config":{"original":"route:\n  receiver: ` + receiver + `\nreceivers:\n- name: ` + receiver + `\n"}}`))
+		}))
+	}
+	production := server(t, "production-default")
+	defer production.Close()
+	staging := server(t, "staging-default")
+	defer staging.Close()
+
+	h := &Handler{
+		clients: map[string]*alertmanager.Client{
+			"production": alertmanager.NewClient(production.URL, false),
+			"staging":    alertmanager.NewClient(staging.URL, false),
+		},
+		alertmanagerNames:   []string{"production", "staging"},
+		defaultAlertmanager: "production",
+		tmpl:                loadTemplates(t),
+	}
+	form := url.Values{
+		"alertmanager": {"staging"},
+		"alertname":    {"Test"},
+	}
+	request := httptest.NewRequest(http.MethodPost, "/test", strings.NewReader(form.Encode()))
+	request.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	response := httptest.NewRecorder()
+
+	h.HandleTest(response, request)
+
+	if response.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", response.Code, response.Body.String())
+	}
+	var result TestResponse
+	if err := json.Unmarshal(response.Body.Bytes(), &result); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if result.Receiver != "staging-default" {
+		t.Fatalf("receiver = %q, want staging-default", result.Receiver)
+	}
+}
+
+func TestHandleIndexRejectsUnknownAlertmanager(t *testing.T) {
+	tmpl := loadTemplates(t)
+	h := &Handler{
+		clients:             map[string]*alertmanager.Client{"production": alertmanager.NewClient("http://127.0.0.1:1", false)},
+		alertmanagerNames:   []string{"production"},
+		defaultAlertmanager: "production",
+		tmpl:                tmpl,
+	}
+	response := httptest.NewRecorder()
+
+	h.HandleIndex(response, httptest.NewRequest(http.MethodGet, "/?alertmanager=missing", http.NoBody))
+
+	body := response.Body.String()
+	if response.Code != http.StatusOK || !strings.Contains(body, "unknown Alertmanager") || !strings.Contains(body, "missing") {
+		t.Fatalf("response = %d %q, want unknown Alertmanager error", response.Code, body)
+	}
+	if !strings.Contains(body, "http://127.0.0.1:1") || !strings.Contains(body, `name="alertmanager" value="production"`) {
+		t.Fatalf("response = %q, want default Alertmanager connection state", body)
 	}
 }
 
@@ -544,14 +652,16 @@ func TestResultTemplateRendersDefaultRoot(t *testing.T) {
 func TestIndexTemplateIncludesRedesignControls(t *testing.T) {
 	tmpl := loadTemplates(t)
 	data := struct {
-		LabelSuggestions []alertmanager.LabelSuggestion
-		SampleAlerts     []alertmanager.SampleAlert
-		Config           *alertmanager.Config
-		AlertmanagerURL  string
-		ConnectionStatus bool
-		ConnectionError  string
-		ConfigCachedAt   time.Time
-		ConfigWasCached  bool
+		LabelSuggestions     []alertmanager.LabelSuggestion
+		SampleAlerts         []alertmanager.SampleAlert
+		Config               *alertmanager.Config
+		AlertmanagerURL      string
+		AlertmanagerNames    []string
+		SelectedAlertmanager string
+		ConnectionStatus     bool
+		ConnectionError      string
+		ConfigCachedAt       time.Time
+		ConfigWasCached      bool
 	}{AlertmanagerURL: "http://localhost:9093", ConnectionStatus: true, ConfigCachedAt: time.Now()}
 
 	var buf bytes.Buffer

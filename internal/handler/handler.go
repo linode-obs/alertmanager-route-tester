@@ -2,9 +2,11 @@ package handler
 
 import (
 	"encoding/json"
+	"fmt"
 	"html/template"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 
@@ -12,12 +14,16 @@ import (
 )
 
 type Handler struct {
-	client *alertmanager.Client
-	tmpl   *template.Template
+	client              *alertmanager.Client
+	clients             map[string]*alertmanager.Client
+	alertmanagerNames   []string
+	defaultAlertmanager string
+	tmpl                *template.Template
 }
 
 type TestRequest struct {
-	Labels map[string]string `json:"labels"`
+	Labels       map[string]string `json:"labels"`
+	Alertmanager string            `json:"alertmanager"`
 }
 
 type TestResponse struct {
@@ -57,7 +63,24 @@ type ReceiverSummary struct {
 	IsFinal    bool
 }
 
+type IndexData struct {
+	LabelSuggestions     []alertmanager.LabelSuggestion
+	SampleAlerts         []alertmanager.SampleAlert
+	Config               *alertmanager.Config
+	AlertmanagerURL      string
+	AlertmanagerNames    []string
+	SelectedAlertmanager string
+	ConnectionStatus     bool
+	ConnectionError      string
+	ConfigCachedAt       time.Time
+	ConfigWasCached      bool
+}
+
 func New(client *alertmanager.Client) *Handler {
+	return NewWithClients(map[string]*alertmanager.Client{"default": client}, []string{"default"}, "default")
+}
+
+func NewWithClients(clients map[string]*alertmanager.Client, names []string, defaultName string) *Handler {
 	funcMap := template.FuncMap{
 		"json": func(v interface{}) template.JS {
 			b, _ := json.Marshal(v)
@@ -66,65 +89,79 @@ func New(client *alertmanager.Client) *Handler {
 	}
 	tmpl := template.Must(template.New("").Funcs(funcMap).ParseGlob("templates/*.html"))
 	return &Handler{
-		client: client,
-		tmpl:   tmpl,
+		client:              clients[defaultName],
+		clients:             clients,
+		alertmanagerNames:   names,
+		defaultAlertmanager: defaultName,
+		tmpl:                tmpl,
 	}
 }
 
-func (h *Handler) HandleIndex(w http.ResponseWriter, r *http.Request) {
-	config, configWasCached, err := h.client.GetConfigWithStatus()
-	connectionOK := err == nil
-	configCachedAt := h.client.ConfigCachedAt()
+func (h *Handler) selectedClient(name string) (*alertmanager.Client, string, error) {
+	if len(h.clients) == 0 && h.client != nil {
+		return h.client, "default", nil
+	}
+	if name == "" {
+		name = h.defaultAlertmanager
+	}
+	client, ok := h.clients[name]
+	if !ok || client == nil {
+		return nil, "", fmt.Errorf("unknown Alertmanager %q", name)
+	}
+	return client, name, nil
+}
 
+func (h *Handler) clientForRequest(r *http.Request) (*alertmanager.Client, string, error) {
+	name := r.URL.Query().Get("alertmanager")
+	if name == "" {
+		name = r.FormValue("alertmanager")
+	}
+	return h.selectedClient(name)
+}
+
+func (h *Handler) HandleIndex(w http.ResponseWriter, r *http.Request) {
+	client, selectedName, err := h.clientForRequest(r)
 	if err != nil {
-		slog.Error("error fetching config", "error", err)
-		data := struct {
-			LabelSuggestions []alertmanager.LabelSuggestion
-			SampleAlerts     []alertmanager.SampleAlert
-			Config           *alertmanager.Config
-			AlertmanagerURL  string
-			ConnectionStatus bool
-			ConnectionError  string
-			ConfigCachedAt   time.Time
-			ConfigWasCached  bool
-		}{
-			LabelSuggestions: []alertmanager.LabelSuggestion{},
-			SampleAlerts:     []alertmanager.SampleAlert{},
-			Config:           nil,
-			AlertmanagerURL:  h.client.BaseURL(),
-			ConnectionStatus: false,
-			ConnectionError:  err.Error(),
-			ConfigCachedAt:   configCachedAt,
-			ConfigWasCached:  configWasCached,
+		defaultClient, _, defaultErr := h.selectedClient("")
+		alertmanagerURL := ""
+		if defaultErr == nil {
+			alertmanagerURL = defaultClient.BaseURL()
 		}
-		if err := h.tmpl.ExecuteTemplate(w, "index.html", data); err != nil {
-			slog.Error("error rendering template", "error", err)
+		data := IndexData{
+			LabelSuggestions:     []alertmanager.LabelSuggestion{},
+			SampleAlerts:         []alertmanager.SampleAlert{},
+			AlertmanagerNames:    h.alertmanagerNames,
+			SelectedAlertmanager: h.defaultAlertmanager,
+			AlertmanagerURL:      alertmanagerURL,
+			ConnectionError:      err.Error(),
+		}
+		if renderErr := h.tmpl.ExecuteTemplate(w, "index.html", data); renderErr != nil {
 			http.Error(w, "Failed to render page", http.StatusInternalServerError)
 		}
 		return
 	}
 
-	labelSuggestions := alertmanager.ExtractLabelSuggestions(config)
-	sampleAlerts := alertmanager.GenerateSampleAlerts(config)
-
-	data := struct {
-		LabelSuggestions []alertmanager.LabelSuggestion
-		SampleAlerts     []alertmanager.SampleAlert
-		Config           *alertmanager.Config
-		AlertmanagerURL  string
-		ConnectionStatus bool
-		ConnectionError  string
-		ConfigCachedAt   time.Time
-		ConfigWasCached  bool
-	}{
-		LabelSuggestions: labelSuggestions,
-		SampleAlerts:     sampleAlerts,
-		Config:           config,
-		AlertmanagerURL:  h.client.BaseURL(),
-		ConnectionStatus: connectionOK,
-		ConnectionError:  "",
-		ConfigCachedAt:   configCachedAt,
-		ConfigWasCached:  configWasCached,
+	config, configWasCached, err := client.GetConfigWithStatus()
+	connectionOK := err == nil
+	configCachedAt := client.ConfigCachedAt()
+	data := IndexData{
+		LabelSuggestions:     []alertmanager.LabelSuggestion{},
+		SampleAlerts:         []alertmanager.SampleAlert{},
+		AlertmanagerNames:    h.alertmanagerNames,
+		SelectedAlertmanager: selectedName,
+		AlertmanagerURL:      client.BaseURL(),
+		ConnectionStatus:     connectionOK,
+		ConnectionError:      "",
+		ConfigCachedAt:       configCachedAt,
+		ConfigWasCached:      configWasCached,
+	}
+	if err != nil {
+		slog.Error("error fetching config", "alertmanager", selectedName, "error", err)
+		data.ConnectionError = err.Error()
+	} else {
+		data.Config = config
+		data.LabelSuggestions = alertmanager.ExtractLabelSuggestions(config)
+		data.SampleAlerts = alertmanager.GenerateSampleAlerts(config)
 	}
 
 	if err := h.tmpl.ExecuteTemplate(w, "index.html", data); err != nil {
@@ -141,8 +178,14 @@ func (h *Handler) HandleReloadConfig(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	slog.Info("reloading alertmanager config cache")
-	if _, err := h.client.RefreshConfig(); err != nil {
+	client, selectedName, err := h.clientForRequest(r)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	slog.Info("reloading alertmanager config cache", "alertmanager", selectedName)
+	if _, err := client.RefreshConfig(); err != nil {
 		slog.Error("error reloading alertmanager config", "error", err)
 		if r.Header.Get("HX-Request") == "true" {
 			w.Header().Set("HX-Trigger", "config-reload-error")
@@ -161,7 +204,7 @@ func (h *Handler) HandleReloadConfig(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	http.Redirect(w, r, "/", http.StatusSeeOther)
+	http.Redirect(w, r, "/?alertmanager="+url.QueryEscape(selectedName), http.StatusSeeOther)
 }
 
 func (h *Handler) HandleTest(w http.ResponseWriter, r *http.Request) {
@@ -171,6 +214,7 @@ func (h *Handler) HandleTest(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var labels map[string]string
+	requestedAlertmanager := r.URL.Query().Get("alertmanager")
 
 	contentType := r.Header.Get("Content-Type")
 	if strings.Contains(contentType, "application/json") {
@@ -180,6 +224,9 @@ func (h *Handler) HandleTest(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		labels = req.Labels
+		if requestedAlertmanager == "" {
+			requestedAlertmanager = req.Alertmanager
+		}
 	} else {
 		if err := r.ParseForm(); err != nil {
 			http.Error(w, "Invalid form data", http.StatusBadRequest)
@@ -188,13 +235,24 @@ func (h *Handler) HandleTest(w http.ResponseWriter, r *http.Request) {
 
 		labels = make(map[string]string)
 		for key, values := range r.Form {
+			if key == "alertmanager" {
+				continue
+			}
 			if len(values) > 0 && values[0] != "" {
 				labels[key] = values[0]
 			}
 		}
+		if requestedAlertmanager == "" {
+			requestedAlertmanager = r.FormValue("alertmanager")
+		}
 	}
 
-	config, err := h.client.GetConfig()
+	client, _, clientErr := h.selectedClient(requestedAlertmanager)
+	if clientErr != nil {
+		http.Error(w, clientErr.Error(), http.StatusBadRequest)
+		return
+	}
+	config, err := client.GetConfig()
 	var receiver string
 	var receiverConfig *alertmanager.Receiver
 	var matchedRoutes []alertmanager.MatchedRoute
@@ -210,12 +268,12 @@ func (h *Handler) HandleTest(w http.ResponseWriter, r *http.Request) {
 		slog.Error("alertmanager config route is nil", "config", config)
 		errorMsg = "Alertmanager config has no route defined. Check your alertmanager.yml"
 	} else {
-		receiver, matchedRoutes, err = h.client.FindMatchingRoute(labels, config)
+		receiver, matchedRoutes, err = client.FindMatchingRoute(labels, config)
 		if err != nil {
 			slog.Error("error finding route", "error", err)
 			errorMsg = "Error finding matching route: " + err.Error()
 		} else if receiver != "" {
-			receiverConfig = h.client.FindReceiverByName(receiver, config)
+			receiverConfig = client.FindReceiverByName(receiver, config)
 		}
 	}
 
@@ -276,7 +334,12 @@ func (h *Handler) HandleConfigLabels(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	config, err := h.client.GetConfig()
+	client, _, clientErr := h.clientForRequest(r)
+	if clientErr != nil {
+		http.Error(w, clientErr.Error(), http.StatusBadRequest)
+		return
+	}
+	config, err := client.GetConfig()
 	if err != nil {
 		slog.Error("error fetching config", "error", err)
 		http.Error(w, "Failed to fetch config", http.StatusInternalServerError)

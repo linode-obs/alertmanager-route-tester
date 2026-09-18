@@ -1,6 +1,7 @@
 package alertmanager
 
 import (
+	"context"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -10,6 +11,43 @@ import (
 	"testing"
 	"time"
 )
+
+func TestGetConfigContextCancelsRequest(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		<-r.Context().Done()
+	}))
+	defer server.Close()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	result := make(chan error, 1)
+	go func() {
+		_, err := NewClient(server.URL, false).GetConfigContext(ctx)
+		result <- err
+	}()
+
+	cancel()
+	select {
+	case err := <-result:
+		if err == nil || !strings.Contains(err.Error(), "context canceled") {
+			t.Fatalf("GetConfigContext() error = %v, want context cancellation", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("GetConfigContext() did not stop after cancellation")
+	}
+}
+
+func TestFetchStatusRejectsOversizedResponse(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"config":{"original":"` + strings.Repeat("x", int(maxAlertmanagerResponseBodyBytes)) + `"}}`))
+	}))
+	defer server.Close()
+
+	_, err := NewClient(server.URL, false).GetConfig()
+	if err == nil || !strings.Contains(err.Error(), "response body exceeds limit") {
+		t.Fatalf("GetConfig() error = %v, want response-size error", err)
+	}
+}
 
 func TestExtractRawReceiverConfigsMatchesExactNames(t *testing.T) {
 	config := &Config{

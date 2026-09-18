@@ -2,6 +2,7 @@ package handler
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"html/template"
 	"io/fs"
@@ -14,6 +15,8 @@ import (
 
 	"github.com/wbollock/alertmanager-route-tester/internal/alertmanager"
 )
+
+const maxTestRequestBodyBytes int64 = 1 << 20
 
 type Handler struct {
 	client              *alertmanager.Client
@@ -147,7 +150,7 @@ func (h *Handler) HandleIndex(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	config, configWasCached, err := client.GetConfigWithStatus()
+	config, configWasCached, err := client.GetConfigWithStatusContext(r.Context())
 	connectionOK := err == nil
 	configCachedAt := client.ConfigCachedAt()
 	data := IndexData{
@@ -191,7 +194,7 @@ func (h *Handler) HandleReloadConfig(w http.ResponseWriter, r *http.Request) {
 	}
 
 	slog.Info("reloading alertmanager config cache", "alertmanager", selectedName)
-	if _, err := client.RefreshConfig(); err != nil {
+	if _, err := client.RefreshConfigContext(r.Context()); err != nil {
 		slog.Error("error reloading alertmanager config", "error", err)
 		if r.Header.Get("HX-Request") == "true" {
 			w.Header().Set("HX-Trigger", "config-reload-error")
@@ -219,6 +222,8 @@ func (h *Handler) HandleTest(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	r.Body = http.MaxBytesReader(w, r.Body, maxTestRequestBodyBytes)
+
 	var labels map[string]string
 	requestedAlertmanager := r.URL.Query().Get("alertmanager")
 
@@ -226,7 +231,11 @@ func (h *Handler) HandleTest(w http.ResponseWriter, r *http.Request) {
 	if strings.Contains(contentType, "application/json") {
 		var req TestRequest
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-			http.Error(w, "Invalid JSON", http.StatusBadRequest)
+			if requestBodyTooLarge(err) {
+				http.Error(w, "Request body too large", http.StatusRequestEntityTooLarge)
+			} else {
+				http.Error(w, "Invalid JSON", http.StatusBadRequest)
+			}
 			return
 		}
 		labels = req.Labels
@@ -235,7 +244,11 @@ func (h *Handler) HandleTest(w http.ResponseWriter, r *http.Request) {
 		}
 	} else {
 		if err := r.ParseForm(); err != nil {
-			http.Error(w, "Invalid form data", http.StatusBadRequest)
+			if requestBodyTooLarge(err) {
+				http.Error(w, "Request body too large", http.StatusRequestEntityTooLarge)
+			} else {
+				http.Error(w, "Invalid form data", http.StatusBadRequest)
+			}
 			return
 		}
 
@@ -258,7 +271,7 @@ func (h *Handler) HandleTest(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, clientErr.Error(), http.StatusBadRequest)
 		return
 	}
-	config, err := client.GetConfig()
+	config, err := client.GetConfigContext(r.Context())
 	var receiver string
 	var receiverConfig *alertmanager.Receiver
 	var matchedRoutes []alertmanager.MatchedRoute
@@ -345,7 +358,7 @@ func (h *Handler) HandleConfigLabels(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, clientErr.Error(), http.StatusBadRequest)
 		return
 	}
-	config, err := client.GetConfig()
+	config, err := client.GetConfigContext(r.Context())
 	if err != nil {
 		slog.Error("error fetching config", "error", err)
 		http.Error(w, "Failed to fetch config", http.StatusInternalServerError)
@@ -426,6 +439,11 @@ func buildRouteSummary(matchedRoutes []alertmanager.MatchedRoute, finalReceiver 
 	}
 
 	return steps, receivers, continueCount, finalMatch
+}
+
+func requestBodyTooLarge(err error) bool {
+	var maxBytesError *http.MaxBytesError
+	return errors.As(err, &maxBytesError)
 }
 
 func receiverType(receiver *alertmanager.Receiver) (string, string) {

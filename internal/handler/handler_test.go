@@ -92,6 +92,19 @@ func TestIndexTemplateLabelsCachedConfig(t *testing.T) {
 	}
 }
 
+func TestHandleTestRejectsOversizedJSON(t *testing.T) {
+	body := []byte(`{"labels":{"label":"` + strings.Repeat("x", int(maxTestRequestBodyBytes)) + `"}}`)
+	request := httptest.NewRequest(http.MethodPost, "/test", bytes.NewReader(body))
+	request.Header.Set("Content-Type", "application/json")
+	response := httptest.NewRecorder()
+
+	(&Handler{}).HandleTest(response, request)
+
+	if response.Code != http.StatusRequestEntityTooLarge {
+		t.Fatalf("status = %d, want %d", response.Code, http.StatusRequestEntityTooLarge)
+	}
+}
+
 func TestHandleTestUsesSelectedAlertmanager(t *testing.T) {
 	server := func(t *testing.T, receiver string) *httptest.Server {
 		t.Helper()
@@ -711,6 +724,7 @@ func TestIndexTemplateIncludesRedesignControls(t *testing.T) {
 
 	output := buf.String()
 	for _, expected := range []string{
+		`src="/static/htmx.min.js"`,
 		`class="app-headerbar"`,
 		`class="theme-switch"`,
 		`aria-label="Test the alert route"`,

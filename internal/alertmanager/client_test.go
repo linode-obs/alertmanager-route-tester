@@ -49,6 +49,60 @@ func TestFetchStatusRejectsOversizedResponse(t *testing.T) {
 	}
 }
 
+func TestAlertmanagerMatcherSemantics(t *testing.T) {
+	tests := []struct {
+		name   string
+		labels map[string]string
+		route  *Route
+		want   bool
+	}{
+		{
+			name:   "match_re is fully anchored",
+			labels: map[string]string{"service": "api-gateway"},
+			route:  &Route{MatchRE: map[string]string{"service": "api"}},
+			want:   false,
+		},
+		{
+			name:   "regex matcher is fully anchored",
+			labels: map[string]string{"service": "api-gateway"},
+			route:  &Route{Matchers: []string{`service=~"api"`}},
+			want:   false,
+		},
+		{
+			name:   "empty equality matches missing label",
+			labels: map[string]string{},
+			route:  &Route{Matchers: []string{`severity=""`}},
+			want:   true,
+		},
+		{
+			name:   "non-empty inequality does not match empty label",
+			labels: map[string]string{},
+			route:  &Route{Matchers: []string{`severity!=""`}},
+			want:   false,
+		},
+		{
+			name:   "negative regex evaluates missing label as empty",
+			labels: map[string]string{},
+			route:  &Route{Matchers: []string{`severity!~"^$"`}},
+			want:   false,
+		},
+		{
+			name:   "escaped quoted value is decoded",
+			labels: map[string]string{"message": `quoted "text"`},
+			route:  &Route{Matchers: []string{`message="quoted \"text\""`}},
+			want:   true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := matchesRoute(tt.labels, tt.route); got != tt.want {
+				t.Fatalf("matchesRoute() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
 func TestExtractRawReceiverConfigsMatchesExactNames(t *testing.T) {
 	config := &Config{
 		Receivers: []Receiver{

@@ -220,7 +220,7 @@ func TestEdgeCases(t *testing.T) {
 					Routes: []*Route{
 						{
 							Match:    map[string]string{"team": "platform"},
-							MatchRE:  map[string]string{"service": "^api"},
+							MatchRE:  map[string]string{"service": "^api.*"},
 							Matchers: []string{`severity="critical"`},
 							Receiver: "platform-critical",
 						},

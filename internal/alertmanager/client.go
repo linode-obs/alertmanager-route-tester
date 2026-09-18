@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"os"
 	"regexp"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -601,11 +602,7 @@ func matchesRoute(labels map[string]string, route *Route) bool {
 	}
 
 	for key, pattern := range route.MatchRE {
-		labelValue, ok := labels[key]
-		if !ok {
-			return false
-		}
-		matched, err := regexp.MatchString(pattern, labelValue)
+		matched, err := matchesRegex(pattern, labels[key])
 		if err != nil || !matched {
 			return false
 		}
@@ -632,31 +629,29 @@ func matchesMatcher(labels map[string]string, matcher string) bool {
 		return false
 	}
 
-	value, hasLabel := labels[parsed.Label]
+	value := labels[parsed.Label]
 
 	switch parsed.Operator {
 	case "=":
-		return hasLabel && value == parsed.Value
+		return value == parsed.Value
 	case "!=":
-		return !hasLabel || value != parsed.Value
+		return value != parsed.Value
 	case "=~":
-		if !hasLabel {
-			return false
-		}
-		matched, err := regexp.MatchString(parsed.Value, value)
+		matched, err := matchesRegex(parsed.Value, value)
 		return err == nil && matched
 	case "!~":
-		if !hasLabel {
-			return true
-		}
-		matched, err := regexp.MatchString(parsed.Value, value)
+		matched, err := matchesRegex(parsed.Value, value)
 		return err == nil && !matched
 	default:
 		return false
 	}
 }
 
-var matcherPattern = regexp.MustCompile(`^\s*([^=!~\s]+)\s*(=~|!~|=|!=)\s*(.+?)\s*$`)
+func matchesRegex(pattern, value string) (bool, error) {
+	return regexp.MatchString("^(?:"+pattern+")$", value)
+}
+
+var matcherPattern = regexp.MustCompile(`^\s*([^=!~\s]+)\s*(=~|!~|=|!=)\s*(.*?)\s*$`)
 
 func parseMatcher(input string) (parsedMatcher, bool) {
 	matches := matcherPattern.FindStringSubmatch(input)
@@ -666,7 +661,13 @@ func parseMatcher(input string) (parsedMatcher, bool) {
 
 	value := strings.TrimSpace(matches[3])
 	if len(value) >= 2 {
-		if (value[0] == '"' && value[len(value)-1] == '"') || (value[0] == '\'' && value[len(value)-1] == '\'') {
+		if value[0] == '"' && value[len(value)-1] == '"' {
+			unquoted, err := unquoteMatcherValue(value)
+			if err != nil {
+				return parsedMatcher{}, false
+			}
+			value = unquoted
+		} else if value[0] == '\'' && value[len(value)-1] == '\'' {
 			value = value[1 : len(value)-1]
 		}
 	}
@@ -676,6 +677,32 @@ func parseMatcher(input string) (parsedMatcher, bool) {
 		Operator: matches[2],
 		Value:    value,
 	}, true
+}
+
+func unquoteMatcherValue(value string) (string, error) {
+	unquoted, err := strconv.Unquote(value)
+	if err == nil {
+		return unquoted, nil
+	}
+
+	var builder strings.Builder
+	for i := 1; i < len(value)-1; i++ {
+		if value[i] != '\\' {
+			builder.WriteByte(value[i])
+			continue
+		}
+		if i+1 >= len(value)-1 {
+			return "", fmt.Errorf("trailing escape")
+		}
+		i++
+		if value[i] == '\\' || value[i] == '"' {
+			builder.WriteByte(value[i])
+		} else {
+			builder.WriteByte('\\')
+			builder.WriteByte(value[i])
+		}
+	}
+	return builder.String(), nil
 }
 
 type LabelSuggestion struct {

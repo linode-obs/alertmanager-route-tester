@@ -151,6 +151,12 @@ func parseLabelsJSON(input string) (map[string]string, error) {
 }
 
 func serve(server *http.Server, listener net.Listener, signals <-chan os.Signal) error {
+	serverContext, cancelServerContext := context.WithCancel(context.Background())
+	defer cancelServerContext()
+	server.BaseContext = func(net.Listener) context.Context {
+		return serverContext
+	}
+
 	serveErr := make(chan error, 1)
 	go func() {
 		serveErr <- server.Serve(listener)
@@ -163,6 +169,7 @@ func serve(server *http.Server, listener net.Listener, signals <-chan os.Signal)
 		}
 		return err
 	case <-signals:
+		cancelServerContext()
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
 		return server.Shutdown(ctx)

@@ -41,6 +41,58 @@ func TestParseLabelsJSON(t *testing.T) {
 	}
 }
 
+func TestServeCancelsHandlerContextsOnSignal(t *testing.T) {
+	requestStarted := make(chan struct{})
+	requestCanceled := make(chan struct{})
+	server := &http.Server{
+		Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			close(requestStarted)
+			<-r.Context().Done()
+			close(requestCanceled)
+		}),
+	}
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	signals := make(chan os.Signal, 1)
+	serveResult := make(chan error, 1)
+	go func() {
+		serveResult <- serve(server, listener, signals)
+	}()
+
+	requestResult := make(chan error, 1)
+	go func() {
+		response, err := http.Get("http://" + listener.Addr().String())
+		if response != nil {
+			_ = response.Body.Close()
+		}
+		requestResult <- err
+	}()
+	select {
+	case <-requestStarted:
+	case <-time.After(time.Second):
+		t.Fatal("request did not reach handler")
+	}
+
+	signals <- os.Interrupt
+	select {
+	case <-requestCanceled:
+	case <-time.After(time.Second):
+		t.Fatal("handler context was not canceled")
+	}
+	select {
+	case err := <-serveResult:
+		if err != nil {
+			t.Fatalf("serve() error = %v, want nil", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("serve() did not shut down after signal")
+	}
+	<-requestResult
+}
+
 func TestServeShutsDownOnSignal(t *testing.T) {
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {

@@ -105,6 +105,31 @@ func TestHandleTestRejectsOversizedJSON(t *testing.T) {
 	}
 }
 
+func TestHandleTestRejectsOversizedJSONAfterFirstValue(t *testing.T) {
+	body := []byte(`{"labels":{}}` + strings.Repeat(" ", int(maxTestRequestBodyBytes)))
+	request := httptest.NewRequest(http.MethodPost, "/test", bytes.NewReader(body))
+	request.Header.Set("Content-Type", "application/json")
+	response := httptest.NewRecorder()
+
+	(&Handler{}).HandleTest(response, request)
+
+	if response.Code != http.StatusRequestEntityTooLarge {
+		t.Fatalf("status = %d, want %d", response.Code, http.StatusRequestEntityTooLarge)
+	}
+}
+
+func TestHandleTestRejectsTrailingJSONValue(t *testing.T) {
+	request := httptest.NewRequest(http.MethodPost, "/test", strings.NewReader(`{"labels":{}} {}`))
+	request.Header.Set("Content-Type", "application/json")
+	response := httptest.NewRecorder()
+
+	(&Handler{}).HandleTest(response, request)
+
+	if response.Code != http.StatusBadRequest || !strings.Contains(response.Body.String(), "Invalid JSON") {
+		t.Fatalf("response = %d %q, want invalid JSON response", response.Code, response.Body.String())
+	}
+}
+
 func TestHandleTestUsesSelectedAlertmanager(t *testing.T) {
 	server := func(t *testing.T, receiver string) *httptest.Server {
 		t.Helper()

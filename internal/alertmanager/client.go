@@ -29,11 +29,12 @@ type Client struct {
 	retryBackoff     time.Duration
 
 	// Config cache
-	cacheMu          sync.RWMutex
-	cachedConfig     *Config
-	cacheTimestamp   time.Time
-	cacheGeneration  uint64
-	configFetchMutex sync.Mutex
+	cacheMu              sync.RWMutex
+	cachedConfig         *Config
+	cacheTimestamp       time.Time
+	cacheGeneration      uint64
+	configFetchOnce      sync.Once
+	configFetchSemaphore chan struct{}
 }
 
 type StatusResponse struct {
@@ -246,8 +247,10 @@ func (c *Client) GetConfigWithStatusContext(ctx context.Context) (*Config, bool,
 	}
 	c.cacheMu.RUnlock()
 
-	c.configFetchMutex.Lock()
-	defer c.configFetchMutex.Unlock()
+	if err := c.acquireConfigFetch(ctx); err != nil {
+		return nil, false, err
+	}
+	defer c.releaseConfigFetch()
 
 	// Another fetch may have populated the cache while this caller waited.
 	c.cacheMu.RLock()
@@ -274,8 +277,10 @@ func (c *Client) RefreshConfig() (*Config, error) {
 }
 
 func (c *Client) RefreshConfigContext(ctx context.Context) (*Config, error) {
-	c.configFetchMutex.Lock()
-	defer c.configFetchMutex.Unlock()
+	if err := c.acquireConfigFetch(ctx); err != nil {
+		return nil, err
+	}
+	defer c.releaseConfigFetch()
 
 	c.cacheMu.RLock()
 	generation := c.cacheGeneration
@@ -287,6 +292,23 @@ func (c *Client) RefreshConfigContext(ctx context.Context) (*Config, error) {
 	}
 	c.publishConfig(config, generation)
 	return config, nil
+}
+
+func (c *Client) acquireConfigFetch(ctx context.Context) error {
+	c.configFetchOnce.Do(func() {
+		c.configFetchSemaphore = make(chan struct{}, 1)
+	})
+
+	select {
+	case c.configFetchSemaphore <- struct{}{}:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+func (c *Client) releaseConfigFetch() {
+	<-c.configFetchSemaphore
 }
 
 func (c *Client) fetchConfig(ctx context.Context) (*Config, error) {
@@ -648,7 +670,7 @@ func matchesMatcher(labels map[string]string, matcher string) bool {
 }
 
 func matchesRegex(pattern, value string) (bool, error) {
-	return regexp.MatchString("^(?:"+pattern+")$", value)
+	return regexp.MatchString("^(?s:"+pattern+")$", value)
 }
 
 var matcherPattern = regexp.MustCompile(`^\s*([^=!~\s]+)\s*(=~|!~|=|!=)\s*(.*?)\s*$`)

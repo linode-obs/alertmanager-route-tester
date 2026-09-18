@@ -47,7 +47,10 @@ func TestServeShutsDownOnSignal(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	server := &http.Server{Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {})}
+	server := &http.Server{
+		Handler:           http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {}),
+		ReadHeaderTimeout: time.Second,
+	}
 	signals := make(chan os.Signal, 1)
 	result := make(chan error, 1)
 	go func() {

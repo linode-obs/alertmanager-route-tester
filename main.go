@@ -115,7 +115,8 @@ func main() {
 	signal.Notify(signals, os.Interrupt, syscall.SIGTERM)
 	defer signal.Stop(signals)
 
-	listener, err := net.Listen("tcp", server.Addr)
+	listenerConfig := net.ListenConfig{}
+	listener, err := listenerConfig.Listen(context.Background(), "tcp", server.Addr)
 	if err != nil {
 		slog.Error("server failed to start", "error", err)
 		os.Exit(1)

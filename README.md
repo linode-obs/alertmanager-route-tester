@@ -83,7 +83,7 @@ go run . -config config.local.yaml
 
 ## CLI Test Mode
 
-Run route tests from the command line using the exact same routing logic as the web UI. CLI mode uses the first named Alertmanager when several are configured.
+Run route tests from the command line using the exact same routing logic as the web UI. CLI mode uses the lexicographically smallest named Alertmanager when several are configured.
 
 ```yaml
 alertmanager-route-tester:

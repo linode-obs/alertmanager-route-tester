@@ -175,8 +175,12 @@ func TestHandleIndexRejectsUnknownAlertmanager(t *testing.T) {
 
 	h.HandleIndex(response, httptest.NewRequest(http.MethodGet, "/?alertmanager=missing", http.NoBody))
 
-	if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), "unknown Alertmanager") || !strings.Contains(response.Body.String(), "missing") {
-		t.Fatalf("response = %d %q, want unknown Alertmanager error", response.Code, response.Body.String())
+	body := response.Body.String()
+	if response.Code != http.StatusOK || !strings.Contains(body, "unknown Alertmanager") || !strings.Contains(body, "missing") {
+		t.Fatalf("response = %d %q, want unknown Alertmanager error", response.Code, body)
+	}
+	if !strings.Contains(body, "http://127.0.0.1:1") || !strings.Contains(body, `name="alertmanager" value="production"`) {
+		t.Fatalf("response = %q, want default Alertmanager connection state", body)
 	}
 }
 

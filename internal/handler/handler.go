@@ -122,11 +122,17 @@ func (h *Handler) clientForRequest(r *http.Request) (*alertmanager.Client, strin
 func (h *Handler) HandleIndex(w http.ResponseWriter, r *http.Request) {
 	client, selectedName, err := h.clientForRequest(r)
 	if err != nil {
+		defaultClient, _, defaultErr := h.selectedClient("")
+		alertmanagerURL := ""
+		if defaultErr == nil {
+			alertmanagerURL = defaultClient.BaseURL()
+		}
 		data := IndexData{
 			LabelSuggestions:     []alertmanager.LabelSuggestion{},
 			SampleAlerts:         []alertmanager.SampleAlert{},
 			AlertmanagerNames:    h.alertmanagerNames,
-			SelectedAlertmanager: selectedName,
+			SelectedAlertmanager: h.defaultAlertmanager,
+			AlertmanagerURL:      alertmanagerURL,
 			ConnectionError:      err.Error(),
 		}
 		if renderErr := h.tmpl.ExecuteTemplate(w, "index.html", data); renderErr != nil {

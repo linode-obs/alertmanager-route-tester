@@ -1,5 +1,5 @@
 [tools]
-go = "1.25"
+go = "1.27.1"
 "aqua:vercel-labs/agent-browser" = "0.37.1"
 
 [tasks.start]

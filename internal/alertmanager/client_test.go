@@ -37,48 +37,21 @@ func TestGetConfigContextCancelsRequest(t *testing.T) {
 }
 
 func TestGetConfigContextCancellationWhileWaitingForFetch(t *testing.T) {
-	fetchStarted := make(chan struct{})
-	releaseFetch := make(chan struct{})
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		close(fetchStarted)
-		<-releaseFetch
-		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"config":{"original":"route:\n  receiver: default\nreceivers:\n  - name: default\n"}}`))
-	}))
-	defer server.Close()
-
-	client := NewClient(server.URL, false)
-	firstResult := make(chan error, 1)
-	go func() {
-		_, err := client.GetConfigContext(context.Background())
-		firstResult <- err
-	}()
-	<-fetchStarted
-
-	ctx, cancel := context.WithCancel(context.Background())
-	secondResult := make(chan error, 1)
-	go func() {
+	testContextCancellationWhileWaiting(t, func(client *Client, ctx context.Context) error {
 		_, err := client.GetConfigContext(ctx)
-		secondResult <- err
-	}()
-	cancel()
-
-	select {
-	case err := <-secondResult:
-		if err == nil || !strings.Contains(err.Error(), "context canceled") {
-			t.Fatalf("waiting GetConfigContext() error = %v, want context cancellation", err)
-		}
-	case <-time.After(time.Second):
-		t.Fatal("waiting GetConfigContext() did not stop after cancellation")
-	}
-
-	close(releaseFetch)
-	if err := <-firstResult; err != nil {
-		t.Fatalf("first GetConfigContext() error = %v", err)
-	}
+		return err
+	})
 }
 
 func TestRefreshConfigContextCancellationWhileWaitingForFetch(t *testing.T) {
+	testContextCancellationWhileWaiting(t, func(client *Client, ctx context.Context) error {
+		_, err := client.RefreshConfigContext(ctx)
+		return err
+	})
+}
+
+func testContextCancellationWhileWaiting(t *testing.T, fetch func(*Client, context.Context) error) {
+	t.Helper()
 	fetchStarted := make(chan struct{})
 	releaseFetch := make(chan struct{})
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -92,31 +65,29 @@ func TestRefreshConfigContextCancellationWhileWaitingForFetch(t *testing.T) {
 	client := NewClient(server.URL, false)
 	firstResult := make(chan error, 1)
 	go func() {
-		_, err := client.RefreshConfigContext(context.Background())
-		firstResult <- err
+		firstResult <- fetch(client, context.Background())
 	}()
 	<-fetchStarted
 
 	ctx, cancel := context.WithCancel(context.Background())
 	secondResult := make(chan error, 1)
 	go func() {
-		_, err := client.RefreshConfigContext(ctx)
-		secondResult <- err
+		secondResult <- fetch(client, ctx)
 	}()
 	cancel()
 
 	select {
 	case err := <-secondResult:
 		if err == nil || !strings.Contains(err.Error(), "context canceled") {
-			t.Fatalf("waiting RefreshConfigContext() error = %v, want context cancellation", err)
+			t.Fatalf("waiting fetch error = %v, want context cancellation", err)
 		}
 	case <-time.After(time.Second):
-		t.Fatal("waiting RefreshConfigContext() did not stop after cancellation")
+		t.Fatal("waiting fetch did not stop after cancellation")
 	}
 
 	close(releaseFetch)
 	if err := <-firstResult; err != nil {
-		t.Fatalf("first RefreshConfigContext() error = %v", err)
+		t.Fatalf("first fetch error = %v", err)
 	}
 }
 

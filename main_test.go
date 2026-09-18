@@ -50,6 +50,7 @@ func TestServeCancelsHandlerContextsOnSignal(t *testing.T) {
 			<-r.Context().Done()
 			close(requestCanceled)
 		}),
+		ReadHeaderTimeout: time.Second,
 	}
 	listener, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {

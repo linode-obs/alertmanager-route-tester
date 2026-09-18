@@ -23,6 +23,34 @@ func TestPrintResultShowsGenericSubrouteMarkerWithoutAncestry(t *testing.T) {
 	}
 }
 
+func TestPrintResultShowsRouteDetails(t *testing.T) {
+	result := &TestResult{
+		MatchedRoutes: []alertmanager.MatchedRoute{{
+			Route: &alertmanager.Route{
+				Receiver:       "leaf",
+				Matchers:       []string{`severity="critical"`},
+				GroupBy:        []string{"alertname"},
+				GroupWait:      "30s",
+				GroupInterval:  "5m",
+				RepeatInterval: "4h",
+			},
+		}},
+	}
+
+	output := captureSimpleOutput(t, result)
+	for _, expected := range []string{
+		`matchers=[severity="critical"]`,
+		"group_by=[alertname]",
+		"group_wait=30s",
+		"group_interval=5m",
+		"repeat_interval=4h",
+	} {
+		if !strings.Contains(output, expected) {
+			t.Errorf("output = %q, want %q", output, expected)
+		}
+	}
+}
+
 func TestPrintResultShowsFullSubrouteAncestry(t *testing.T) {
 	result := &TestResult{
 		Receiver: "leaf",

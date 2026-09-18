@@ -18,7 +18,7 @@ Point it at any Alertmanager instance with `config.yaml`:
 go run .
 ```
 
-Build your alert using the UI or paste YAML Prometheus alert labels. Hit "Test Route" to see which receiver it matches and the full route path.
+Build your alert using the UI or paste simple YAML-style `key: value` label lines. Hit "Test Route" to see which receiver it matches and the full route path.
 
 ### Configuration File
 
@@ -83,7 +83,7 @@ go run . -config config.local.yaml
 
 ## CLI Test Mode
 
-Run route tests from the command line using the exact same routing logic as the web UI. CLI mode uses the lexicographically smallest named Alertmanager when several are configured.
+Run route tests from the command line using the exact same routing logic as the web UI. CLI mode uses the lexicographically smallest named Alertmanager by default, or the instance selected with `-alertmanager`.
 
 ```yaml
 alertmanager-route-tester:
@@ -96,6 +96,18 @@ alertmanager-route-tester:
       alertname: "HighCPU"
       severity: "critical"
 ```
+
+For one-off tests, pass labels as JSON without editing the configuration file:
+
+```bash
+go run . -config config.yaml \
+  -alertmanager production \
+  -labels-json '{"alertname":"HighCPU","severity":"critical"}'
+```
+
+When `-labels-json` is omitted, CLI mode uses `cli-test-mode.labels` from the configuration. The `-alertmanager` flag is optional and must name one of the configured instances.
+
+The HTMX browser dependency is bundled under `static/` and embedded in the binary, so running a built release does not require an internet connection for the UI.
 
 ## Development
 

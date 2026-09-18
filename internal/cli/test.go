@@ -119,6 +119,21 @@ func PrintResult(result *TestResult, format OutputFormat) error {
 				if len(route.MatchRE) > 0 {
 					fmt.Printf("match_re=%v ", route.MatchRE)
 				}
+				if len(route.Matchers) > 0 {
+					fmt.Printf("matchers=%v ", route.Matchers)
+				}
+				if len(route.GroupBy) > 0 {
+					fmt.Printf("group_by=%v ", route.GroupBy)
+				}
+				if route.GroupWait != "" {
+					fmt.Printf("group_wait=%s ", route.GroupWait)
+				}
+				if route.GroupInterval != "" {
+					fmt.Printf("group_interval=%s ", route.GroupInterval)
+				}
+				if route.RepeatInterval != "" {
+					fmt.Printf("repeat_interval=%s ", route.RepeatInterval)
+				}
 				if route.Continue {
 					fmt.Printf("continue=true")
 				}

@@ -3,7 +3,7 @@
 ## Key Points
 
 - Use `mise run start` to test locally
-- Standard library only, no external frameworks
+- Use the standard library for application code; `gopkg.in/yaml.v3` is the approved YAML parsing dependency
 - Route matching logic is in `internal/alertmanager/client.go`
 - All tests must pass before committing
 - Follow TDD when adding features
@@ -46,7 +46,7 @@ mise run clean        # Clean up bin/ and data/
 
 ## Technologies
 
-- Go 1.25 (standard library only, no frameworks)
+- Go 1.27 (standard library application code, with `gopkg.in/yaml.v3` for YAML parsing)
 - HTMX for dynamic UI
 - mise for task running
 

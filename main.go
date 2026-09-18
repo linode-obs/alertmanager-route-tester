@@ -161,10 +161,3 @@ func buildInfo() (version string, revision string, modified bool, goVersion stri
 	}
 	return version, revision, modified, goVersion
 }
-
-func errString(err error) string {
-	if err == nil {
-		return ""
-	}
-	return err.Error()
-}

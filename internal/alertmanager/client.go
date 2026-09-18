@@ -15,6 +15,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 
 	"gopkg.in/yaml.v3"
 )
@@ -701,26 +702,42 @@ func parseMatcher(input string) (parsedMatcher, bool) {
 }
 
 func unquoteMatcherValue(value string) (string, error) {
+	rawValue := value[1 : len(value)-1]
+	if !utf8.ValidString(rawValue) {
+		return "", fmt.Errorf("matcher value is not valid UTF-8")
+	}
+
 	var builder strings.Builder
-	for i := 1; i < len(value)-1; i++ {
-		if value[i] != '\\' {
-			builder.WriteByte(value[i])
+	escaped := false
+	for i, r := range rawValue {
+		if escaped {
+			escaped = false
+			switch r {
+			case 'n':
+				builder.WriteByte('\n')
+			case '\\', '"':
+				builder.WriteRune(r)
+			default:
+				builder.WriteByte('\\')
+				builder.WriteRune(r)
+			}
 			continue
 		}
-		if i+1 >= len(value)-1 {
-			return "", fmt.Errorf("trailing escape")
-		}
-		i++
-		switch value[i] {
-		case 'n':
-			builder.WriteByte('\n')
-		case '\\', '"':
-			builder.WriteByte(value[i])
-		default:
+
+		switch r {
+		case '\\':
+			if i < len(rawValue)-1 {
+				escaped = true
+				continue
+			}
 			builder.WriteByte('\\')
-			builder.WriteByte(value[i])
+		case '"':
+			return "", fmt.Errorf("matcher value contains unescaped double quote")
+		default:
+			builder.WriteRune(r)
 		}
 	}
+
 	return builder.String(), nil
 }
 

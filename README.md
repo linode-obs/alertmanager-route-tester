@@ -4,7 +4,7 @@ Alertmanager Route Tester (ATR) is a web app and CLI designed to help figure out
 
 ### Browser UI
 
-ATR uses a compact purple Qt-style layout in the browser. It uses system theme by default, with light and dark mode.
+ATR uses a compact purple Qt-style layout in the browser. It uses a system theme by default, with light and dark modes.
 
 ![System theme](docs/screenshots/qt-purple-system.png)
 

@@ -36,12 +36,6 @@ func main() {
 	client := clients[defaultName]
 
 	version, revision, modified, goVersion := buildInfo()
-	connectionErrors := make(map[string]string)
-	for _, name := range names {
-		if err := clients[name].CheckConnection(); err != nil {
-			connectionErrors[name] = err.Error()
-		}
-	}
 	slog.Info("startup",
 		"listen", cfg.App.Server.Listen,
 		"alertmanagers", names,
@@ -51,7 +45,6 @@ func main() {
 		"vcs_revision", revision,
 		"vcs_modified", modified,
 		"go_version", goVersion,
-		"connection_errors", connectionErrors,
 		"config_path", *configPath,
 	)
 

@@ -6,6 +6,7 @@ import (
 	"html/template"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"testing"
 	"time"
@@ -102,6 +103,50 @@ func TestHandleTestUsesSelectedAlertmanager(t *testing.T) {
 	}
 	request := httptest.NewRequest(http.MethodPost, "/test?alertmanager=staging", bytes.NewBufferString(`{"labels":{"alertname":"Test"}}`))
 	request.Header.Set("Content-Type", "application/json")
+	response := httptest.NewRecorder()
+
+	h.HandleTest(response, request)
+
+	if response.Code != http.StatusOK {
+		t.Fatalf("status = %d, body = %s", response.Code, response.Body.String())
+	}
+	var result TestResponse
+	if err := json.Unmarshal(response.Body.Bytes(), &result); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if result.Receiver != "staging-default" {
+		t.Fatalf("receiver = %q, want staging-default", result.Receiver)
+	}
+}
+
+func TestHandleTestUsesSelectedAlertmanagerFromForm(t *testing.T) {
+	server := func(t *testing.T, receiver string) *httptest.Server {
+		t.Helper()
+		return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write([]byte(`{"config":{"original":"route:\n  receiver: ` + receiver + `\nreceivers:\n- name: ` + receiver + `\n"}}`))
+		}))
+	}
+	production := server(t, "production-default")
+	defer production.Close()
+	staging := server(t, "staging-default")
+	defer staging.Close()
+
+	h := &Handler{
+		clients: map[string]*alertmanager.Client{
+			"production": alertmanager.NewClient(production.URL, false),
+			"staging":    alertmanager.NewClient(staging.URL, false),
+		},
+		alertmanagerNames:   []string{"production", "staging"},
+		defaultAlertmanager: "production",
+		tmpl:                loadTemplates(t),
+	}
+	form := url.Values{
+		"alertmanager": {"staging"},
+		"alertname":    {"Test"},
+	}
+	request := httptest.NewRequest(http.MethodPost, "/test", strings.NewReader(form.Encode()))
+	request.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 	response := httptest.NewRecorder()
 
 	h.HandleTest(response, request)

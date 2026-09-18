@@ -63,7 +63,7 @@ Each entry under `alertmanagers` has a name and URL. HTTP, TLS, retry, and conne
 
 ATR caches Alertmanager configuration with an option to reload the configuration.
 
-Deploy ATR behind the same authentication, network protection, and access controls as the Alertmanager it connects to. In general, its deployment boundary and public URL should match the protected boundary used for that Alertmanager rather than exposing ATR directly. Alertmanager's secrets will be hidden already so there is not worry of leakage but ATR should be seen as an extension of Alertmanager's configuration.
+Deploy ATR behind the same authentication, network protection, and access controls as the Alertmanager it connects to. In general, its deployment boundary and public URL should match the protected boundary used for that Alertmanager rather than exposing ATR directly. ATR displays routing metadata and raw receiver configuration, which may contain sensitive endpoints or fields that Alertmanager does not redact.
 
 The selected instance is not included in shareable label links. Shared links contain alert labels only, so opening one cannot change the configured Alertmanager connection.
 

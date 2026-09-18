@@ -148,9 +148,21 @@ func TestAlertmanagerMatcherSemantics(t *testing.T) {
 			want:   true,
 		},
 		{
-			name:   "regex matcher uses dot-all mode",
+			name:   "regex matcher does not use dot-all mode",
 			labels: map[string]string{"message": "line one\nline two"},
 			route:  &Route{Matchers: []string{`message=~".*"`}},
+			want:   false,
+		},
+		{
+			name:   "newline escape is decoded",
+			labels: map[string]string{"message": "line one\nline two"},
+			route:  &Route{Matchers: []string{`message="line one\nline two"`}},
+			want:   true,
+		},
+		{
+			name:   "unknown escape remains literal",
+			labels: map[string]string{"message": `a\tb`},
+			route:  &Route{Matchers: []string{`message="a\tb"`}},
 			want:   true,
 		},
 	}

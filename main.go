@@ -34,7 +34,11 @@ func main() {
 	labelsJSON := flag.String("labels-json", "", "Alert labels as a JSON object for CLI test mode")
 	flag.Parse()
 
-	cfg, err := appconfig.Load(*configPath)
+	loadConfig := appconfig.Load
+	if *labelsJSON != "" {
+		loadConfig = appconfig.LoadForCLI
+	}
+	cfg, err := loadConfig(*configPath)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err.Error())
 		os.Exit(1)
@@ -66,7 +70,7 @@ func main() {
 	)
 
 	// CLI test mode
-	if cfg.App.CLITestMode.Enabled {
+	if cfg.App.CLITestMode.Enabled || *labelsJSON != "" {
 		labels := cfg.App.CLITestMode.Labels
 		if *labelsJSON != "" {
 			labels, err = parseLabelsJSON(*labelsJSON)
@@ -74,6 +78,10 @@ func main() {
 				fmt.Fprintln(os.Stderr, err.Error())
 				os.Exit(1)
 			}
+		}
+		if len(labels) == 0 {
+			fmt.Fprintln(os.Stderr, "alertmanager-route-tester.cli-test-mode.labels is required in CLI test mode")
+			os.Exit(1)
 		}
 		result, _ := cli.TestRouting(client, labels)
 

@@ -94,6 +94,14 @@ type TestConfig struct {
 }
 
 func Load(path string) (*Config, error) {
+	return load(path, false)
+}
+
+func LoadForCLI(path string) (*Config, error) {
+	return load(path, true)
+}
+
+func load(path string, allowEmptyCLILabels bool) (*Config, error) {
 	contents, err := os.ReadFile(path) // #nosec G304 -- the path is the explicitly selected application config file.
 	if err != nil {
 		return nil, fmt.Errorf("failed to read config file %q: %w", path, err)
@@ -105,7 +113,7 @@ func Load(path string) (*Config, error) {
 	}
 
 	applyDefaults(&cfg)
-	if err := validate(&cfg); err != nil {
+	if err := validateWithOptions(&cfg, allowEmptyCLILabels); err != nil {
 		return nil, err
 	}
 
@@ -198,6 +206,10 @@ func applyServerTimeoutDefaults(cfg *Config) {
 }
 
 func validate(cfg *Config) error {
+	return validateWithOptions(cfg, false)
+}
+
+func validateWithOptions(cfg *Config, allowEmptyCLILabels bool) error {
 	if len(cfg.Alertmanagers) == 0 {
 		return errors.New("alertmanagers is required and must contain at least one named instance")
 	}
@@ -245,7 +257,7 @@ func validate(cfg *Config) error {
 			return fmt.Errorf("alertmanager-route-tester.server.%s must be >= 0", name)
 		}
 	}
-	if cfg.App.CLITestMode.Enabled && len(cfg.App.CLITestMode.Labels) == 0 {
+	if cfg.App.CLITestMode.Enabled && !allowEmptyCLILabels && len(cfg.App.CLITestMode.Labels) == 0 {
 		return errors.New("alertmanager-route-tester.cli-test-mode.labels is required when cli-test-mode.enabled is true")
 	}
 	return nil

@@ -12,7 +12,6 @@ import (
 	"net/http"
 	"os"
 	"regexp"
-	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -670,7 +669,7 @@ func matchesMatcher(labels map[string]string, matcher string) bool {
 }
 
 func matchesRegex(pattern, value string) (bool, error) {
-	return regexp.MatchString("^(?s:"+pattern+")$", value)
+	return regexp.MatchString("^(?:"+pattern+")$", value)
 }
 
 var matcherPattern = regexp.MustCompile(`^\s*([^=!~\s]+)\s*(=~|!~|=|!=)\s*(.*?)\s*$`)
@@ -702,11 +701,6 @@ func parseMatcher(input string) (parsedMatcher, bool) {
 }
 
 func unquoteMatcherValue(value string) (string, error) {
-	unquoted, err := strconv.Unquote(value)
-	if err == nil {
-		return unquoted, nil
-	}
-
 	var builder strings.Builder
 	for i := 1; i < len(value)-1; i++ {
 		if value[i] != '\\' {
@@ -717,9 +711,12 @@ func unquoteMatcherValue(value string) (string, error) {
 			return "", fmt.Errorf("trailing escape")
 		}
 		i++
-		if value[i] == '\\' || value[i] == '"' {
+		switch value[i] {
+		case 'n':
+			builder.WriteByte('\n')
+		case '\\', '"':
 			builder.WriteByte(value[i])
-		} else {
+		default:
 			builder.WriteByte('\\')
 			builder.WriteByte(value[i])
 		}

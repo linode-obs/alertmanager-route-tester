@@ -32,6 +32,30 @@ func TestLoadNamedAlertmanagers(t *testing.T) {
 	}
 }
 
+func TestLoadForCLIAllowsLabelsFromCommandLine(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.yaml")
+	contents := []byte(`alertmanager-route-tester:
+  cli-test-mode:
+    enabled: false
+    labels: {}
+alertmanagers:
+  production:
+    url: http://production.example.test
+`)
+	if err := os.WriteFile(path, contents, 0600); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, err := LoadForCLI(path)
+	if err != nil {
+		t.Fatalf("LoadForCLI() error = %v", err)
+	}
+	if cfg.App.CLITestMode.Labels == nil {
+		t.Fatal("LoadForCLI() labels = nil, want initialized map")
+	}
+}
+
 func TestLoadRejectsSingularAlertmanagerConfiguration(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "config.yaml")

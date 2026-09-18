@@ -9,6 +9,7 @@ import (
 	"net/url"
 	"strings"
 	"testing"
+	"testing/fstest"
 	"time"
 
 	"github.com/wbollock/alertmanager-route-tester/internal/alertmanager"
@@ -44,6 +45,18 @@ type resultData struct {
 	MatchedReceiverSummaries []ReceiverSummary
 	Labels                   map[string]string
 	Error                    string
+}
+
+func TestNewWithClientsFromFSLoadsTemplatesWithoutWorkingDirectory(t *testing.T) {
+	templateFS := fstest.MapFS{
+		"templates/index.html":  &fstest.MapFile{Data: []byte("{{define \"index.html\"}}index{{end}}")},
+		"templates/result.html": &fstest.MapFile{Data: []byte("{{define \"result.html\"}}result{{end}}")},
+	}
+
+	h := NewWithClientsFromFS(nil, nil, "", templateFS)
+	if h == nil || h.tmpl == nil {
+		t.Fatal("NewWithClientsFromFS() returned a handler without templates")
+	}
 }
 
 func TestIndexTemplateLabelsCachedConfig(t *testing.T) {
@@ -652,9 +665,9 @@ func TestResultTemplateRendersDefaultRoot(t *testing.T) {
 func TestIndexTemplateIncludesShareLinkControls(t *testing.T) {
 	tmpl := loadTemplates(t)
 	data := struct {
-		LabelSuggestions []alertmanager.LabelSuggestion
-		SampleAlerts     []alertmanager.SampleAlert
-		Config           *alertmanager.Config
+		LabelSuggestions     []alertmanager.LabelSuggestion
+		SampleAlerts         []alertmanager.SampleAlert
+		Config               *alertmanager.Config
 		AlertmanagerURL      string
 		AlertmanagerNames    []string
 		SelectedAlertmanager string

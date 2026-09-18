@@ -1,6 +1,7 @@
 package main
 
 import (
+	"embed"
 	"flag"
 	"fmt"
 	"log/slog"
@@ -16,6 +17,9 @@ import (
 	appconfig "github.com/wbollock/alertmanager-route-tester/internal/config"
 	"github.com/wbollock/alertmanager-route-tester/internal/handler"
 )
+
+//go:embed templates/*.html static/*
+var assets embed.FS
 
 func main() {
 	configPath := flag.String("config", "config.yaml", "Path to configuration file")
@@ -68,9 +72,9 @@ func main() {
 	}
 
 	// Web server mode
-	h := handler.NewWithClients(clients, names, defaultName)
+	h := handler.NewWithClientsFromFS(clients, names, defaultName, assets)
 
-	http.Handle("/static/", http.StripPrefix("/static/", http.FileServer(http.Dir("static"))))
+	http.Handle("/static/", http.FileServer(http.FS(assets)))
 	http.HandleFunc("/", h.HandleIndex)
 	http.HandleFunc("/test", h.HandleTest)
 	http.HandleFunc("/config/labels", h.HandleConfigLabels)

@@ -763,13 +763,6 @@ func unquoteMatcherName(value string) (string, error) {
 }
 
 func unquoteMatcherValue(value string) (string, error) {
-	if unquoted, err := strconv.Unquote(value); err == nil {
-		if !utf8.ValidString(unquoted) {
-			return "", fmt.Errorf("matcher value is not valid UTF-8")
-		}
-		return unquoted, nil
-	}
-
 	rawValue := value[1 : len(value)-1]
 	if !utf8.ValidString(rawValue) {
 		return "", fmt.Errorf("matcher value is not valid UTF-8")

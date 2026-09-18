@@ -3,6 +3,7 @@ package alertmanager
 import (
 	"context"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -89,6 +90,41 @@ func testContextCancellationWhileWaiting(t *testing.T, fetch func(*Client, conte
 	if err := <-firstResult; err != nil {
 		t.Fatalf("first fetch error = %v", err)
 	}
+}
+
+func TestFetchStatusRetriesBodyReadFailure(t *testing.T) {
+	var requests atomic.Int32
+	client := &Client{
+		baseURL: "http://alertmanager.test",
+		httpClient: &http.Client{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
+			requests.Add(1)
+			return &http.Response{
+				StatusCode: http.StatusOK,
+				Body:       io.NopCloser(errorReader{}),
+				Header:     make(http.Header),
+			}, nil
+		})},
+		retryMaxAttempts: 2,
+	}
+
+	if err := client.CheckConnection(); err == nil {
+		t.Fatal("CheckConnection() error = nil, want body read error")
+	}
+	if got := requests.Load(); got != 2 {
+		t.Fatalf("status requests = %d, want 2 retries", got)
+	}
+}
+
+type roundTripFunc func(*http.Request) (*http.Response, error)
+
+func (f roundTripFunc) RoundTrip(r *http.Request) (*http.Response, error) {
+	return f(r)
+}
+
+type errorReader struct{}
+
+func (errorReader) Read([]byte) (int, error) {
+	return 0, io.ErrUnexpectedEOF
 }
 
 func TestFetchStatusRejectsOversizedResponse(t *testing.T) {

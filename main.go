@@ -148,12 +148,20 @@ func selectAlertmanager(names []string, requested string) (string, error) {
 }
 
 func parseLabelsJSON(input string) (map[string]string, error) {
-	var labels map[string]string
-	if err := json.Unmarshal([]byte(input), &labels); err != nil {
+	var values map[string]*string
+	if err := json.Unmarshal([]byte(input), &values); err != nil {
 		return nil, fmt.Errorf("invalid labels JSON: %w", err)
 	}
-	if labels == nil {
+	if values == nil {
 		return nil, fmt.Errorf("invalid labels JSON: expected an object")
+	}
+
+	labels := make(map[string]string, len(values))
+	for name, value := range values {
+		if value == nil {
+			return nil, fmt.Errorf("invalid labels JSON: label %q must be a string", name)
+		}
+		labels[name] = *value
 	}
 	return labels, nil
 }

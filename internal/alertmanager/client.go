@@ -5,6 +5,7 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"math/rand"
@@ -21,6 +22,8 @@ import (
 )
 
 const maxAlertmanagerResponseBodyBytes int64 = 10 << 20
+
+var errResponseBodyTooLarge = errors.New("response body exceeds limit")
 
 type Client struct {
 	baseURL          string
@@ -408,7 +411,7 @@ func (c *Client) fetchStatus(ctx context.Context, status *StatusResponse) (bool,
 
 	body, err := readResponseBody(resp.Body)
 	if err != nil {
-		return false, fmt.Errorf("failed to read response body: %w", err)
+		return !errors.Is(err, errResponseBodyTooLarge), fmt.Errorf("failed to read response body: %w", err)
 	}
 
 	if resp.StatusCode != http.StatusOK {
@@ -429,7 +432,7 @@ func readResponseBody(reader io.Reader) ([]byte, error) {
 		return nil, err
 	}
 	if int64(len(body)) > maxAlertmanagerResponseBodyBytes {
-		return nil, fmt.Errorf("response body exceeds limit of %d bytes", maxAlertmanagerResponseBodyBytes)
+		return nil, fmt.Errorf("%w of %d bytes", errResponseBodyTooLarge, maxAlertmanagerResponseBodyBytes)
 	}
 	return body, nil
 }

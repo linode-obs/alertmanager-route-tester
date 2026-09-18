@@ -41,6 +41,12 @@ func TestParseLabelsJSON(t *testing.T) {
 	}
 }
 
+func TestParseLabelsJSONRejectsNullValues(t *testing.T) {
+	if _, err := parseLabelsJSON(`{"severity":null}`); err == nil {
+		t.Fatal("parseLabelsJSON() error = nil, want null label rejection")
+	}
+}
+
 func TestServeCancelsHandlerContextsOnSignal(t *testing.T) {
 	requestStarted := make(chan struct{})
 	requestCanceled := make(chan struct{})

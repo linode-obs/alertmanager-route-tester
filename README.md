@@ -1,10 +1,10 @@
 # Alertmanager Route Tester
 
-Alertmanager Route Tester (ATR) is a web-app designed to help figure out where your Prometheus alerts will actually wind up given an Alertmanager configuration. It pulls Alertmanager's santizied configuration directly from an Alertmanager API and allows the user to see exactly what reciever(s) their alerts will route to.
+Alertmanager Route Tester (ATR) is a web app and CLI designed to help figure out where your Prometheus alerts will actually wind up in complex Alertmanager routes. It pulls Alertmanager's sanitized configuration directly from the Alertmanager API and allows the user to see exactly what receiver(s) their alerts will route to.
 
 ### Browser UI
 
-ATR uses a compact purple Qt-style layout in the browser. It has a system theme by default, with light and dark choices.
+ATR uses a compact purple Qt-style layout in the browser. It uses system theme by default, with light and dark mode.
 
 ![System theme](docs/screenshots/qt-purple-system.png)
 
@@ -12,13 +12,13 @@ ATR uses a compact purple Qt-style layout in the browser. It has a system theme 
 
 ## Usage
 
-Point it at any Alertmanager instance with `config.yaml`:
+Point it at any Alertmanager instance with `config.yaml`. ATR supports multiple Alertmanager instances/clusters.
 
 ```bash
 go run .
 ```
 
-Build your alert using the UI or paste simple YAML-style `key: value` label lines. Hit "Test Route" to see which receiver it matches and the full route path.
+Build your alert using the UI or paste simple YAML `key: value` label lines. Hit "Test Route" to see which receiver it matches and the full route path.
 
 ### Configuration File
 
@@ -59,7 +59,11 @@ alertmanagers:
     url: "https://alerts-staging.example.com"
 ```
 
-Each entry under `alertmanagers` has a name and URL. HTTP, TLS, retry, and connection-pool settings can be configured per instance. When more than one instance is configured, the web UI shows an Alertmanager selector above the connection status. Changing the selection reloads the route suggestions and uses that instance for route tests and config reloads.
+Each entry under `alertmanagers` has a name and URL. HTTP, TLS, retry, and connection-pool settings can be configured per instance. When more than one instance is configured, the web UI shows an Alertmanager selector above the connection status. Changing the selection reloads the route suggestions and uses that instance for route tests and config reloads. It is recommended to use multiple Alertmanagers only when configuring ATR for multiple clusters, not for multiple Alertmanagers within the same cluster.
+
+ATR caches Alertmanager configuration with an option to reload the configuration.
+
+Deploy ATR behind the same authentication, network protection, and access controls as the Alertmanager it connects to. In general, its deployment boundary and public URL should match the protected boundary used for that Alertmanager rather than exposing ATR directly. Alertmanager's secrets will be hidden already so there is not worry of leakage but ATR should be seen as an extension of Alertmanager's configuration.
 
 The selected instance is not included in shareable label links. Shared links contain alert labels only, so opening one cannot change the configured Alertmanager connection.
 
@@ -83,7 +87,7 @@ go run . -config config.local.yaml
 
 ## CLI Test Mode
 
-Run route tests from the command line using the exact same routing logic as the web UI. CLI mode uses the lexicographically smallest named Alertmanager by default, or the instance selected with `-alertmanager`.
+Run route tests from the command line using the exact same routing logic as the web UI. CLI mode uses the alphabetically first named Alertmanager by default, or the instance selected with `-alertmanager`.
 
 ```yaml
 alertmanager-route-tester:
@@ -188,7 +192,7 @@ This command:
 3. Evaluates your alert labels against the route tree.
 4. Shows exactly which receiver(s) and route path matched.
 
-Supports both exact matches and regex matchers, nested routes, default root reciever, and continue behavior.
+Supports both exact matches and regex matchers, nested routes, default root receiver, and continue behavior.
 
 ## Planned Features
 
@@ -215,11 +219,3 @@ The following features are planned for future releases:
 
 - GitHub Actions for automated tests/coverage/etc
 - Update readme with fresh screenshots
-
-## About This Project
-
-Built with Claude (claude-sonnet-4.5). See [AGENTS.md](AGENTS.md) for development details and AI assistance information.
-
-- Claude Sonnet 4.5 (github-copilot/claude-sonnet-4.5)
-- Skills Used: frontend-design, golang-pro
-- Technologies: Go, HTMX

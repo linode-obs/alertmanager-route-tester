@@ -655,11 +655,13 @@ func TestIndexTemplateIncludesShareLinkControls(t *testing.T) {
 		LabelSuggestions []alertmanager.LabelSuggestion
 		SampleAlerts     []alertmanager.SampleAlert
 		Config           *alertmanager.Config
-		AlertmanagerURL  string
-		ConnectionStatus bool
-		ConnectionError  string
-		ConfigCachedAt   time.Time
-		ConfigWasCached  bool
+		AlertmanagerURL      string
+		AlertmanagerNames    []string
+		SelectedAlertmanager string
+		ConnectionStatus     bool
+		ConnectionError      string
+		ConfigCachedAt       time.Time
+		ConfigWasCached      bool
 	}{}
 	var buf bytes.Buffer
 	if err := tmpl.ExecuteTemplate(&buf, "index.html", data); err != nil {

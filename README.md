@@ -206,7 +206,7 @@ The following features are planned for future releases:
 
 ## About This Project
 
-Built with Claude (claude-sonnet-4.5). See [agents.md](agents.md) for development details and AI assistance information.
+Built with Claude (claude-sonnet-4.5). See [AGENTS.md](AGENTS.md) for development details and AI assistance information.
 
 - Claude Sonnet 4.5 (github-copilot/claude-sonnet-4.5)
 - Skills Used: frontend-design, golang-pro

@@ -14,7 +14,7 @@ builds:
       - amd64
       - arm64
     ldflags:
-      - -s -w -X main.Version={{.Version}} -X main.Commit={{.Commit}} -X main.BuildDate={{ .CommitDate }}
+      - -s -w
     main: ./
 archives:
   - name_template: >-

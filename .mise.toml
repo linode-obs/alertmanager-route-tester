@@ -1,5 +1,5 @@
 [tools]
-go = "1.25"
+go = "1.27.1"
 "aqua:vercel-labs/agent-browser" = "0.37.1"
 
 [tasks.start]
@@ -162,7 +162,7 @@ if ! curl -fsS "$ALERTMANAGER_URL/api/v2/status" > /dev/null 2>&1; then
   exit 1
 fi
 
-go test -v ./...
+go test -v ./... -coverprofile=coverage.out -covermode=count
 """
 
 [tasks.build]

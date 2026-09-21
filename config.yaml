@@ -1,7 +1,7 @@
 alertmanager-route-tester:
   server:
     enabled: true
-    listen: ":8080"
+    listen: "127.0.0.1:8080"
     read_header_timeout: 5s
     read_timeout: 50.6s
     write_timeout: 50.6s

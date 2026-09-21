@@ -1,7 +1,9 @@
 package alertmanager
 
 import (
+	"context"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -10,6 +12,229 @@ import (
 	"testing"
 	"time"
 )
+
+func TestGetConfigContextCancelsRequest(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		<-r.Context().Done()
+	}))
+	defer server.Close()
+
+	ctx, cancel := context.WithCancel(context.Background())
+	result := make(chan error, 1)
+	go func() {
+		_, err := NewClient(server.URL, false).GetConfigContext(ctx)
+		result <- err
+	}()
+
+	cancel()
+	select {
+	case err := <-result:
+		if err == nil || !strings.Contains(err.Error(), "context canceled") {
+			t.Fatalf("GetConfigContext() error = %v, want context cancellation", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("GetConfigContext() did not stop after cancellation")
+	}
+}
+
+func TestGetConfigContextCancellationWhileWaitingForFetch(t *testing.T) {
+	testContextCancellationWhileWaiting(t, func(client *Client, ctx context.Context) error {
+		_, err := client.GetConfigContext(ctx)
+		return err
+	})
+}
+
+func TestRefreshConfigContextCancellationWhileWaitingForFetch(t *testing.T) {
+	testContextCancellationWhileWaiting(t, func(client *Client, ctx context.Context) error {
+		_, err := client.RefreshConfigContext(ctx)
+		return err
+	})
+}
+
+func testContextCancellationWhileWaiting(t *testing.T, fetch func(*Client, context.Context) error) {
+	t.Helper()
+	fetchStarted := make(chan struct{})
+	releaseFetch := make(chan struct{})
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		close(fetchStarted)
+		<-releaseFetch
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"config":{"original":"route:\n  receiver: default\nreceivers:\n  - name: default\n"}}`))
+	}))
+	defer server.Close()
+
+	client := NewClient(server.URL, false)
+	firstResult := make(chan error, 1)
+	go func() {
+		firstResult <- fetch(client, context.Background())
+	}()
+	<-fetchStarted
+
+	ctx, cancel := context.WithCancel(context.Background())
+	secondResult := make(chan error, 1)
+	go func() {
+		secondResult <- fetch(client, ctx)
+	}()
+	cancel()
+
+	select {
+	case err := <-secondResult:
+		if err == nil || !strings.Contains(err.Error(), "context canceled") {
+			t.Fatalf("waiting fetch error = %v, want context cancellation", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("waiting fetch did not stop after cancellation")
+	}
+
+	close(releaseFetch)
+	if err := <-firstResult; err != nil {
+		t.Fatalf("first fetch error = %v", err)
+	}
+}
+
+func TestFetchStatusRetriesBodyReadFailure(t *testing.T) {
+	var requests atomic.Int32
+	client := &Client{
+		baseURL: "http://alertmanager.test",
+		httpClient: &http.Client{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
+			requests.Add(1)
+			return &http.Response{
+				StatusCode: http.StatusOK,
+				Body:       io.NopCloser(errorReader{}),
+				Header:     make(http.Header),
+			}, nil
+		})},
+		retryMaxAttempts: 2,
+	}
+
+	if err := client.CheckConnection(); err == nil {
+		t.Fatal("CheckConnection() error = nil, want body read error")
+	}
+	if got := requests.Load(); got != 2 {
+		t.Fatalf("status requests = %d, want 2 retries", got)
+	}
+}
+
+type roundTripFunc func(*http.Request) (*http.Response, error)
+
+func (f roundTripFunc) RoundTrip(r *http.Request) (*http.Response, error) {
+	return f(r)
+}
+
+type errorReader struct{}
+
+func (errorReader) Read([]byte) (int, error) {
+	return 0, io.ErrUnexpectedEOF
+}
+
+func TestFetchStatusRejectsOversizedResponse(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"config":{"original":"` + strings.Repeat("x", int(maxAlertmanagerResponseBodyBytes)) + `"}}`))
+	}))
+	defer server.Close()
+
+	_, err := NewClient(server.URL, false).GetConfig()
+	if err == nil || !strings.Contains(err.Error(), "response body exceeds limit") {
+		t.Fatalf("GetConfig() error = %v, want response-size error", err)
+	}
+}
+
+func TestAlertmanagerMatcherSemantics(t *testing.T) {
+	tests := []struct {
+		name   string
+		labels map[string]string
+		route  *Route
+		want   bool
+	}{
+		{
+			name:   "match_re is fully anchored",
+			labels: map[string]string{"service": "api-gateway"},
+			route:  &Route{MatchRE: map[string]string{"service": "api"}},
+			want:   false,
+		},
+		{
+			name:   "regex matcher is fully anchored",
+			labels: map[string]string{"service": "api-gateway"},
+			route:  &Route{Matchers: []string{`service=~"api"`}},
+			want:   false,
+		},
+		{
+			name:   "empty equality matches missing label",
+			labels: map[string]string{},
+			route:  &Route{Matchers: []string{`severity=""`}},
+			want:   true,
+		},
+		{
+			name:   "non-empty inequality does not match empty label",
+			labels: map[string]string{},
+			route:  &Route{Matchers: []string{`severity!=""`}},
+			want:   false,
+		},
+		{
+			name:   "negative regex evaluates missing label as empty",
+			labels: map[string]string{},
+			route:  &Route{Matchers: []string{`severity!~"^$"`}},
+			want:   false,
+		},
+		{
+			name:   "escaped quoted value is decoded",
+			labels: map[string]string{"message": `quoted "text"`},
+			route:  &Route{Matchers: []string{`message="quoted \"text\""`}},
+			want:   true,
+		},
+		{
+			name:   "regex matcher does not use dot-all mode",
+			labels: map[string]string{"message": "line one\nline two"},
+			route:  &Route{Matchers: []string{`message=~".*"`}},
+			want:   false,
+		},
+		{
+			name:   "newline escape is decoded",
+			labels: map[string]string{"message": "line one\nline two"},
+			route:  &Route{Matchers: []string{`message="line one\nline two"`}},
+			want:   true,
+		},
+		{
+			name:   "tab escape remains literal in compatibility mode",
+			labels: map[string]string{"message": `a\tb`},
+			route:  &Route{Matchers: []string{`message="a\tb"`}},
+			want:   true,
+		},
+		{
+			name:   "tab escape does not become a tab",
+			labels: map[string]string{"message": "a\tb"},
+			route:  &Route{Matchers: []string{`message="a\tb"`}},
+			want:   false,
+		},
+		{
+			name:   "unicode escape remains literal in compatibility mode",
+			labels: map[string]string{"message": `\u0062ar`},
+			route:  &Route{Matchers: []string{`message="\u0062ar"`}},
+			want:   true,
+		},
+		{
+			name:   "quoted UTF-8 name uses strict value escaping",
+			labels: map[string]string{"foo bar": "a\tb"},
+			route:  &Route{Matchers: []string{`"foo bar"="a\tb"`}},
+			want:   true,
+		},
+		{
+			name:   "unknown escape remains literal",
+			labels: map[string]string{"message": `a\qb`},
+			route:  &Route{Matchers: []string{`message="a\qb"`}},
+			want:   true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := matchesRoute(tt.labels, tt.route); got != tt.want {
+				t.Fatalf("matchesRoute() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
 
 func TestExtractRawReceiverConfigsMatchesExactNames(t *testing.T) {
 	config := &Config{
@@ -488,6 +713,12 @@ func TestParseMatcher(t *testing.T) {
 		{`severity='critical'`, true, "severity", "=", "critical"},      // single-quote stripping
 		{`severity=critical`, true, "severity", "=", "critical"},        // unquoted value
 		{`  severity = "critical" `, true, "severity", "=", "critical"}, // whitespace
+		{`"severity"="critical"`, true, "severity", "=", "critical"},
+		{`"foo bar"="x"`, true, "foo bar", "=", "x"},
+		{`"foo\u0020bar"="x"`, true, "foo bar", "=", "x"},
+		{`"føø"="x"`, true, "føø", "=", "x"},
+		{`"foo\"bar"="x"`, true, `foo"bar`, "=", "x"},
+		{"severity\u00a0= \"critical\"", true, "severity", "=", "critical"},
 		{`notavalidmatcher`, false, "", "", ""},
 		{`=value`, false, "", "", ""},
 	}

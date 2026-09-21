@@ -1,10 +1,10 @@
 # Alertmanager Route Tester
 
-Alertmanager Route Tester (ATR) is a web-app designed to help figure out where your Prometheus alerts will actually wind up given an Alertmanager configuration. It pulls Alertmanager's santizied configuration directly from an Alertmanager API and allows the user to see exactly what reciever(s) their alerts will route to.
+Alertmanager Route Tester (ATR) is a web app and CLI designed to help figure out where your Prometheus alerts will actually wind up in complex Alertmanager routes. It pulls Alertmanager's sanitized configuration directly from the Alertmanager API and allows the user to see exactly what receiver(s) their alerts will route to.
 
 ### Browser UI
 
-ATR uses a compact purple Qt-style layout in the browser. It has a system theme by default, with light and dark choices.
+ATR uses a compact purple Qt-style layout in the browser. It uses a system theme by default, with light and dark modes.
 
 ![System theme](docs/screenshots/qt-purple-system.png)
 
@@ -12,13 +12,13 @@ ATR uses a compact purple Qt-style layout in the browser. It has a system theme 
 
 ## Usage
 
-Point it at any Alertmanager instance with `config.yaml`:
+Point it at any Alertmanager instance with `config.yaml`. ATR supports multiple Alertmanager instances/clusters.
 
 ```bash
 go run .
 ```
 
-Build your alert using the UI or paste YAML Prometheus alert labels. Hit "Test Route" to see which receiver it matches and the full route path.
+Build your alert using the UI or paste simple YAML `key: value` label lines. Hit "Test Route" to see which receiver it matches and the full route path.
 
 ### Configuration File
 
@@ -26,7 +26,7 @@ Build your alert using the UI or paste YAML Prometheus alert labels. Hit "Test R
 alertmanager-route-tester:
   server:
     enabled: true
-    listen: ":8080"
+    listen: "127.0.0.1:8080"
   cli-test-mode:
     enabled: false # set true to run in CLI test mode instead of web server mode
     format: "simple"
@@ -59,7 +59,11 @@ alertmanagers:
     url: "https://alerts-staging.example.com"
 ```
 
-Each entry under `alertmanagers` has a name and URL. HTTP, TLS, retry, and connection-pool settings can be configured per instance. When more than one instance is configured, the web UI shows an Alertmanager selector above the connection status. Changing the selection reloads the route suggestions and uses that instance for route tests and config reloads.
+Each entry under `alertmanagers` has a name and URL. HTTP, TLS, retry, and connection-pool settings can be configured per instance. When more than one instance is configured, the web UI shows an Alertmanager selector above the connection status. Changing the selection reloads the route suggestions and uses that instance for route tests and config reloads. It is recommended to use multiple Alertmanagers only when configuring ATR for multiple clusters, not for multiple Alertmanagers within the same cluster.
+
+ATR caches Alertmanager configuration with an option to reload the configuration.
+
+Deploy ATR behind the same authentication, network protection, and access controls as the Alertmanager it connects to. In general, its deployment boundary and public URL should match the protected boundary used for that Alertmanager rather than exposing ATR directly. ATR displays routing metadata and raw receiver configuration, which may contain sensitive endpoints or fields that Alertmanager does not redact.
 
 The selected instance is not included in shareable label links. Shared links contain alert labels only, so opening one cannot change the configured Alertmanager connection.
 
@@ -83,7 +87,7 @@ go run . -config config.local.yaml
 
 ## CLI Test Mode
 
-Run route tests from the command line using the exact same routing logic as the web UI. CLI mode uses the lexicographically smallest named Alertmanager when several are configured.
+Run route tests from the command line using the exact same routing logic as the web UI. CLI mode uses the alphabetically first named Alertmanager by default, or the instance selected with `-alertmanager`.
 
 ```yaml
 alertmanager-route-tester:
@@ -96,6 +100,18 @@ alertmanager-route-tester:
       alertname: "HighCPU"
       severity: "critical"
 ```
+
+For one-off tests, pass labels as JSON without editing the configuration file:
+
+```bash
+go run . -config config.yaml \
+  -alertmanager production \
+  -labels-json '{"alertname":"HighCPU","severity":"critical"}'
+```
+
+When `-labels-json` is omitted, CLI mode uses `cli-test-mode.labels` from the configuration. The `-alertmanager` flag is optional and must name one of the configured instances.
+
+The HTMX browser dependency is bundled under `static/` and embedded in the binary, so running a built release does not require an internet connection for the UI.
 
 ## Development
 
@@ -176,7 +192,7 @@ This command:
 3. Evaluates your alert labels against the route tree.
 4. Shows exactly which receiver(s) and route path matched.
 
-Supports both exact matches and regex matchers, nested routes, default root reciever, and continue behavior.
+Supports both exact matches and regex matchers, nested routes, default root receiver, and continue behavior.
 
 ## Planned Features
 
@@ -203,11 +219,3 @@ The following features are planned for future releases:
 
 - GitHub Actions for automated tests/coverage/etc
 - Update readme with fresh screenshots
-
-## About This Project
-
-Built with Claude (claude-sonnet-4.5). See [agents.md](agents.md) for development details and AI assistance information.
-
-- Claude Sonnet 4.5 (github-copilot/claude-sonnet-4.5)
-- Skills Used: frontend-design, golang-pro
-- Technologies: Go, HTMX

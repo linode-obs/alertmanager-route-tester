@@ -5,6 +5,7 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"math/rand"
@@ -12,12 +13,19 @@ import (
 	"net/http"
 	"os"
 	"regexp"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
+	"unicode"
+	"unicode/utf8"
 
 	"gopkg.in/yaml.v3"
 )
+
+const maxAlertmanagerResponseBodyBytes int64 = 10 << 20
+
+var errResponseBodyTooLarge = errors.New("response body exceeds limit")
 
 type Client struct {
 	baseURL          string
@@ -26,11 +34,12 @@ type Client struct {
 	retryBackoff     time.Duration
 
 	// Config cache
-	cacheMu          sync.RWMutex
-	cachedConfig     *Config
-	cacheTimestamp   time.Time
-	cacheGeneration  uint64
-	configFetchMutex sync.Mutex
+	cacheMu              sync.RWMutex
+	cachedConfig         *Config
+	cacheTimestamp       time.Time
+	cacheGeneration      uint64
+	configFetchOnce      sync.Once
+	configFetchSemaphore chan struct{}
 }
 
 type StatusResponse struct {
@@ -196,11 +205,15 @@ func (c *Client) BaseURL() string {
 }
 
 func (c *Client) CheckConnection() error {
+	return c.CheckConnectionContext(context.Background())
+}
+
+func (c *Client) CheckConnectionContext(ctx context.Context) error {
 	var status StatusResponse
 	var lastErr error
 
 	for attempt := 1; attempt <= c.retryMaxAttempts; attempt++ {
-		retryable, err := c.fetchStatus(&status)
+		retryable, err := c.fetchStatus(ctx, &status)
 		if err == nil {
 			lastErr = nil
 			break
@@ -209,8 +222,8 @@ func (c *Client) CheckConnection() error {
 		if !retryable || attempt == c.retryMaxAttempts {
 			break
 		}
-		if c.retryBackoff > 0 {
-			time.Sleep(c.retryBackoff)
+		if err := waitForRetry(ctx, c.retryBackoff); err != nil {
+			return err
 		}
 	}
 
@@ -218,11 +231,19 @@ func (c *Client) CheckConnection() error {
 }
 
 func (c *Client) GetConfig() (*Config, error) {
-	config, _, err := c.GetConfigWithStatus()
+	return c.GetConfigContext(context.Background())
+}
+
+func (c *Client) GetConfigContext(ctx context.Context) (*Config, error) {
+	config, _, err := c.GetConfigWithStatusContext(ctx)
 	return config, err
 }
 
 func (c *Client) GetConfigWithStatus() (*Config, bool, error) {
+	return c.GetConfigWithStatusContext(context.Background())
+}
+
+func (c *Client) GetConfigWithStatusContext(ctx context.Context) (*Config, bool, error) {
 	c.cacheMu.RLock()
 	if c.cachedConfig != nil {
 		config := c.cachedConfig
@@ -231,8 +252,10 @@ func (c *Client) GetConfigWithStatus() (*Config, bool, error) {
 	}
 	c.cacheMu.RUnlock()
 
-	c.configFetchMutex.Lock()
-	defer c.configFetchMutex.Unlock()
+	if err := c.acquireConfigFetch(ctx); err != nil {
+		return nil, false, err
+	}
+	defer c.releaseConfigFetch()
 
 	// Another fetch may have populated the cache while this caller waited.
 	c.cacheMu.RLock()
@@ -244,7 +267,7 @@ func (c *Client) GetConfigWithStatus() (*Config, bool, error) {
 	generation := c.cacheGeneration
 	c.cacheMu.RUnlock()
 
-	config, err := c.fetchConfig()
+	config, err := c.fetchConfig(ctx)
 	if err != nil {
 		return nil, false, err
 	}
@@ -255,14 +278,20 @@ func (c *Client) GetConfigWithStatus() (*Config, bool, error) {
 // RefreshConfig fetches a fresh configuration and replaces the cached value
 // only after the fetch and parse succeed.
 func (c *Client) RefreshConfig() (*Config, error) {
-	c.configFetchMutex.Lock()
-	defer c.configFetchMutex.Unlock()
+	return c.RefreshConfigContext(context.Background())
+}
+
+func (c *Client) RefreshConfigContext(ctx context.Context) (*Config, error) {
+	if err := c.acquireConfigFetch(ctx); err != nil {
+		return nil, err
+	}
+	defer c.releaseConfigFetch()
 
 	c.cacheMu.RLock()
 	generation := c.cacheGeneration
 	c.cacheMu.RUnlock()
 
-	config, err := c.fetchConfig()
+	config, err := c.fetchConfig(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -270,12 +299,29 @@ func (c *Client) RefreshConfig() (*Config, error) {
 	return config, nil
 }
 
-func (c *Client) fetchConfig() (*Config, error) {
+func (c *Client) acquireConfigFetch(ctx context.Context) error {
+	c.configFetchOnce.Do(func() {
+		c.configFetchSemaphore = make(chan struct{}, 1)
+	})
+
+	select {
+	case c.configFetchSemaphore <- struct{}{}:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+func (c *Client) releaseConfigFetch() {
+	<-c.configFetchSemaphore
+}
+
+func (c *Client) fetchConfig(ctx context.Context) (*Config, error) {
 	var status StatusResponse
 	var lastErr error
 
 	for attempt := 1; attempt <= c.retryMaxAttempts; attempt++ {
-		retryable, err := c.fetchStatus(&status)
+		retryable, err := c.fetchStatus(ctx, &status)
 		if err == nil {
 			lastErr = nil
 			break
@@ -284,8 +330,8 @@ func (c *Client) fetchConfig() (*Config, error) {
 		if !retryable || attempt == c.retryMaxAttempts {
 			break
 		}
-		if c.retryBackoff > 0 {
-			time.Sleep(c.retryBackoff)
+		if err := waitForRetry(ctx, c.retryBackoff); err != nil {
+			return nil, err
 		}
 	}
 	if lastErr != nil {
@@ -302,6 +348,26 @@ func (c *Client) fetchConfig() (*Config, error) {
 	}
 
 	return &config, nil
+}
+
+func waitForRetry(ctx context.Context, delay time.Duration) error {
+	if delay <= 0 {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		default:
+			return nil
+		}
+	}
+
+	timer := time.NewTimer(delay)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-timer.C:
+		return nil
+	}
 }
 
 func (c *Client) publishConfig(config *Config, generation uint64) {
@@ -332,8 +398,8 @@ func (c *Client) ConfigCachedAt() time.Time {
 	return c.cacheTimestamp
 }
 
-func (c *Client) fetchStatus(status *StatusResponse) (bool, error) {
-	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet, c.baseURL+"/api/v2/status", nil)
+func (c *Client) fetchStatus(ctx context.Context, status *StatusResponse) (bool, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.baseURL+"/api/v2/status", nil)
 	if err != nil {
 		return true, fmt.Errorf("failed to create status request: %w", err)
 	}
@@ -345,17 +411,32 @@ func (c *Client) fetchStatus(status *StatusResponse) (bool, error) {
 		_ = resp.Body.Close()
 	}()
 
+	body, err := readResponseBody(resp.Body)
+	if err != nil {
+		return !errors.Is(err, errResponseBodyTooLarge), fmt.Errorf("failed to read response body: %w", err)
+	}
+
 	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
 		retryable := resp.StatusCode == http.StatusTooManyRequests || resp.StatusCode >= http.StatusInternalServerError
 		return retryable, fmt.Errorf("unexpected status code %d: %s", resp.StatusCode, string(body))
 	}
 
-	if err := json.NewDecoder(resp.Body).Decode(status); err != nil {
+	if err := json.Unmarshal(body, status); err != nil {
 		return true, fmt.Errorf("failed to decode response: %w", err)
 	}
 
 	return false, nil
+}
+
+func readResponseBody(reader io.Reader) ([]byte, error) {
+	body, err := io.ReadAll(io.LimitReader(reader, maxAlertmanagerResponseBodyBytes+1))
+	if err != nil {
+		return nil, err
+	}
+	if int64(len(body)) > maxAlertmanagerResponseBodyBytes {
+		return nil, fmt.Errorf("%w of %d bytes", errResponseBodyTooLarge, maxAlertmanagerResponseBodyBytes)
+	}
+	return body, nil
 }
 
 // extractRawReceiverConfigs extracts the YAML for each receiver from the
@@ -548,11 +629,7 @@ func matchesRoute(labels map[string]string, route *Route) bool {
 	}
 
 	for key, pattern := range route.MatchRE {
-		labelValue, ok := labels[key]
-		if !ok {
-			return false
-		}
-		matched, err := regexp.MatchString(pattern, labelValue)
+		matched, err := matchesRegex(pattern, labels[key])
 		if err != nil || !matched {
 			return false
 		}
@@ -579,50 +656,155 @@ func matchesMatcher(labels map[string]string, matcher string) bool {
 		return false
 	}
 
-	value, hasLabel := labels[parsed.Label]
+	value := labels[parsed.Label]
 
 	switch parsed.Operator {
 	case "=":
-		return hasLabel && value == parsed.Value
+		return value == parsed.Value
 	case "!=":
-		return !hasLabel || value != parsed.Value
+		return value != parsed.Value
 	case "=~":
-		if !hasLabel {
-			return false
-		}
-		matched, err := regexp.MatchString(parsed.Value, value)
+		matched, err := matchesRegex(parsed.Value, value)
 		return err == nil && matched
 	case "!~":
-		if !hasLabel {
-			return true
-		}
-		matched, err := regexp.MatchString(parsed.Value, value)
+		matched, err := matchesRegex(parsed.Value, value)
 		return err == nil && !matched
 	default:
 		return false
 	}
 }
 
-var matcherPattern = regexp.MustCompile(`^\s*([^=!~\s]+)\s*(=~|!~|=|!=)\s*(.+?)\s*$`)
+func matchesRegex(pattern, value string) (bool, error) {
+	return regexp.MatchString("^(?:"+pattern+")$", value)
+}
 
 func parseMatcher(input string) (parsedMatcher, bool) {
-	matches := matcherPattern.FindStringSubmatch(input)
-	if len(matches) != 4 {
+	input = strings.TrimSpace(input)
+	labelIsQuoted := strings.HasPrefix(input, `"`)
+	label, rest, ok := parseMatcherToken(input, unquoteStrictMatcherToken)
+	if !ok {
 		return parsedMatcher{}, false
 	}
 
-	value := strings.TrimSpace(matches[3])
-	if len(value) >= 2 {
-		if (value[0] == '"' && value[len(value)-1] == '"') || (value[0] == '\'' && value[len(value)-1] == '\'') {
-			value = value[1 : len(value)-1]
+	rest = strings.TrimLeftFunc(rest, unicode.IsSpace)
+	operator := ""
+	for _, candidate := range []string{"=~", "!~", "!=", "="} {
+		if strings.HasPrefix(rest, candidate) {
+			operator = candidate
+			rest = rest[len(candidate):]
+			break
+		}
+	}
+	if operator == "" {
+		return parsedMatcher{}, false
+	}
+
+	value := strings.TrimSpace(rest)
+	if strings.HasPrefix(value, `"`) {
+		unquote := unquoteMatcherValue
+		if labelIsQuoted {
+			unquote = unquoteStrictMatcherToken
+		}
+		unquoted, remaining, ok := parseMatcherToken(value, unquote)
+		if !ok || strings.TrimSpace(remaining) != "" {
+			return parsedMatcher{}, false
+		}
+		value = unquoted
+	} else if len(value) >= 2 && value[0] == '\'' && value[len(value)-1] == '\'' {
+		value = value[1 : len(value)-1]
+	}
+
+	return parsedMatcher{Label: label, Operator: operator, Value: value}, true
+}
+
+func parseMatcherToken(input string, unquote func(string) (string, error)) (string, string, bool) {
+	if strings.HasPrefix(input, `"`) {
+		return parseQuotedMatcherToken(input, unquote)
+	}
+
+	end := 0
+	for end < len(input) {
+		r, size := utf8.DecodeRuneInString(input[end:])
+		if unicode.IsSpace(r) || strings.ContainsRune("=!~", r) {
+			break
+		}
+		end += size
+	}
+	if end == 0 || !utf8.ValidString(input[:end]) {
+		return "", input, false
+	}
+	return input[:end], input[end:], true
+}
+
+func parseQuotedMatcherToken(input string, unquote func(string) (string, error)) (string, string, bool) {
+	escaped := false
+	for i := 1; i < len(input); i++ {
+		switch input[i] {
+		case '\\':
+			escaped = !escaped
+		case '"':
+			if escaped {
+				escaped = false
+				continue
+			}
+			value, err := unquote(input[:i+1])
+			return value, input[i+1:], err == nil
+		default:
+			escaped = false
+		}
+	}
+	return "", input, false
+}
+
+func unquoteStrictMatcherToken(value string) (string, error) {
+	unquoted, err := strconv.Unquote(value)
+	if err != nil {
+		return "", err
+	}
+	if !utf8.ValidString(unquoted) {
+		return "", fmt.Errorf("matcher token is not valid UTF-8")
+	}
+	return unquoted, nil
+}
+
+func unquoteMatcherValue(value string) (string, error) {
+	rawValue := value[1 : len(value)-1]
+	if !utf8.ValidString(rawValue) {
+		return "", fmt.Errorf("matcher value is not valid UTF-8")
+	}
+
+	var builder strings.Builder
+	escaped := false
+	for i, r := range rawValue {
+		if escaped {
+			escaped = false
+			switch r {
+			case 'n':
+				builder.WriteByte('\n')
+			case '\\', '"':
+				builder.WriteRune(r)
+			default:
+				builder.WriteByte('\\')
+				builder.WriteRune(r)
+			}
+			continue
+		}
+
+		switch r {
+		case '\\':
+			if i < len(rawValue)-1 {
+				escaped = true
+				continue
+			}
+			builder.WriteByte('\\')
+		case '"':
+			return "", fmt.Errorf("matcher value contains unescaped double quote")
+		default:
+			builder.WriteRune(r)
 		}
 	}
 
-	return parsedMatcher{
-		Label:    matches[1],
-		Operator: matches[2],
-		Value:    value,
-	}, true
+	return builder.String(), nil
 }
 
 type LabelSuggestion struct {

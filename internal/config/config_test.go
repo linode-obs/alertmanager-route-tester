@@ -32,6 +32,30 @@ func TestLoadNamedAlertmanagers(t *testing.T) {
 	}
 }
 
+func TestLoadForCLIAllowsLabelsFromCommandLine(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.yaml")
+	contents := []byte(`alertmanager-route-tester:
+  cli-test-mode:
+    enabled: true
+    labels: {}
+alertmanagers:
+  production:
+    url: http://production.example.test
+`)
+	if err := os.WriteFile(path, contents, 0600); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, err := LoadForCLI(path)
+	if err != nil {
+		t.Fatalf("LoadForCLI() error = %v", err)
+	}
+	if cfg.App.CLITestMode.Labels == nil {
+		t.Fatal("LoadForCLI() labels = nil, want initialized map")
+	}
+}
+
 func TestLoadRejectsSingularAlertmanagerConfiguration(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "config.yaml")
@@ -44,6 +68,18 @@ func TestLoadRejectsSingularAlertmanagerConfiguration(t *testing.T) {
 
 	if _, err := Load(path); err == nil {
 		t.Fatal("Load() error = nil, want singular configuration error")
+	}
+}
+
+func TestServerDefaultsBindToLoopback(t *testing.T) {
+	cfg := &Config{Alertmanagers: map[string]AlertmanagerConfig{
+		"test": {URL: "http://localhost:9093"},
+	}}
+
+	applyDefaults(cfg)
+
+	if got := cfg.App.Server.Listen; got != "127.0.0.1:8080" {
+		t.Fatalf("Listen = %q, want 127.0.0.1:8080", got)
 	}
 }
 

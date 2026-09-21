@@ -9,6 +9,7 @@ import (
 	"net/url"
 	"strings"
 	"testing"
+	"testing/fstest"
 	"time"
 
 	"github.com/wbollock/alertmanager-route-tester/internal/alertmanager"
@@ -46,6 +47,18 @@ type resultData struct {
 	Error                    string
 }
 
+func TestNewWithClientsFromFSLoadsTemplatesWithoutWorkingDirectory(t *testing.T) {
+	templateFS := fstest.MapFS{
+		"templates/index.html":  &fstest.MapFile{Data: []byte("{{define \"index.html\"}}index{{end}}")},
+		"templates/result.html": &fstest.MapFile{Data: []byte("{{define \"result.html\"}}result{{end}}")},
+	}
+
+	h := NewWithClientsFromFS(nil, nil, "", templateFS)
+	if h == nil || h.tmpl == nil {
+		t.Fatal("NewWithClientsFromFS() returned a handler without templates")
+	}
+}
+
 func TestIndexTemplateLabelsCachedConfig(t *testing.T) {
 	tmpl := loadTemplates(t)
 	data := struct {
@@ -76,6 +89,57 @@ func TestIndexTemplateLabelsCachedConfig(t *testing.T) {
 	}
 	if !strings.Contains(output, "config-reload-error") || !strings.Contains(output, "Reload failed. Using cached configuration.") {
 		t.Fatal("reload error feedback is missing")
+	}
+}
+
+func TestHandleTestRejectsOversizedJSON(t *testing.T) {
+	body := []byte(`{"labels":{"label":"` + strings.Repeat("x", int(maxTestRequestBodyBytes)) + `"}}`)
+	request := httptest.NewRequest(http.MethodPost, "/test", bytes.NewReader(body))
+	request.Header.Set("Content-Type", "application/json")
+	response := httptest.NewRecorder()
+
+	(&Handler{}).HandleTest(response, request)
+
+	if response.Code != http.StatusRequestEntityTooLarge {
+		t.Fatalf("status = %d, want %d", response.Code, http.StatusRequestEntityTooLarge)
+	}
+}
+
+func TestHandleTestRejectsOversizedJSONAfterFirstValue(t *testing.T) {
+	body := []byte(`{"labels":{}}` + strings.Repeat(" ", int(maxTestRequestBodyBytes)))
+	request := httptest.NewRequest(http.MethodPost, "/test", bytes.NewReader(body))
+	request.Header.Set("Content-Type", "application/json")
+	response := httptest.NewRecorder()
+
+	(&Handler{}).HandleTest(response, request)
+
+	if response.Code != http.StatusRequestEntityTooLarge {
+		t.Fatalf("status = %d, want %d", response.Code, http.StatusRequestEntityTooLarge)
+	}
+}
+
+func TestHandleTestRejectsTrailingJSONValue(t *testing.T) {
+	request := httptest.NewRequest(http.MethodPost, "/test", strings.NewReader(`{"labels":{}} {}`))
+	request.Header.Set("Content-Type", "application/json")
+	response := httptest.NewRecorder()
+
+	(&Handler{}).HandleTest(response, request)
+
+	if response.Code != http.StatusBadRequest || !strings.Contains(response.Body.String(), "Invalid JSON") {
+		t.Fatalf("response = %d %q, want invalid JSON response", response.Code, response.Body.String())
+	}
+}
+
+func TestHandleTestRejectsOversizedForm(t *testing.T) {
+	body := strings.Repeat("label=x&", int(maxTestRequestBodyBytes/7)+1)
+	request := httptest.NewRequest(http.MethodPost, "/test", strings.NewReader(body))
+	request.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	response := httptest.NewRecorder()
+
+	(&Handler{}).HandleTest(response, request)
+
+	if response.Code != http.StatusRequestEntityTooLarge {
+		t.Fatalf("status = %d, want %d", response.Code, http.StatusRequestEntityTooLarge)
 	}
 }
 
@@ -652,14 +716,16 @@ func TestResultTemplateRendersDefaultRoot(t *testing.T) {
 func TestIndexTemplateIncludesShareLinkControls(t *testing.T) {
 	tmpl := loadTemplates(t)
 	data := struct {
-		LabelSuggestions []alertmanager.LabelSuggestion
-		SampleAlerts     []alertmanager.SampleAlert
-		Config           *alertmanager.Config
-		AlertmanagerURL  string
-		ConnectionStatus bool
-		ConnectionError  string
-		ConfigCachedAt   time.Time
-		ConfigWasCached  bool
+		LabelSuggestions     []alertmanager.LabelSuggestion
+		SampleAlerts         []alertmanager.SampleAlert
+		Config               *alertmanager.Config
+		AlertmanagerURL      string
+		AlertmanagerNames    []string
+		SelectedAlertmanager string
+		ConnectionStatus     bool
+		ConnectionError      string
+		ConfigCachedAt       time.Time
+		ConfigWasCached      bool
 	}{}
 	var buf bytes.Buffer
 	if err := tmpl.ExecuteTemplate(&buf, "index.html", data); err != nil {
@@ -696,6 +762,7 @@ func TestIndexTemplateIncludesRedesignControls(t *testing.T) {
 
 	output := buf.String()
 	for _, expected := range []string{
+		`src="/static/htmx.min.js"`,
 		`class="app-headerbar"`,
 		`class="theme-switch"`,
 		`aria-label="Test the alert route"`,

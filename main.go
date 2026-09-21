@@ -1,15 +1,23 @@
 package main
 
 import (
+	"context"
+	"embed"
+	"encoding/json"
+	"errors"
 	"flag"
 	"fmt"
 	"log/slog"
+	"net"
 	"net/http"
 	"os"
+	"os/signal"
 	"runtime"
 	"runtime/debug"
 	"sort"
 	"strings"
+	"syscall"
+	"time"
 
 	"github.com/wbollock/alertmanager-route-tester/internal/alertmanager"
 	"github.com/wbollock/alertmanager-route-tester/internal/cli"
@@ -17,11 +25,20 @@ import (
 	"github.com/wbollock/alertmanager-route-tester/internal/handler"
 )
 
+//go:embed templates/*.html static/*
+var assets embed.FS
+
 func main() {
 	configPath := flag.String("config", "config.yaml", "Path to configuration file")
+	alertmanagerName := flag.String("alertmanager", "", "Alertmanager instance name for CLI test mode")
+	labelsJSON := flag.String("labels-json", "", "Alert labels as a JSON object for CLI test mode")
 	flag.Parse()
 
-	cfg, err := appconfig.Load(*configPath)
+	loadConfig := appconfig.Load
+	if *labelsJSON != "" {
+		loadConfig = appconfig.LoadForCLI
+	}
+	cfg, err := loadConfig(*configPath)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err.Error())
 		os.Exit(1)
@@ -32,7 +49,13 @@ func main() {
 		fmt.Fprintln(os.Stderr, err.Error())
 		os.Exit(1)
 	}
-	defaultName := names[0]
+	cliMode := cfg.App.CLITestMode.Enabled || *labelsJSON != ""
+	requestedAlertmanager := alertmanagerRequest(cliMode, *alertmanagerName)
+	defaultName, err := selectAlertmanager(names, requestedAlertmanager)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err.Error())
+		os.Exit(1)
+	}
 	client := clients[defaultName]
 
 	version, revision, modified, goVersion := buildInfo()
@@ -49,8 +72,20 @@ func main() {
 	)
 
 	// CLI test mode
-	if cfg.App.CLITestMode.Enabled {
-		result, _ := cli.TestRouting(client, cfg.App.CLITestMode.Labels)
+	if cliMode {
+		labels := cfg.App.CLITestMode.Labels
+		if *labelsJSON != "" {
+			labels, err = parseLabelsJSON(*labelsJSON)
+			if err != nil {
+				fmt.Fprintln(os.Stderr, err.Error())
+				os.Exit(1)
+			}
+		}
+		if len(labels) == 0 {
+			fmt.Fprintln(os.Stderr, "at least one CLI label is required in CLI test mode")
+			os.Exit(1)
+		}
+		result, _ := cli.TestRouting(client, labels)
 
 		format := cli.OutputFormat(strings.ToLower(cfg.App.CLITestMode.Format))
 		if err := cli.PrintResult(result, format); err != nil {
@@ -68,9 +103,9 @@ func main() {
 	}
 
 	// Web server mode
-	h := handler.NewWithClients(clients, names, defaultName)
+	h := handler.NewWithClientsFromFS(clients, names, defaultName, assets)
 
-	http.Handle("/static/", http.StripPrefix("/static/", http.FileServer(http.Dir("static"))))
+	http.Handle("/static/", http.FileServer(http.FS(assets)))
 	http.HandleFunc("/", h.HandleIndex)
 	http.HandleFunc("/test", h.HandleTest)
 	http.HandleFunc("/config/labels", h.HandleConfigLabels)
@@ -86,9 +121,83 @@ func main() {
 		WriteTimeout:      cfg.App.Server.WriteTimeout.Duration,
 		IdleTimeout:       cfg.App.Server.IdleTimeout.Duration,
 	}
-	if err := server.ListenAndServe(); err != nil {
+	signals := make(chan os.Signal, 1)
+	signal.Notify(signals, os.Interrupt, syscall.SIGTERM)
+	defer signal.Stop(signals)
+
+	listenerConfig := net.ListenConfig{}
+	listener, err := listenerConfig.Listen(context.Background(), "tcp", server.Addr)
+	if err != nil {
+		slog.Error("server failed to start", "error", err)
+		os.Exit(1)
+	}
+	if err := serve(server, listener, signals); err != nil {
 		slog.Error("server stopped", "error", err)
 		os.Exit(1)
+	}
+}
+
+func alertmanagerRequest(cliMode bool, requested string) string {
+	if cliMode {
+		return requested
+	}
+	return ""
+}
+
+func selectAlertmanager(names []string, requested string) (string, error) {
+	if requested == "" {
+		return names[0], nil
+	}
+	for _, name := range names {
+		if name == requested {
+			return name, nil
+		}
+	}
+	return "", fmt.Errorf("unknown Alertmanager %q", requested)
+}
+
+func parseLabelsJSON(input string) (map[string]string, error) {
+	var values map[string]*string
+	if err := json.Unmarshal([]byte(input), &values); err != nil {
+		return nil, fmt.Errorf("invalid labels JSON: %w", err)
+	}
+	if values == nil {
+		return nil, fmt.Errorf("invalid labels JSON: expected an object")
+	}
+
+	labels := make(map[string]string, len(values))
+	for name, value := range values {
+		if value == nil {
+			return nil, fmt.Errorf("invalid labels JSON: label %q must be a string", name)
+		}
+		labels[name] = *value
+	}
+	return labels, nil
+}
+
+func serve(server *http.Server, listener net.Listener, signals <-chan os.Signal) error {
+	serverContext, cancelServerContext := context.WithCancel(context.Background())
+	defer cancelServerContext()
+	server.BaseContext = func(net.Listener) context.Context {
+		return serverContext
+	}
+
+	serveErr := make(chan error, 1)
+	go func() {
+		serveErr <- server.Serve(listener)
+	}()
+
+	select {
+	case err := <-serveErr:
+		if errors.Is(err, http.ErrServerClosed) {
+			return nil
+		}
+		return err
+	case <-signals:
+		cancelServerContext()
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		return server.Shutdown(ctx)
 	}
 }
 

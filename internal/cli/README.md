@@ -35,6 +35,35 @@ alertmanager-route-tester:
       severity: "critical"
 ```
 
+## YAML Test Suite
+
+CLI mode can run named routing cases from the application YAML file:
+
+```yaml
+alertmanager-route-tester:
+  server:
+    enabled: false
+  cli-test-mode:
+    enabled: true
+    format: simple
+    suite:
+      - name: critical alert
+        labels:
+          alertname: HighErrorRate
+          severity: critical
+        expected_receivers:
+          - pagerduty-critical
+      - name: monitoring warning
+        labels:
+          severity: warning
+          team: monitoring
+        expected_receivers:
+          - monitoring-team
+          - slack-warnings
+```
+
+Run the suite with `go run . -config config.yaml`. The command prints each case result and exits nonzero if a case fails. Receiver order does not affect comparisons.
+
 ## Key Features
 
 1. Exact same logic - CLI mode uses identical routing logic as web UI

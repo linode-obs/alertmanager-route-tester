@@ -9,6 +9,53 @@ import (
 	"github.com/wbollock/alertmanager-route-tester/internal/alertmanager"
 )
 
+func TestPrintSuiteResultsSimpleIncludesEachCase(t *testing.T) {
+	output := captureSuiteOutput(t, []SuiteResult{
+		{Name: "critical", Passed: true, ExpectedReceivers: []string{"pagerduty-critical"}, ActualReceivers: []string{"pagerduty-critical"}},
+		{Name: "warning", ExpectedReceivers: []string{"slack-warnings"}, ActualReceivers: []string{"default"}},
+	}, OutputFormatSimple)
+
+	for _, expected := range []string{
+		"PASS critical",
+		"FAIL warning",
+		"expected=[slack-warnings] actual=[default]",
+	} {
+		if !strings.Contains(output, expected) {
+			t.Errorf("suite output = %q, want %q", output, expected)
+		}
+	}
+}
+
+func TestPrintSuiteResultsJSONIncludesCaseStatus(t *testing.T) {
+	output := captureSuiteOutput(t, []SuiteResult{{Name: "critical", Passed: true}}, OutputFormatJSON)
+	if !strings.Contains(output, `"name": "critical"`) || !strings.Contains(output, `"passed": true`) {
+		t.Fatalf("suite JSON output = %q, want case name and pass status", output)
+	}
+}
+
+func captureSuiteOutput(t *testing.T, results []SuiteResult, format OutputFormat) string {
+	t.Helper()
+	read, write, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("os.Pipe() error = %v", err)
+	}
+	originalStdout := os.Stdout
+	os.Stdout = write
+	defer func() { os.Stdout = originalStdout }()
+
+	if err := PrintSuiteResults(results, format); err != nil {
+		t.Fatalf("PrintSuiteResults() error = %v", err)
+	}
+	if err := write.Close(); err != nil {
+		t.Fatalf("write.Close() error = %v", err)
+	}
+	output, err := io.ReadAll(read)
+	if err != nil {
+		t.Fatalf("io.ReadAll() error = %v", err)
+	}
+	return string(output)
+}
+
 func TestPrintResultShowsGenericSubrouteMarkerWithoutAncestry(t *testing.T) {
 	result := &TestResult{
 		Receiver: "regional",

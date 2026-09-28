@@ -7,6 +7,40 @@ import (
 	"time"
 )
 
+func TestLoadAllowsCLITestSuiteWithoutSingleLabels(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.yaml")
+	contents := []byte(`alertmanager-route-tester:
+  server:
+    enabled: false
+  cli-test-mode:
+    enabled: true
+    suite:
+      - name: critical alert
+        labels:
+          severity: critical
+        expected_receivers:
+          - pagerduty-critical
+alertmanagers:
+  production:
+    url: http://production.example.test
+`)
+	if err := os.WriteFile(path, contents, 0600); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if got := cfg.App.CLITestMode.Suite; len(got) != 1 || got[0].Name != "critical alert" {
+		t.Fatalf("CLI suite = %#v, want one named case", got)
+	}
+	if got := cfg.App.CLITestMode.Suite[0].ExpectedReceivers; len(got) != 1 || got[0] != "pagerduty-critical" {
+		t.Fatalf("expected receivers = %v, want [pagerduty-critical]", got)
+	}
+}
+
 func TestLoadNamedAlertmanagers(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "config.yaml")

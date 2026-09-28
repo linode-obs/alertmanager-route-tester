@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"strings"
 	"time"
 
 	"gopkg.in/yaml.v3"
@@ -91,6 +92,13 @@ type TestConfig struct {
 	Enabled bool              `yaml:"enabled"`
 	Labels  map[string]string `yaml:"labels"`
 	Format  string            `yaml:"format"`
+	Suite   []CLITestCase     `yaml:"suite"`
+}
+
+type CLITestCase struct {
+	Name              string            `yaml:"name"`
+	Labels            map[string]string `yaml:"labels"`
+	ExpectedReceivers []string          `yaml:"expected_receivers"`
 }
 
 func Load(path string) (*Config, error) {
@@ -257,8 +265,39 @@ func validateWithOptions(cfg *Config, allowEmptyCLILabels bool) error {
 			return fmt.Errorf("alertmanager-route-tester.server.%s must be >= 0", name)
 		}
 	}
-	if cfg.App.CLITestMode.Enabled && !allowEmptyCLILabels && len(cfg.App.CLITestMode.Labels) == 0 {
-		return errors.New("alertmanager-route-tester.cli-test-mode.labels is required when cli-test-mode.enabled is true")
+	if len(cfg.App.CLITestMode.Suite) > 0 {
+		if !cfg.App.CLITestMode.Enabled {
+			return errors.New("alertmanager-route-tester.cli-test-mode.enabled must be true when suite is configured")
+		}
+		if len(cfg.App.CLITestMode.Labels) > 0 {
+			return errors.New("alertmanager-route-tester.cli-test-mode.labels cannot be combined with suite")
+		}
+		caseNames := make(map[string]bool, len(cfg.App.CLITestMode.Suite))
+		for i, testCase := range cfg.App.CLITestMode.Suite {
+			name := strings.TrimSpace(testCase.Name)
+			if name == "" {
+				return fmt.Errorf("alertmanager-route-tester.cli-test-mode.suite[%d].name is required", i)
+			}
+			if caseNames[name] {
+				return fmt.Errorf("alertmanager-route-tester.cli-test-mode.suite contains duplicate case name %q", name)
+			}
+			caseNames[name] = true
+			if len(testCase.ExpectedReceivers) == 0 {
+				return fmt.Errorf("alertmanager-route-tester.cli-test-mode.suite[%d].expected_receivers is required", i)
+			}
+			receivers := make(map[string]bool, len(testCase.ExpectedReceivers))
+			for _, receiver := range testCase.ExpectedReceivers {
+				if strings.TrimSpace(receiver) == "" {
+					return fmt.Errorf("alertmanager-route-tester.cli-test-mode.suite[%d].expected_receivers contains an empty receiver", i)
+				}
+				if receivers[receiver] {
+					return fmt.Errorf("alertmanager-route-tester.cli-test-mode.suite[%d].expected_receivers contains duplicate receiver %q", i, receiver)
+				}
+				receivers[receiver] = true
+			}
+		}
+	} else if cfg.App.CLITestMode.Enabled && !allowEmptyCLILabels && len(cfg.App.CLITestMode.Labels) == 0 {
+		return errors.New("alertmanager-route-tester.cli-test-mode.labels or suite is required when cli-test-mode.enabled is true")
 	}
 	return nil
 }

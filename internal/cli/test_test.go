@@ -321,3 +321,52 @@ func BenchmarkRouting(b *testing.B) {
 		}
 	}
 }
+
+func TestRunSuiteComparesReceiverSetsWithoutOrder(t *testing.T) {
+	skipIntegration(t)
+	client := alertmanager.NewClient(alertmanagerURL(), false)
+
+	results := cli.RunSuite(client, []cli.SuiteCase{
+		{
+			Name: "continued receivers",
+			Labels: map[string]string{
+				"alertname": "MonitoringWarning",
+				"severity":  "warning",
+				"team":      "monitoring",
+			},
+			ExpectedReceivers: []string{"monitoring-team", "slack-warnings"},
+		},
+		{
+			Name:              "root fallback",
+			Labels:            map[string]string{"alertname": "Unmatched"},
+			ExpectedReceivers: []string{"default"},
+		},
+	})
+
+	if len(results) != 2 {
+		t.Fatalf("suite results = %d, want 2", len(results))
+	}
+	for _, result := range results {
+		if !result.Passed {
+			t.Errorf("suite case %q failed: expected %v, got %v (%s)", result.Name, result.ExpectedReceivers, result.ActualReceivers, result.Error)
+		}
+	}
+}
+
+func TestRunSuiteReportsReceiverMismatch(t *testing.T) {
+	skipIntegration(t)
+	client := alertmanager.NewClient(alertmanagerURL(), false)
+
+	results := cli.RunSuite(client, []cli.SuiteCase{{
+		Name:              "wrong receiver",
+		Labels:            map[string]string{"severity": "critical"},
+		ExpectedReceivers: []string{"not-the-receiver"},
+	}})
+
+	if len(results) != 1 || results[0].Passed {
+		t.Fatalf("suite results = %#v, want one failed case", results)
+	}
+	if len(results[0].ActualReceivers) != 1 || results[0].ActualReceivers[0] != "pagerduty-critical" {
+		t.Fatalf("actual receivers = %v, want [pagerduty-critical]", results[0].ActualReceivers)
+	}
+}

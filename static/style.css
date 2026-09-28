@@ -1255,14 +1255,6 @@ code {
     font-family: var(--font-mono);
 }
 
-.trace-final-pill {
-    border: 1px solid var(--success-color);
-    color: var(--success-color);
-    padding: 2px 8px;
-    border-radius: 999px;
-    font-size: 0.75em;
-}
-
 /* Subroute styling */
 .trace-row.trace-subroute .trace-meta {
     border-left: 3px solid var(--accent-color, #6b7efa);
@@ -1285,18 +1277,6 @@ code {
 .trace-subroute-badge {
     border: 1px solid var(--accent-color, #6b7efa);
     color: var(--accent-color, #6b7efa);
-    padding: 2px 8px;
-    border-radius: 999px;
-    font-size: 0.72em;
-}
-
-.trace-only {
-    opacity: 0.65;
-}
-
-.trace-trace-only-badge {
-    border: 1px dashed var(--text-muted, #8b95a1);
-    color: var(--text-muted, #8b95a1);
     padding: 2px 8px;
     border-radius: 999px;
     font-size: 0.72em;
@@ -2252,8 +2232,7 @@ body {
 .trace-receiver,
 .trace-subroute-badge,
 .trace-type,
-.trace-continue,
-.trace-final-pill {
+.trace-continue {
     flex: 0 0 auto;
 }
 
@@ -2273,8 +2252,7 @@ body {
 
 .trace-subroute-badge,
 .trace-type,
-.trace-continue,
-.trace-final-pill {
+.trace-continue {
     white-space: nowrap;
 }
 
@@ -2290,8 +2268,7 @@ body {
 
     .trace-subroute-badge,
     .trace-type,
-    .trace-continue,
-    .trace-final-pill {
+    .trace-continue {
         order: 4;
     }
 }
@@ -3125,32 +3102,6 @@ body {
     background: var(--success-color);
 }
 
-.trace-only {
-    opacity: 1;
-}
-
-.trace-trace-only-badge {
-    border-color: var(--text-muted);
-    color: var(--text-muted);
-}
-
-.trace-delivery-pill,
-.trace-final-pill {
-    padding: 2px 8px;
-    border: 1px solid var(--success-color);
-    border-radius: 999px;
-    color: var(--success-color);
-    font-size: 0.72em;
-    font-weight: 700;
-    letter-spacing: 0.04em;
-    text-transform: uppercase;
-}
-
-.trace-final-pill {
-    border-color: var(--accent-color);
-    color: var(--accent-color);
-}
-
 @media (max-width: 860px) {
     .workspace:has(.result-panel) .workspace-result-pane {
         order: -1;
@@ -3333,6 +3284,20 @@ html[data-theme="light"] .app-headerbar .docs-link a {
 html[data-theme="light"] .app-headerbar .docs-link a:hover,
 html[data-theme="light"] .app-headerbar .docs-link a:focus-visible {
     color: #ffffff;
+}
+
+html[data-theme="light"] .sample-alert-card:hover,
+html[data-theme="light"] .sample-alert-card:focus-visible {
+    background: var(--panel-alt);
+    border-color: var(--accent-color);
+}
+
+html[data-theme="light"] .btn-secondary:hover,
+html[data-theme="light"] .btn-secondary:focus-visible,
+html[data-theme="light"] .input-mode-toggle button:hover:not(.active) {
+    background: var(--panel-bg);
+    border-color: var(--accent-color);
+    color: var(--text-color);
 }
 
 html[data-theme="light"] .connection-success .am-link {
@@ -3522,23 +3487,6 @@ html[data-theme="light"] .trace-row {
     border-left-color: var(--success-color);
 }
 
-.trace-delivery-pill,
-.trace-final-pill {
-    padding: 2px 7px;
-    border: 1px solid var(--success-color);
-    border-radius: 999px;
-    color: var(--success-color);
-    font-size: 0.65rem;
-    font-weight: 700;
-    letter-spacing: 0.04em;
-    text-transform: uppercase;
-}
-
-.trace-final-pill {
-    border-color: var(--accent-color);
-    color: var(--accent-color);
-}
-
 html[data-theme="light"] .trace-row.trace-final .trace-meta {
     border-left-color: var(--success-color);
 }
@@ -3580,13 +3528,14 @@ html[data-theme="light"] .trace-row.trace-final .trace-meta {
     padding: 7px 9px;
 }
 
-.trace-trace-only-badge {
+.trace-match-status {
     border: 0;
     color: var(--success-color);
     font-size: 0.64rem;
     font-weight: 700;
     letter-spacing: 0.04em;
     text-transform: uppercase;
+    white-space: nowrap;
 }
 
 .trace-type {

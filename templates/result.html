@@ -8,7 +8,7 @@
     <div class="result-surface result-success {{if .DefaultRoot}}result-default{{end}}">
         <div class="result-heading">
             <h2>Route result</h2>
-            <span class="help-tip" role="img" data-tooltip="Alertmanager sends the alert to this receiver." aria-label="Route result help" tabindex="0">?</span>
+            <span class="help-tip" role="img" data-tooltip="Alertmanager selects this receiver as the final routing result." aria-label="Route result help" tabindex="0">?</span>
         </div>
         <div class="result-meta">
             <span>ALERTMANAGER RESPONSE</span>
@@ -238,11 +238,11 @@ repeat_interval: {{.Route.RepeatInterval}}{{end}}</pre>
 
 {{define "route-ladder"}}
 <div class="route-ladder route-trace">
-    <h3>Route ladder <span class="help-tip" role="img" data-tooltip="This shows the route path and where each matching branch delivers." aria-label="Route ladder help" tabindex="0">?</span></h3>
+    <h3>Route ladder <span class="help-tip" role="img" data-tooltip="This shows the matching condition and receiver for each route." aria-label="Route ladder help" tabindex="0">?</span></h3>
     <p class="route-explanation">Alertmanager checks these rules in this order.</p>
     <div class="trace-timeline">
         {{range .RouteSteps}}
-        <div class="trace-row {{if .IsFinal}}trace-final{{end}} {{if .IsSubroute}}trace-subroute{{end}} {{if not .IsEffective}}trace-only{{end}}" style="--trace-depth: {{.Depth}};">
+        <div class="trace-row {{if .IsFinal}}trace-final{{end}} {{if .IsSubroute}}trace-subroute{{end}}" style="--trace-depth: {{.Depth}};">
             <div class="trace-bar">
                 <span class="trace-bar-fill"></span>
             </div>
@@ -250,7 +250,7 @@ repeat_interval: {{.Route.RepeatInterval}}{{end}}</pre>
                 <div class="trace-match">
                     {{if .Match}}
                     <div class="trace-block">
-                        <div class="trace-title">match</div>
+                        <div class="trace-title">Match conditions</div>
                         <div class="trace-content">
                             {{range $key, $value := .Match}}
                             <span class="trace-kv">{{$key}}={{$value}}</span>
@@ -260,7 +260,7 @@ repeat_interval: {{.Route.RepeatInterval}}{{end}}</pre>
                     {{end}}
                     {{if .MatchRE}}
                     <div class="trace-block">
-                        <div class="trace-title">match_re</div>
+                        <div class="trace-title">Regex conditions</div>
                         <div class="trace-content">
                             {{range $key, $value := .MatchRE}}
                             <span class="trace-kv">{{$key}}={{$value}}</span>
@@ -270,7 +270,7 @@ repeat_interval: {{.Route.RepeatInterval}}{{end}}</pre>
                     {{end}}
                     {{if .Matchers}}
                     <div class="trace-block">
-                        <div class="trace-title">matchers</div>
+                        <div class="trace-title">Match conditions</div>
                         <div class="trace-content">
                             {{range .Matchers}}
                             <span class="trace-kv">{{.}}</span>
@@ -285,9 +285,6 @@ repeat_interval: {{.Route.RepeatInterval}}{{end}}</pre>
                     {{if .IsSubroute}}
                     <span class="trace-subroute-badge help-tip" role="img" data-tooltip="This rule is inside the parent rule." aria-label="Nested subroute" tabindex="0">subroute (level {{.Depth}})</span>
                     {{end}}
-                    {{if not .IsEffective}}
-                    <span class="trace-trace-only-badge">MATCHED</span>
-                    {{end}}
                     {{if .TypeLabel}}
                     <!-- TODO: Replace emoji with actual receiver logos -->
                     <span class="trace-type">
@@ -298,9 +295,7 @@ repeat_interval: {{.Route.RepeatInterval}}{{end}}</pre>
                     {{if .Continue}}
                     <span class="trace-continue">continue</span>
                     {{end}}
-                    {{if .IsEffective}}
-                    <span class="trace-delivery-pill">DELIVERS</span>
-                    {{end}}
+                    <span class="trace-match-status">MATCHED</span>
                 </div>
             </div>
         </div>

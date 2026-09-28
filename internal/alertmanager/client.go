@@ -698,7 +698,9 @@ func GenerateSampleAlerts(config *Config) []SampleAlert {
 	candidates := make([]map[string]string, 0)
 	collectRouteExamples(tree.root, map[string]string{}, &candidates)
 
-	samples := make([]SampleAlert, 0, 3)
+	singleReceiverSamples := make([]SampleAlert, 0, 2)
+	var multipleReceiverSample SampleAlert
+	hasMultipleReceiverSample := false
 	seen := make(map[string]bool)
 	for _, labels := range candidates {
 		receiver, matched, err := client.FindMatchingRoute(labels, config)
@@ -710,15 +712,35 @@ func GenerateSampleAlerts(config *Config) []SampleAlert {
 			continue
 		}
 		seen[fingerprint] = true
-		if len(samples) == 2 {
-			break
-		}
 		receivers := effectiveReceivers(receiver, matched)
-		samples = append(samples, SampleAlert{
-			Name:        fmt.Sprintf("Matching alert %d", len(samples)+1),
+		sample := SampleAlert{
 			Description: "Routes to " + strings.Join(receivers, ", ") + ".",
 			Labels:      labels,
-		})
+		}
+		if len(receivers) > 1 {
+			if !hasMultipleReceiverSample {
+				sample.Name = "Multiple receivers"
+				sample.Description = fmt.Sprintf("Continue sends to %d receivers.", len(receivers))
+				multipleReceiverSample = sample
+				hasMultipleReceiverSample = true
+			}
+			continue
+		}
+		if len(singleReceiverSamples) < 2 {
+			sample.Name = fmt.Sprintf("Matching alert %d", len(singleReceiverSamples)+1)
+			singleReceiverSamples = append(singleReceiverSamples, sample)
+		}
+	}
+
+	samples := make([]SampleAlert, 0, 3)
+	if len(singleReceiverSamples) > 0 {
+		samples = append(samples, singleReceiverSamples[0])
+	}
+	if hasMultipleReceiverSample {
+		samples = append(samples, multipleReceiverSample)
+	}
+	if len(samples) < 2 && len(singleReceiverSamples) > 1 {
+		samples = append(samples, singleReceiverSamples[1])
 	}
 
 	labelKeys := ExtractLabelKeys(config)

@@ -1741,6 +1741,43 @@ func TestGenerateSampleAlertsUsesConfiguredRoutes(t *testing.T) {
 	}
 }
 
+func TestGenerateSampleAlertsIncludesMultipleReceiverContinueExample(t *testing.T) {
+	config := &Config{
+		Route: &Route{
+			Receiver: "default",
+			Routes: []*Route{
+				{Receiver: "pagerduty-critical", Match: map[string]string{"severity": "critical"}},
+				{Receiver: "slack-high", Match: map[string]string{"severity": "high"}},
+				{Receiver: "slack-warnings", Match: map[string]string{"severity": "warning"}, Continue: true},
+				{Receiver: "monitoring-team", Match: map[string]string{"team": "monitoring"}, Continue: true},
+			},
+		},
+	}
+
+	for _, sample := range GenerateSampleAlerts(config) {
+		if sample.Name != "Multiple receivers" {
+			continue
+		}
+		if len(sample.Labels) != 2 || sample.Labels["severity"] != "warning" || sample.Labels["team"] != "monitoring" {
+			t.Fatalf("multiple receiver example labels = %v, want severity=warning and team=monitoring", sample.Labels)
+		}
+		client := &Client{}
+		receiver, matched, err := client.FindMatchingRoute(sample.Labels, config)
+		if err != nil {
+			t.Fatalf("FindMatchingRoute(%v): %v", sample.Labels, err)
+		}
+		receivers := effectiveReceivers(receiver, matched)
+		if len(receivers) != 2 || receivers[0] != "slack-warnings" || receivers[1] != "monitoring-team" {
+			t.Fatalf("continued receivers = %v, want slack-warnings and monitoring-team", receivers)
+		}
+		if sample.Description != "Continue sends to 2 receivers." {
+			t.Fatalf("multiple receiver example description = %q, want concise continue explanation", sample.Description)
+		}
+		return
+	}
+	t.Fatalf("no quick example exercises multiple continued receivers: %#v", GenerateSampleAlerts(config))
+}
+
 func TestGenerateSampleAlertsDescribesRegexAndContinuedReceivers(t *testing.T) {
 	config := &Config{
 		Route: &Route{
@@ -1753,15 +1790,25 @@ func TestGenerateSampleAlertsDescribesRegexAndContinuedReceivers(t *testing.T) {
 	}
 
 	for _, sample := range GenerateSampleAlerts(config) {
-		if strings.Contains(sample.Description, "security") {
-			if sample.Labels["environment"] != "production" || sample.Labels["team"] != "platform" {
-				t.Fatalf("continued route example labels = %v, want production platform", sample.Labels)
-			}
-			if !strings.Contains(sample.Description, "operations") {
-				t.Fatalf("continued route description %q omits the earlier receiver", sample.Description)
-			}
-			return
+		if sample.Name != "Multiple receivers" {
+			continue
 		}
+		if sample.Labels["environment"] != "production" || sample.Labels["team"] != "platform" {
+			t.Fatalf("continued route example labels = %v, want production platform", sample.Labels)
+		}
+		client := &Client{}
+		receiver, matched, err := client.FindMatchingRoute(sample.Labels, config)
+		if err != nil {
+			t.Fatalf("FindMatchingRoute(%v): %v", sample.Labels, err)
+		}
+		receivers := effectiveReceivers(receiver, matched)
+		if len(receivers) != 2 || receivers[0] != "operations" || receivers[1] != "security" {
+			t.Fatalf("continued receivers = %v, want operations and security", receivers)
+		}
+		if sample.Description != "Continue sends to 2 receivers." {
+			t.Fatalf("continued route description = %q, want concise continue explanation", sample.Description)
+		}
+		return
 	}
-	t.Fatalf("no example described the matching continued routes: %#v", GenerateSampleAlerts(config))
+	t.Fatalf("no quick example matched the continued routes: %#v", GenerateSampleAlerts(config))
 }

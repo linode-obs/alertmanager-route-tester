@@ -455,18 +455,18 @@
               <div class="section-line"><h3>Why it matched</h3><small>2 RECEIVERS</small></div>
               <div class="route-list">
                 <div class="route-step"><span class="route-number">01</span><b>severity = “warning”</b><span class="route-badge">CONTINUE</span></div>
-                <div class="route-step"><span class="route-number">02</span><b>team = “monitoring”</b><span class="route-badge">DELIVERS</span></div>
+                <div class="route-step"><span class="route-number">02</span><b>team = “monitoring”</b><span class="route-badge">MATCHED</span></div>
               </div>
             </section>
             <section class="long-route-result">
               <div class="receiver-band"><h2 class="receiver-name">pagerduty-platform</h2><span class="receiver-count">1 RECEIVER · 5 LEVELS</span></div>
-              <p class="fallback-message">Five nested routes matched. Delivery goes to <strong>pagerduty-platform</strong>.</p>
+              <p class="fallback-message">Five nested routes matched. The route result is <strong>pagerduty-platform</strong>.</p>
               <div class="long-route-steps">
                 <div class="long-route-step"><span class="route-number">01</span><span><b>cluster = “prod-west”</b><small>region-router</small></span><span class="route-badge">MATCHED</span></div>
                 <div class="long-route-step"><span class="route-number">02</span><span><b>team = “platform”</b><small>team-platform</small></span><span class="route-badge">MATCHED</span></div>
                 <div class="long-route-step"><span class="route-number">03</span><span><b>service = “api”</b><small>api-platform</small></span><span class="route-badge">MATCHED</span></div>
                 <div class="long-route-step"><span class="route-number">04</span><span><b>environment = “production”</b><small>slack-platform-prod</small></span><span class="route-badge">MATCHED</span></div>
-                <div class="long-route-step"><span class="route-number">05</span><span><b>severity = “critical”</b><small>pagerduty-platform</small></span><span class="route-badge">DELIVERS</span></div>
+                <div class="long-route-step"><span class="route-number">05</span><span><b>severity = “critical”</b><small>pagerduty-platform</small></span><span class="route-badge">MATCHED</span></div>
               </div>
             </section>
             <p class="static-note share-note">Share link copied. It contains labels only.</p>

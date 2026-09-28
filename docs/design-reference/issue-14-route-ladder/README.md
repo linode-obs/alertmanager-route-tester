@@ -10,9 +10,9 @@ Use this as a visual guide for future frontend work:
 
 - Keep the tested route result beside the alert inputs on wide screens.
 - Give long route paths enough room to read each matcher and receiver.
-- Use blue and gray for the interface, with green reserved for delivery status.
+- Use blue and gray for the interface, with green marking matched routes.
+- Show each matcher condition before its receiver name.
 - Keep configuration details available without competing with the route path.
-- Use clear delivery wording such as “DELIVERS”.
 
 Light theme:
 

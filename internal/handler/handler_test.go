@@ -707,8 +707,7 @@ func TestResultTemplateRendersMatchedRoutes(t *testing.T) {
 	}
 }
 
-// TestResultTemplateRendersSubroute verifies result.html renders correctly when
-// a MatchedRoute carries subroute context (Depth > 0, ParentReceivers set).
+// TestResultTemplateRendersSubroute verifies a nested route's matcher and receiver are rendered.
 func TestResultTemplateRendersSubroute(t *testing.T) {
 	tmpl := loadTemplates(t)
 
@@ -752,8 +751,8 @@ func TestResultTemplateRendersSubroute(t *testing.T) {
 	if bytes.Contains(out, []byte("Multiple receivers will be notified")) {
 		t.Error("nested parent and child should not trigger multiple-receiver notice")
 	}
-	if !bytes.Contains(out, []byte("trace-trace-only-badge")) {
-		t.Error("trace-only parent marker is missing")
+	if !bytes.Contains(out, []byte(`class="trace-match-status">MATCHED</span>`)) {
+		t.Error("matched route status is missing")
 	}
 }
 
@@ -857,8 +856,8 @@ func TestResultTemplatePlacesLongRouteTraceBeforeSecondaryDetails(t *testing.T) 
 	if !strings.Contains(output, `class="result-heading"`) || !strings.Contains(output, "Route result") || !strings.Contains(output, "5 ROUTE STEPS") {
 		t.Fatal("route result summary is missing its heading or route count")
 	}
-	if !strings.Contains(output, "trace-trace-only-badge") || !strings.Contains(output, "DELIVERS") {
-		t.Fatal("long route ladder output is missing ancestry or delivery status")
+	if !strings.Contains(output, `class="trace-match-status">MATCHED</span>`) || !strings.Contains(output, "Match conditions") || strings.Contains(strings.ToLower(output), "deliver") {
+		t.Fatal("long route ladder output is missing clear match status")
 	}
 	trace := output[tracePosition:receiverConfigPosition]
 	lastStepPosition := -1
@@ -876,6 +875,37 @@ func TestResultTemplatePlacesLongRouteTraceBeforeSecondaryDetails(t *testing.T) 
 	}
 	if !strings.Contains(output, `<details class="result-details">`) {
 		t.Fatal("secondary receiver details are not collapsible")
+	}
+}
+
+func TestResultTemplateLabelsNativeMatchersAsConditions(t *testing.T) {
+	tmpl := loadTemplates(t)
+	data := resultData{
+		Receiver: "monitoring-team",
+		RouteSteps: []RouteStep{
+			{Index: 1, Receiver: "slack-warnings", Matchers: []string{`severity="warning"`}, Continue: true, IsEffective: true},
+			{Index: 2, Receiver: "monitoring-team", Matchers: []string{`team="monitoring"`}, Continue: true, IsEffective: true, IsFinal: true},
+		},
+		MatchedReceivers: []string{"slack-warnings", "monitoring-team"},
+	}
+
+	var buf bytes.Buffer
+	if err := tmpl.ExecuteTemplate(&buf, "result.html", data); err != nil {
+		t.Fatalf("result.html failed to render native matchers: %v", err)
+	}
+	output := buf.String()
+	for _, expected := range []string{
+		"Match conditions",
+		`severity=&#34;warning&#34;`,
+		`team=&#34;monitoring&#34;`,
+		`class="trace-match-status">MATCHED</span>`,
+	} {
+		if !strings.Contains(output, expected) {
+			t.Errorf("native matcher output does not contain %q", expected)
+		}
+	}
+	if strings.Contains(strings.ToLower(output), "deliver") {
+		t.Error("route ladder output contains unclear delivery wording")
 	}
 }
 
@@ -967,7 +997,7 @@ func TestResultTemplateIncludesRedesignHelp(t *testing.T) {
 		`class="route-ladder route-trace"`,
 		`trace-final`,
 		`trace-subroute`,
-		`data-tooltip="Alertmanager sends the alert to this receiver."`,
+		`data-tooltip="Alertmanager selects this receiver as the final routing result."`,
 		`2 ROUTE STEPS`,
 		`Each receiver gets a copy.`,
 	} {

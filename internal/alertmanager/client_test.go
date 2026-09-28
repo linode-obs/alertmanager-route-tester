@@ -1643,3 +1643,75 @@ func TestFindMatchingRouteErrors(t *testing.T) {
 		}
 	})
 }
+
+func TestGenerateSampleAlertsUsesConfiguredRoutes(t *testing.T) {
+	config := &Config{
+		Route: &Route{
+			Receiver: "default",
+			Routes: []*Route{
+				{Receiver: "api-team", Match: map[string]string{"service": "api"}},
+			},
+		},
+	}
+
+	samples := GenerateSampleAlerts(config)
+	if len(samples) == 0 {
+		t.Fatal("GenerateSampleAlerts() returned no examples")
+	}
+
+	client := &Client{}
+	foundConfiguredRoute, foundFallback := false, false
+	for _, sample := range samples {
+		_, matched, err := client.FindMatchingRoute(sample.Labels, config)
+		if err != nil {
+			t.Fatalf("FindMatchingRoute(%v): %v", sample.Labels, err)
+		}
+		if len(matched) == 0 {
+			foundFallback = true
+			if !strings.Contains(sample.Description, "default") {
+				t.Errorf("fallback example description %q does not identify receiver default", sample.Description)
+			}
+			continue
+		}
+
+		foundConfiguredRoute = true
+		if sample.Labels["service"] != "api" {
+			t.Errorf("matching example labels = %v, want service=api", sample.Labels)
+		}
+		if !strings.Contains(sample.Description, "api-team") {
+			t.Errorf("matching example description %q does not identify receiver api-team", sample.Description)
+		}
+	}
+
+	if !foundConfiguredRoute {
+		t.Error("no example matched the configured api route")
+	}
+	if !foundFallback {
+		t.Error("no example exercised the root fallback receiver")
+	}
+}
+
+func TestGenerateSampleAlertsDescribesRegexAndContinuedReceivers(t *testing.T) {
+	config := &Config{
+		Route: &Route{
+			Receiver: "default",
+			Routes: []*Route{
+				{Receiver: "operations", MatchRE: map[string]string{"environment": "production|staging"}, Continue: true},
+				{Receiver: "security", Match: map[string]string{"team": "platform"}},
+			},
+		},
+	}
+
+	for _, sample := range GenerateSampleAlerts(config) {
+		if strings.Contains(sample.Description, "security") {
+			if sample.Labels["environment"] != "production" || sample.Labels["team"] != "platform" {
+				t.Fatalf("continued route example labels = %v, want production platform", sample.Labels)
+			}
+			if !strings.Contains(sample.Description, "operations") {
+				t.Fatalf("continued route description %q omits the earlier receiver", sample.Description)
+			}
+			return
+		}
+	}
+	t.Fatalf("no example described the matching continued routes: %#v", GenerateSampleAlerts(config))
+}

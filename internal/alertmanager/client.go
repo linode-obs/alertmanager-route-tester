@@ -8,7 +8,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"math/rand"
 	"net"
 	"net/http"
 	"os"
@@ -903,111 +902,187 @@ func extractLabelValuesFromRoute(route *Route, labelValues map[string]map[string
 	}
 }
 
-// GenerateSampleAlerts creates example alerts based on the configuration
+// GenerateSampleAlerts creates examples that match the configured routes and root fallback.
 func GenerateSampleAlerts(config *Config) []SampleAlert {
-	// Alerts that WILL match specific routes
-	matchingAlerts := []SampleAlert{
-		{
-			Name:        "Critical Alert",
-			Description: "Routes to pagerduty-critical (severity:critical stops routing)",
-			Labels: map[string]string{
-				"alertname": "HighErrorRate",
-				"severity":  "critical",
-			},
-		},
-		{
-			Name:        "Critical Security Alert",
-			Description: "Routes to security-team (continue) + pagerduty-security",
-			Labels: map[string]string{
-				"alertname": "CriticalSecurityBreach",
-				"category":  "security",
-				"severity":  "critical",
-			},
-		},
-		{
-			Name:        "Database Team Alert",
-			Description: "Routes to team-database (team match)",
-			Labels: map[string]string{
-				"alertname": "PostgreSQLSlowQueries",
-				"team":      "database",
-			},
-		},
-		{
-			Name:        "Production Web Service",
-			Description: "Routes to slack-platform-prod (service + env match)",
-			Labels: map[string]string{
-				"alertname":   "HighLatency",
-				"service":     "web",
-				"environment": "production",
-			},
-		},
-		{
-			Name:        "Warning Alert",
-			Description: "Routes to slack-warnings (severity:warning continues)",
-			Labels: map[string]string{
-				"alertname": "DiskSpaceLow",
-				"severity":  "warning",
-			},
-		},
-		{
-			Name:        "Infrastructure US West",
-			Description: "Routes to team-infra-west (component + region)",
-			Labels: map[string]string{
-				"alertname": "HighCPUUsage",
-				"component": "infrastructure",
-				"region":    "us-west-2",
-			},
-		},
+	if config == nil || config.Route == nil {
+		return nil
 	}
 
-	// Alerts that WON'T match any specific route (goes to root route's default receiver)
-	nonMatchingAlerts := []SampleAlert{
-		{
-			Name:        "Truly Unrouted Alert",
-			Description: "No specific route matches - uses root route's default receiver",
-			Labels: map[string]string{
-				"alertname": "RandomSystemInfo",
-				"priority":  "low",      // doesn't match severity routes
-				"source":    "external", // doesn't match any service/component routes
-			},
-		},
-		{
-			Name:        "Unknown Service Alert",
-			Description: "No specific route matches - uses root route's default receiver",
-			Labels: map[string]string{
-				"alertname": "UnknownIssue",
-				"level":     "notice", // doesn't match severity routes
-				"system":    "legacy", // doesn't match component routes
-			},
-		},
-	}
+	client := &Client{}
+	candidates := make([]map[string]string, 0)
+	collectRouteExamples(config.Route, map[string]string{}, &candidates)
 
-	// Seed random number generator
-	rng := rand.New(rand.NewSource(time.Now().UnixNano())) // #nosec G404 -- sample alert generation does not require cryptographic randomness.
-
-	// Shuffle and pick 2 from matching alerts
-	rng.Shuffle(len(matchingAlerts), func(i, j int) {
-		matchingAlerts[i], matchingAlerts[j] = matchingAlerts[j], matchingAlerts[i]
-	})
-
-	// Shuffle and pick 1 from non-matching alerts
-	rng.Shuffle(len(nonMatchingAlerts), func(i, j int) {
-		nonMatchingAlerts[i], nonMatchingAlerts[j] = nonMatchingAlerts[j], nonMatchingAlerts[i]
-	})
-
-	// Combine: 2 matching + 1 non-matching
 	samples := make([]SampleAlert, 0, 3)
-	if len(matchingAlerts) >= 2 {
-		samples = append(samples, matchingAlerts[0], matchingAlerts[1])
-	}
-	if len(nonMatchingAlerts) > 0 {
-		samples = append(samples, nonMatchingAlerts[0])
+	seen := make(map[string]bool)
+	for _, labels := range candidates {
+		receiver, matched, err := client.FindMatchingRoute(labels, config)
+		if err != nil || len(matched) == 0 {
+			continue
+		}
+		fingerprint := sampleLabelsFingerprint(labels)
+		if seen[fingerprint] {
+			continue
+		}
+		seen[fingerprint] = true
+		if len(samples) == 2 {
+			break
+		}
+		receivers := effectiveReceivers(receiver, matched)
+		samples = append(samples, SampleAlert{
+			Name:        fmt.Sprintf("Matching alert %d", len(samples)+1),
+			Description: "Routes to " + strings.Join(receivers, ", ") + ".",
+			Labels:      labels,
+		})
 	}
 
-	// Shuffle final order so non-matching isn't always last
-	rng.Shuffle(len(samples), func(i, j int) {
-		samples[i], samples[j] = samples[j], samples[i]
-	})
+	for attempt := 0; attempt < 100; attempt++ {
+		labels := fallbackLabels(config, attempt)
+		receiver, matched, err := client.FindMatchingRoute(labels, config)
+		if err != nil || len(matched) != 0 || receiver == "" {
+			continue
+		}
+		samples = append(samples, SampleAlert{
+			Name:        "Default receiver",
+			Description: "No child route matched. Uses the root receiver, " + receiver + ".",
+			Labels:      labels,
+		})
+		break
+	}
 
 	return samples
+}
+
+type routeLabelConstraint struct {
+	operator string
+	value    string
+}
+
+func collectRouteExamples(route *Route, labels map[string]string, candidates *[]map[string]string) {
+	continuingLabels := labels
+	hasContinuingLabels := false
+	for _, child := range route.Routes {
+		candidate, ok := routeExampleLabels(continuingLabels, child)
+		if !ok && hasContinuingLabels {
+			candidate, ok = routeExampleLabels(labels, child)
+		}
+		if ok {
+			*candidates = append(*candidates, candidate)
+			collectRouteExamples(child, candidate, candidates)
+		}
+		if child.Continue && ok {
+			continuingLabels = candidate
+			hasContinuingLabels = true
+		} else if !child.Continue {
+			continuingLabels = labels
+			hasContinuingLabels = false
+		}
+	}
+}
+
+func routeExampleLabels(parentLabels map[string]string, route *Route) (map[string]string, bool) {
+	labels := make(map[string]string, len(parentLabels))
+	for key, value := range parentLabels {
+		labels[key] = value
+	}
+
+	constraints := make(map[string][]routeLabelConstraint)
+	for key, value := range route.Match {
+		constraints[key] = append(constraints[key], routeLabelConstraint{operator: "=", value: value})
+	}
+	for key, value := range route.MatchRE {
+		constraints[key] = append(constraints[key], routeLabelConstraint{operator: "=~", value: value})
+	}
+	for _, matcher := range route.Matchers {
+		parsed, ok := parseMatcher(matcher)
+		if !ok {
+			return nil, false
+		}
+		constraints[parsed.Label] = append(constraints[parsed.Label], routeLabelConstraint{operator: parsed.Operator, value: parsed.Value})
+	}
+
+	for key, conditions := range constraints {
+		if labelsMatchRouteConstraints(labels[key], conditions) {
+			continue
+		}
+		found := false
+		candidates := []string{"alertmanager-route-tester-example", "example", "test", "critical", "warning", "production", "api", "x", "0", ""}
+		for _, condition := range conditions {
+			if condition.operator == "=" {
+				candidates = append([]string{condition.value}, candidates...)
+			}
+		}
+		for _, candidate := range candidates {
+			if labelsMatchRouteConstraints(candidate, conditions) {
+				labels[key] = candidate
+				found = true
+				break
+			}
+		}
+		if !found {
+			return nil, false
+		}
+		if labels[key] == "" {
+			delete(labels, key)
+		}
+	}
+
+	return labels, true
+}
+
+func labelsMatchRouteConstraints(value string, constraints []routeLabelConstraint) bool {
+	for _, constraint := range constraints {
+		matches := false
+		switch constraint.operator {
+		case "=":
+			matches = value == constraint.value
+		case "!=":
+			matches = value != constraint.value
+		case "=~":
+			matched, err := matchesRegex(constraint.value, value)
+			matches = err == nil && matched
+		case "!~":
+			matched, err := matchesRegex(constraint.value, value)
+			matches = err == nil && !matched
+		}
+		if !matches {
+			return false
+		}
+	}
+	return true
+}
+
+func effectiveReceivers(receiver string, matched []MatchedRoute) []string {
+	receivers := make([]string, 0, len(matched))
+	seen := make(map[string]bool)
+	for _, route := range matched {
+		if !route.IsEffective || route.ResolvedReceiver == "" || seen[route.ResolvedReceiver] {
+			continue
+		}
+		receivers = append(receivers, route.ResolvedReceiver)
+		seen[route.ResolvedReceiver] = true
+	}
+	if len(receivers) == 0 && receiver != "" {
+		receivers = append(receivers, receiver)
+	}
+	return receivers
+}
+
+func fallbackLabels(config *Config, attempt int) map[string]string {
+	keys := ExtractLabelKeys(config)
+	if len(keys) == 0 {
+		keys = []string{"alertname"}
+	}
+	labels := make(map[string]string, len(keys))
+	for _, key := range keys {
+		labels[key] = fmt.Sprintf("alertmanager-route-tester-unmatched-%d", attempt)
+	}
+	if _, ok := labels["alertname"]; !ok {
+		labels["alertname"] = fmt.Sprintf("alertmanager-route-tester-unmatched-%d", attempt)
+	}
+	return labels
+}
+
+func sampleLabelsFingerprint(labels map[string]string) string {
+	encoded, _ := json.Marshal(labels)
+	return string(encoded)
 }

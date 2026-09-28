@@ -401,7 +401,7 @@ func TestHandleTestShowsMatcherDiagnosticsOnlyForRootFallback(t *testing.T) {
 		dontWant string
 	}{
 		{name: "fallback", labels: map[string]string{"severity": "warning"}, want: `severity = &#34;critical&#34;`, dontWant: ""},
-		{name: "matched route", labels: map[string]string{"severity": "critical"}, want: "Matched receiver", dontWant: "Why no child route matched"},
+		{name: "matched route", labels: map[string]string{"severity": "critical"}, want: "Route result", dontWant: "Why no child route matched"},
 	} {
 		t.Run(testCase.name, func(t *testing.T) {
 			h := &Handler{client: alertmanager.NewClient(server.URL, false), tmpl: loadTemplates(t)}
@@ -813,6 +813,72 @@ func TestResultTemplateExplainsFailedRouteMatchers(t *testing.T) {
 	}
 }
 
+func TestResultTemplatePlacesLongRouteTraceBeforeSecondaryDetails(t *testing.T) {
+	tmpl := loadTemplates(t)
+	config := &alertmanager.Receiver{
+		Name:           "pagerduty-platform",
+		WebhookConfigs: []alertmanager.WebhookConfig{{URL: "http://webhook.example.test"}},
+	}
+	steps := []RouteStep{
+		{Index: 1, Receiver: "region-router", Match: map[string]string{"cluster": "prod-west"}, IsSubroute: false},
+		{Index: 2, Receiver: "team-platform", Match: map[string]string{"team": "platform"}, IsSubroute: true, Depth: 1},
+		{Index: 3, Receiver: "api-platform", Match: map[string]string{"service": "api"}, IsSubroute: true, Depth: 2},
+		{Index: 4, Receiver: "slack-platform-prod", Match: map[string]string{"environment": "production"}, IsSubroute: true, Depth: 3},
+		{Index: 5, Receiver: "pagerduty-platform", Match: map[string]string{"severity": "critical"}, IsSubroute: true, Depth: 4, IsFinal: true, IsEffective: true},
+	}
+	data := resultData{
+		Receiver:       "pagerduty-platform",
+		ReceiverConfig: config,
+		MatchedRoutes: []alertmanager.MatchedRoute{{
+			Route:            &alertmanager.Route{Receiver: "pagerduty-platform"},
+			IsEffective:      true,
+			ResolvedReceiver: "pagerduty-platform",
+		}},
+		RouteSteps: steps,
+		Labels: map[string]string{
+			"cluster":     "prod-west",
+			"team":        "platform",
+			"service":     "api",
+			"environment": "production",
+			"severity":    "critical",
+		},
+	}
+
+	var buf bytes.Buffer
+	if err := tmpl.ExecuteTemplate(&buf, "result.html", data); err != nil {
+		t.Fatalf("result.html failed to render long route: %v", err)
+	}
+	output := buf.String()
+	tracePosition := strings.Index(output, `class="route-ladder route-trace"`)
+	receiverConfigPosition := strings.Index(output, `class="receiver-config`)
+	if tracePosition < 0 || receiverConfigPosition < 0 || tracePosition > receiverConfigPosition {
+		t.Fatalf("route ladder position = %d, receiver config position = %d, want ladder before secondary details", tracePosition, receiverConfigPosition)
+	}
+	if !strings.Contains(output, `class="result-heading"`) || !strings.Contains(output, "Route result") || !strings.Contains(output, "5 ROUTE STEPS") {
+		t.Fatal("route result summary is missing its heading or route count")
+	}
+	if !strings.Contains(output, "trace-trace-only-badge") || !strings.Contains(output, "DELIVERS") {
+		t.Fatal("long route ladder output is missing ancestry or delivery status")
+	}
+	trace := output[tracePosition:receiverConfigPosition]
+	lastStepPosition := -1
+	for _, receiver := range []string{"region-router", "team-platform", "api-platform", "slack-platform-prod", "pagerduty-platform"} {
+		position := strings.Index(trace, `class="trace-receiver">`+receiver+`</span>`)
+		if position <= lastStepPosition {
+			t.Fatalf("route step %q position = %d, want it after position %d", receiver, position, lastStepPosition)
+		}
+		lastStepPosition = position
+	}
+	matchPosition := strings.Index(trace, `<span class="trace-kv">cluster=prod-west</span>`)
+	receiverPosition := strings.Index(trace, `<span class="trace-receiver">region-router</span>`)
+	if matchPosition < 0 || receiverPosition < 0 || matchPosition > receiverPosition {
+		t.Fatalf("first route matcher position = %d, receiver position = %d, want matcher first", matchPosition, receiverPosition)
+	}
+	if !strings.Contains(output, `<details class="result-details">`) {
+		t.Fatal("secondary receiver details are not collapsible")
+	}
+}
+
 func TestIndexTemplateIncludesShareLinkControls(t *testing.T) {
 	tmpl := loadTemplates(t)
 	data := struct {
@@ -898,11 +964,11 @@ func TestResultTemplateIncludesRedesignHelp(t *testing.T) {
 
 	output := buf.String()
 	for _, expected := range []string{
-		`class="route-trace"`,
+		`class="route-ladder route-trace"`,
 		`trace-final`,
 		`trace-subroute`,
 		`data-tooltip="Alertmanager sends the alert to this receiver."`,
-		`Matched receivers (2)`,
+		`2 ROUTE STEPS`,
 		`Each receiver gets a copy.`,
 	} {
 		if !strings.Contains(output, expected) {

@@ -125,14 +125,14 @@
                     <input type="hidden" name="alertmanager" value="{{.SelectedAlertmanager}}">
                     <div id="ui-builder">
                         <div class="label-section">
-                            <h3>Alert labels <span class="help-tip" data-tooltip="A route matches only when its labels match." aria-label="Alert label help" tabindex="0">?</span></h3>
+                            <h3>Alert labels <span class="help-tip" role="img" data-tooltip="A route matches only when its labels match." aria-label="Alert label help" tabindex="0">?</span></h3>
                             <p class="help-text">Add labels from the configuration, or enter them.</p>
 
                             <div id="current-labels" class="current-labels">
                                 <!-- Labels will appear here as badges -->
                             </div>
 
-                            <div class="add-label-form" aria-label="Add alert label">
+                            <div class="add-label-form" role="group" aria-label="Add alert label">
                                 <input type="text"
                                        id="label-key-input"
                                        placeholder="key"
@@ -164,7 +164,7 @@
 
                     <div id="raw-builder" style="display: none;">
                         <div class="label-section">
-                            <label for="raw-input">Paste labels as YAML <span class="help-tip" data-tooltip="Use one key: value pair per line." aria-label="Raw input help" tabindex="0">?</span></label>
+                            <label for="raw-input">Paste labels as YAML <span class="help-tip" role="img" data-tooltip="Use one key: value pair per line." aria-label="Raw input help" tabindex="0">?</span></label>
                             <textarea id="raw-input" rows="10" placeholder='alertname: HighErrorRate
 severity: critical
 job: api

@@ -43,6 +43,7 @@ type resultData struct {
 	FinalMatch               MatchSummary
 	DefaultRoot              bool
 	MatchedReceiverSummaries []ReceiverSummary
+	RouteMismatches          []alertmanager.RouteMismatch
 	Labels                   map[string]string
 	Error                    string
 }
@@ -365,6 +366,49 @@ func TestHandleTestRendersErrorForMissingRootRoute(t *testing.T) {
 	}
 	if !bytes.Contains(response.Body.Bytes(), []byte("no route defined")) {
 		t.Fatalf("response = %q, want missing-route error", response.Body.String())
+	}
+}
+
+func TestHandleTestShowsMatcherDiagnosticsOnlyForRootFallback(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"config":{"original":"route:\n  receiver: default\n  routes:\n  - match:\n      severity: critical\n    receiver: pagerduty-critical\nreceivers:\n- name: default\n- name: pagerduty-critical\n"}}`))
+	}))
+	defer server.Close()
+
+	for _, testCase := range []struct {
+		name     string
+		labels   map[string]string
+		want     string
+		dontWant string
+	}{
+		{name: "fallback", labels: map[string]string{"severity": "warning"}, want: `severity = &#34;critical&#34;`, dontWant: ""},
+		{name: "matched route", labels: map[string]string{"severity": "critical"}, want: "Matched receiver", dontWant: "Why no child route matched"},
+	} {
+		t.Run(testCase.name, func(t *testing.T) {
+			h := &Handler{client: alertmanager.NewClient(server.URL, false), tmpl: loadTemplates(t)}
+			body, err := json.Marshal(map[string]map[string]string{"labels": testCase.labels})
+			if err != nil {
+				t.Fatal(err)
+			}
+			request := httptest.NewRequest(http.MethodPost, "/test", bytes.NewReader(body))
+			request.Header.Set("Content-Type", "application/json")
+			request.Header.Set("HX-Request", "true")
+			response := httptest.NewRecorder()
+
+			h.HandleTest(response, request)
+
+			if response.Code != http.StatusOK {
+				t.Fatalf("status = %d, want %d: %s", response.Code, http.StatusOK, response.Body.String())
+			}
+			output := response.Body.String()
+			if !strings.Contains(output, testCase.want) {
+				t.Errorf("output does not contain %q: %s", testCase.want, output)
+			}
+			if testCase.dontWant != "" && strings.Contains(output, testCase.dontWant) {
+				t.Errorf("output contains %q: %s", testCase.dontWant, output)
+			}
+		})
 	}
 }
 
@@ -710,6 +754,39 @@ func TestResultTemplateRendersDefaultRoot(t *testing.T) {
 	output := buf.String()
 	if !strings.Contains(output, "root receiver") || !strings.Contains(output, "result-default") {
 		t.Fatalf("default root output = %q, want default notice and styling", output)
+	}
+}
+
+func TestResultTemplateExplainsFailedRouteMatchers(t *testing.T) {
+	tmpl := loadTemplates(t)
+	data := resultData{
+		Receiver:    "default",
+		DefaultRoot: true,
+		RouteMismatches: []alertmanager.RouteMismatch{{
+			Route: &alertmanager.Route{Receiver: "pagerduty-critical"},
+			FailedMatchers: []alertmanager.MatcherFailure{
+				{Label: "severity", Operator: "=", Expected: "critical", Missing: true},
+				{Label: "service", Operator: "=", Expected: "web", Actual: "api"},
+			},
+		}},
+	}
+
+	var buf bytes.Buffer
+	if err := tmpl.ExecuteTemplate(&buf, "result.html", data); err != nil {
+		t.Fatalf("result.html failed to render route mismatches: %v", err)
+	}
+	output := buf.String()
+	for _, expected := range []string{
+		"Why no child route matched",
+		"pagerduty-critical",
+		`severity = &#34;critical&#34;`,
+		"label is missing",
+		`service = &#34;web&#34;`,
+		`actual value <code>&#34;api&#34;</code>`,
+	} {
+		if !strings.Contains(output, expected) {
+			t.Errorf("route mismatch output does not contain %q: %s", expected, output)
+		}
 	}
 }
 

@@ -15,6 +15,30 @@
         {{if .DefaultRoot}}
         <div class="route-info">
             <p class="default-route-notice">ℹ️ No child route matched. This alert uses the root receiver, <strong>{{.Receiver}}</strong>.</p>
+            {{if .RouteMismatches}}
+            <div class="route-mismatch-list">
+                <h3>Why no child route matched</h3>
+                <p class="route-explanation">These route matchers failed. Every matcher on a route must match.</p>
+                <div class="route-list">
+                    {{range .RouteMismatches}}
+                    <div class="route-item">
+                        <h4>{{if .Route.Receiver}}Route to {{.Route.Receiver}}{{else}}Route inheriting its receiver{{end}}</h4>
+                        {{if .ParentReceivers}}
+                        <p class="route-explanation">Under {{range $i, $receiver := .ParentReceivers}}{{if $i}} &rarr; {{end}}{{$receiver}}{{end}}</p>
+                        {{end}}
+                        <ul class="route-match">
+                            {{range .FailedMatchers}}
+                            <li>
+                                <code>{{.Label}} {{.Operator}} {{printf "%q" .Expected}}</code>
+                                {{if .Missing}}label is missing{{else}}actual value <code>{{printf "%q" .Actual}}</code>{{end}}
+                            </li>
+                            {{end}}
+                        </ul>
+                    </div>
+                    {{end}}
+                </div>
+            </div>
+            {{end}}
         </div>
         {{end}}
 

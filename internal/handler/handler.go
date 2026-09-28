@@ -310,6 +310,11 @@ func (h *Handler) HandleTest(w http.ResponseWriter, r *http.Request) {
 	if r.Header.Get("HX-Request") == "true" {
 		routeSteps, matchedReceivers, continueCount, finalMatch := buildRouteSummary(matchedRoutes, receiver, config)
 		matchedReceiverSummaries := buildReceiverSummaries(matchedRoutes, receiver, config)
+		defaultRoot := isDefaultRoot(receiver, matchedRoutes, config)
+		var routeMismatches []alertmanager.RouteMismatch
+		if defaultRoot {
+			routeMismatches = alertmanager.FindRouteMismatches(labels, config)
+		}
 		data := struct {
 			Receiver                 string
 			ReceiverConfig           *alertmanager.Receiver
@@ -320,6 +325,7 @@ func (h *Handler) HandleTest(w http.ResponseWriter, r *http.Request) {
 			FinalMatch               MatchSummary
 			DefaultRoot              bool
 			MatchedReceiverSummaries []ReceiverSummary
+			RouteMismatches          []alertmanager.RouteMismatch
 			Labels                   map[string]string
 			Error                    string
 		}{
@@ -330,8 +336,9 @@ func (h *Handler) HandleTest(w http.ResponseWriter, r *http.Request) {
 			RouteSteps:               routeSteps,
 			ContinueCount:            continueCount,
 			FinalMatch:               finalMatch,
-			DefaultRoot:              isDefaultRoot(receiver, matchedRoutes, config),
+			DefaultRoot:              defaultRoot,
 			MatchedReceiverSummaries: matchedReceiverSummaries,
+			RouteMismatches:          routeMismatches,
 			Labels:                   labels,
 			Error:                    errorMsg,
 		}

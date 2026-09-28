@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"html/template"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -30,6 +31,22 @@ func loadTemplates(t *testing.T) *template.Template {
 		t.Fatalf("failed to parse templates: %v", err)
 	}
 	return tmpl
+}
+
+func captureSlogOutput(t *testing.T, expectedMessages ...string) *bytes.Buffer {
+	t.Helper()
+	previous := slog.Default()
+	var output bytes.Buffer
+	slog.SetDefault(slog.New(slog.NewTextHandler(&output, nil)))
+	t.Cleanup(func() {
+		slog.SetDefault(previous)
+		for _, message := range expectedMessages {
+			if !strings.Contains(output.String(), message) {
+				t.Errorf("log output = %q, want %q", output.String(), message)
+			}
+		}
+	})
+	return &output
 }
 
 // resultData mirrors the anonymous struct passed to result.html in HandleTest.
@@ -340,6 +357,7 @@ func TestIsDefaultRootRejectsEffectiveNestedMatchUsingRootReceiver(t *testing.T)
 // TestHandleTestRendersErrorForMissingRootRoute verifies that a missing root
 // route returns a rendered error response instead of attempting route matching.
 func TestHandleTestRendersErrorForMissingRootRoute(t *testing.T) {
+	captureSlogOutput(t, "alertmanager config route is nil")
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/v2/status" {
 			http.NotFound(w, r)
@@ -413,6 +431,7 @@ func TestHandleTestShowsMatcherDiagnosticsOnlyForRootFallback(t *testing.T) {
 }
 
 func TestReloadConfigRefetchesConfig(t *testing.T) {
+	captureSlogOutput(t, "reloading alertmanager config cache")
 	requests := 0
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/v2/status" {
@@ -462,6 +481,7 @@ func TestReloadConfigRefetchesConfig(t *testing.T) {
 }
 
 func TestReloadConfigReturnsFailureWhenFetchFails(t *testing.T) {
+	captureSlogOutput(t, "error reloading alertmanager config")
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusBadGateway)
 	}))
@@ -479,6 +499,7 @@ func TestReloadConfigReturnsFailureWhenFetchFails(t *testing.T) {
 }
 
 func TestReloadConfigReturnsHXErrorTriggerWhenFetchFails(t *testing.T) {
+	captureSlogOutput(t, "error reloading alertmanager config")
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusBadGateway)
 	}))
@@ -500,6 +521,7 @@ func TestReloadConfigReturnsHXErrorTriggerWhenFetchFails(t *testing.T) {
 }
 
 func TestReloadConfigPreservesCachedConfigWhenRefreshFails(t *testing.T) {
+	captureSlogOutput(t, "error reloading alertmanager config")
 	requests := 0
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		requests++
@@ -538,6 +560,7 @@ func TestReloadConfigPreservesCachedConfigWhenRefreshFails(t *testing.T) {
 }
 
 func TestReloadConfigReturnsHXRefreshAfterSuccess(t *testing.T) {
+	captureSlogOutput(t, "reloading alertmanager config cache")
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(`{"config":{"original":"route:\n  receiver: default\nreceivers:\n  - name: default\n"}}`))

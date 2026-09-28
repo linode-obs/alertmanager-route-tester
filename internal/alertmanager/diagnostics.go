@@ -1,6 +1,9 @@
 package alertmanager
 
-import "sort"
+import (
+	"github.com/prometheus/alertmanager/dispatch"
+	amlabels "github.com/prometheus/alertmanager/pkg/labels"
+)
 
 type MatcherFailure struct {
 	Label    string `json:"label"`
@@ -18,23 +21,22 @@ type RouteMismatch struct {
 }
 
 func FindRouteMismatches(labels map[string]string, config *Config) []RouteMismatch {
-	if config == nil || config.Route == nil {
+	tree, err := nativeRouteTreeForConfig(config)
+	if err != nil {
 		return nil
 	}
 	mismatches := make([]RouteMismatch, 0)
-	findRouteMismatches(labels, config.Route, 0, nil, config.Route.Receiver, &mismatches)
+	findRouteMismatches(labels, tree, tree.root, 0, nil, &mismatches)
 	return mismatches
 }
 
-func findRouteMismatches(labels map[string]string, route *Route, depth int, parentReceivers []string, inheritedReceiver string, mismatches *[]RouteMismatch) {
+func findRouteMismatches(labels map[string]string, tree *nativeRouteTree, route *dispatch.Route, depth int, parentReceivers []string, mismatches *[]RouteMismatch) {
 	for _, child := range route.Routes {
-		if child == nil {
-			continue
-		}
-		failures := failedRouteMatchers(labels, child)
+		localRoute := tree.localRoutes[child]
+		failures := failedRouteMatchers(labels, child.Matchers, localRoute)
 		if len(failures) > 0 {
 			*mismatches = append(*mismatches, RouteMismatch{
-				Route:           child,
+				Route:           localRoute,
 				Depth:           depth,
 				ParentReceivers: parentReceivers,
 				FailedMatchers:  failures,
@@ -42,68 +44,36 @@ func findRouteMismatches(labels map[string]string, route *Route, depth int, pare
 			continue
 		}
 
-		resolvedReceiver := child.Receiver
-		if resolvedReceiver == "" {
-			resolvedReceiver = inheritedReceiver
-		}
 		childParents := parentReceivers
-		if resolvedReceiver != "" {
-			childParents = make([]string, len(parentReceivers)+1)
-			copy(childParents, parentReceivers)
-			childParents[len(parentReceivers)] = resolvedReceiver
+		if receiver := child.RouteOpts.Receiver; receiver != "" {
+			childParents = append(append([]string(nil), parentReceivers...), receiver)
 		}
-		findRouteMismatches(labels, child, depth+1, childParents, resolvedReceiver, mismatches)
+		findRouteMismatches(labels, tree, child, depth+1, childParents, mismatches)
 		if !child.Continue {
 			break
 		}
 	}
 }
 
-func failedRouteMatchers(labels map[string]string, route *Route) []MatcherFailure {
+func failedRouteMatchers(labels map[string]string, matchers amlabels.Matchers, route *Route) []MatcherFailure {
 	failures := make([]MatcherFailure, 0)
-	keys := make([]string, 0, len(route.Match))
-	for key := range route.Match {
-		keys = append(keys, key)
-	}
-	sort.Strings(keys)
-	for _, key := range keys {
-		if labels[key] != route.Match[key] {
-			failures = append(failures, matcherFailure(labels, key, "=", route.Match[key]))
-		}
-	}
-
-	keys = keys[:0]
-	for key := range route.MatchRE {
-		keys = append(keys, key)
-	}
-	sort.Strings(keys)
-	for _, key := range keys {
-		matched, err := matchesRegex(route.MatchRE[key], labels[key])
-		if err != nil || !matched {
-			failures = append(failures, matcherFailure(labels, key, "=~", route.MatchRE[key]))
-		}
-	}
-
-	for _, matcher := range route.Matchers {
-		if !matchesMatcher(labels, matcher) {
-			parsed, ok := parseMatcher(matcher)
-			if !ok {
-				failures = append(failures, MatcherFailure{Expected: matcher})
-				continue
+	for _, matcher := range matchers {
+		if !matcher.Matches(labels[matcher.Name]) {
+			actual, found := labels[matcher.Name]
+			expected := matcher.Value
+			if matcher.Type == amlabels.MatchRegexp {
+				if configuredPattern, ok := route.MatchRE[matcher.Name]; ok {
+					expected = configuredPattern
+				}
 			}
-			failures = append(failures, matcherFailure(labels, parsed.Label, parsed.Operator, parsed.Value))
+			failures = append(failures, MatcherFailure{
+				Label:    matcher.Name,
+				Operator: matcher.Type.String(),
+				Expected: expected,
+				Actual:   actual,
+				Missing:  !found,
+			})
 		}
 	}
 	return failures
-}
-
-func matcherFailure(labels map[string]string, label, operator, expected string) MatcherFailure {
-	actual, found := labels[label]
-	return MatcherFailure{
-		Label:    label,
-		Operator: operator,
-		Expected: expected,
-		Actual:   actual,
-		Missing:  !found,
-	}
 }

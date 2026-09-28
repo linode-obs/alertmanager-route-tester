@@ -58,8 +58,9 @@ func TestRoutingMatchesAlertmanagerDeliveries(t *testing.T) {
 	}
 
 	testCases := []struct {
-		name   string
-		labels map[string]string
+		name             string
+		labels           map[string]string
+		checkDiagnostics bool
 	}{
 		{
 			name: "quoted label name and matcher whitespace",
@@ -101,8 +102,9 @@ func TestRoutingMatchesAlertmanagerDeliveries(t *testing.T) {
 			},
 		},
 		{
-			name:   "default receiver",
-			labels: map[string]string{"source": "unmatched"},
+			name:             "default receiver",
+			labels:           map[string]string{"source": "unmatched"},
+			checkDiagnostics: true,
 		},
 	}
 
@@ -116,6 +118,23 @@ func TestRoutingMatchesAlertmanagerDeliveries(t *testing.T) {
 				t.Fatalf("FindMatchingRoute(): %v", err)
 			}
 			predictedReceivers := predictedReceiverSet(predicted, matchedRoutes)
+			if testCase.checkDiagnostics {
+				mismatches := alertmanager.FindRouteMismatches(labels, loadedConfig)
+				if len(mismatches) == 0 {
+					t.Fatal("FindRouteMismatches() returned no failures for the root fallback alert")
+				}
+				foundMissingSeverity := false
+				for _, mismatch := range mismatches {
+					for _, failure := range mismatch.FailedMatchers {
+						if failure.Label == "severity" && failure.Missing && failure.Expected == "critical" {
+							foundMissingSeverity = true
+						}
+					}
+				}
+				if !foundMissingSeverity {
+					t.Fatalf("root fallback diagnostics = %#v, want missing severity=critical", mismatches)
+				}
+			}
 
 			postAlert(t, baseURL, labels)
 			actualReceivers := waitForDeliveries(t, deliveries, labels["alertname"])
@@ -211,8 +230,8 @@ func alertmanagerBinary(t *testing.T) string {
 	if err != nil {
 		t.Fatalf("read Alertmanager version: %v: %s", err, output)
 	}
-	if !bytes.Contains(output, []byte("version 0.27.0")) {
-		t.Fatalf("parity tests require Alertmanager 0.27.0, got %s", output)
+	if !bytes.Contains(output, []byte("version 0.33.0")) {
+		t.Fatalf("parity tests require Alertmanager 0.33.0, got %s", output)
 	}
 	return binary
 }

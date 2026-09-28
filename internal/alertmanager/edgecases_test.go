@@ -162,7 +162,7 @@ func TestEdgeCases(t *testing.T) {
 			expectedMatches:  1,
 		},
 		{
-			name: "matcher with single quotes",
+			name: "single quotes are part of the matcher value",
 			config: &Config{
 				Route: &Route{
 					Receiver: "default",
@@ -174,7 +174,7 @@ func TestEdgeCases(t *testing.T) {
 					},
 				},
 			},
-			labels:           map[string]string{"severity": "critical"},
+			labels:           map[string]string{"severity": "'critical'"},
 			expectedReceiver: "pagerduty",
 			expectedMatches:  1,
 		},
@@ -431,9 +431,9 @@ func TestMatcherEdgeCases(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			// Test parsing
-			parsed, ok := parseMatcher(tt.matcher)
+			parsed, ok := parseNativeMatcher(tt.matcher)
 			if ok != tt.expectedParsed {
-				t.Errorf("parseMatcher ok = %v, want %v", ok, tt.expectedParsed)
+				t.Errorf("native matcher parsed = %v, want %v", ok, tt.expectedParsed)
 				return
 			}
 
@@ -446,9 +446,9 @@ func TestMatcherEdgeCases(t *testing.T) {
 				Matchers: []string{tt.matcher},
 			}
 
-			matched := matchesRoute(tt.labels, route)
+			matched := matchesNativeRoute(tt.labels, route)
 			if matched != tt.expectedMatch {
-				t.Errorf("matchesRoute = %v, want %v (parsed: %+v)", matched, tt.expectedMatch, parsed)
+				t.Errorf("native route match = %v, want %v (parsed: %+v)", matched, tt.expectedMatch, parsed)
 			}
 		})
 	}

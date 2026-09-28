@@ -124,7 +124,9 @@ mise run clean  # cleanup
 
 ### Testing
 
-The project includes comprehensive unit and integration tests:
+The project pins Alertmanager 0.33.0 in `go.mod`, `.mise.toml`, the CI workflow, and the parity test version check. Update these pins together.
+
+The project includes unit and integration tests:
 
 #### Unit Tests
 

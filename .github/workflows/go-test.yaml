@@ -35,9 +35,9 @@ jobs:
           exit 1
         fi
         curl -fsSL -o alertmanager.tar.gz \
-          https://github.com/prometheus/alertmanager/releases/download/v0.27.0/alertmanager-0.27.0.linux-amd64.tar.gz
+          https://github.com/prometheus/alertmanager/releases/download/v0.33.0/alertmanager-0.33.0.linux-amd64.tar.gz
         tar -xzf alertmanager.tar.gz
-        mv alertmanager-0.27.0.linux-amd64 alertmanager
+        mv alertmanager-0.33.0.linux-amd64 alertmanager
         ./alertmanager/alertmanager \
           --config.file=testdata/alertmanager.yml \
           --web.listen-address=:19093 \

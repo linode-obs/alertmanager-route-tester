@@ -196,7 +196,7 @@ func TestAlertmanagerMatcherSemantics(t *testing.T) {
 			want:   true,
 		},
 		{
-			name:   "tab escape remains literal in compatibility mode",
+			name:   "tab escape remains literal",
 			labels: map[string]string{"message": `a\tb`},
 			route:  &Route{Matchers: []string{`message="a\tb"`}},
 			want:   true,
@@ -208,13 +208,13 @@ func TestAlertmanagerMatcherSemantics(t *testing.T) {
 			want:   false,
 		},
 		{
-			name:   "unicode escape remains literal in compatibility mode",
+			name:   "unicode escape remains literal",
 			labels: map[string]string{"message": `\u0062ar`},
 			route:  &Route{Matchers: []string{`message="\u0062ar"`}},
 			want:   true,
 		},
 		{
-			name:   "quoted UTF-8 name uses strict value escaping",
+			name:   "quoted UTF-8 label name supports escaped values",
 			labels: map[string]string{"foo bar": "a\tb"},
 			route:  &Route{Matchers: []string{`"foo bar"="a\tb"`}},
 			want:   true,
@@ -229,8 +229,8 @@ func TestAlertmanagerMatcherSemantics(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := matchesRoute(tt.labels, tt.route); got != tt.want {
-				t.Fatalf("matchesRoute() = %v, want %v", got, tt.want)
+			if got := matchesNativeRoute(tt.labels, tt.route); got != tt.want {
+				t.Fatalf("nativeRouteMatches() = %v, want %v", got, tt.want)
 			}
 		})
 	}
@@ -519,10 +519,10 @@ func TestGetConfigDoesNotPublishFetchStartedBeforeInvalidation(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// matchesRoute tests
+// Native route matching tests
 // ---------------------------------------------------------------------------
 
-func TestMatchesRoute(t *testing.T) {
+func TestNativeRouteMatching(t *testing.T) {
 	tests := []struct {
 		name     string
 		labels   map[string]string
@@ -686,19 +686,19 @@ func TestMatchesRoute(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := matchesRoute(tt.labels, tt.route)
+			result := matchesNativeRoute(tt.labels, tt.route)
 			if result != tt.expected {
-				t.Errorf("matchesRoute() = %v, want %v", result, tt.expected)
+				t.Errorf("nativeRouteMatches() = %v, want %v", result, tt.expected)
 			}
 		})
 	}
 }
 
 // ---------------------------------------------------------------------------
-// parseMatcher tests
+// Native matcher parsing tests
 // ---------------------------------------------------------------------------
 
-func TestParseMatcher(t *testing.T) {
+func TestParseNativeMatcher(t *testing.T) {
 	tests := []struct {
 		input     string
 		wantOK    bool
@@ -710,11 +710,12 @@ func TestParseMatcher(t *testing.T) {
 		{`severity!="critical"`, true, "severity", "!=", "critical"},
 		{`service=~"^api$"`, true, "service", "=~", "^api$"},
 		{`service!~"^api$"`, true, "service", "!~", "^api$"},
-		{`severity='critical'`, true, "severity", "=", "critical"},      // single-quote stripping
+		{`severity='critical'`, true, "severity", "=", "'critical'"},    // single quotes are part of the matcher value
 		{`severity=critical`, true, "severity", "=", "critical"},        // unquoted value
 		{`  severity = "critical" `, true, "severity", "=", "critical"}, // whitespace
 		{`"severity"="critical"`, true, "severity", "=", "critical"},
 		{`"foo bar"="x"`, true, "foo bar", "=", "x"},
+		{`"foo bar"="a\tb"`, true, "foo bar", "=", "a\tb"},
 		{`"foo\u0020bar"="x"`, true, "foo bar", "=", "x"},
 		{`"føø"="x"`, true, "føø", "=", "x"},
 		{`"foo\"bar"="x"`, true, `foo"bar`, "=", "x"},
@@ -725,24 +726,69 @@ func TestParseMatcher(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.input, func(t *testing.T) {
-			got, ok := parseMatcher(tt.input)
-			if ok != tt.wantOK {
-				t.Fatalf("parseMatcher(%q) ok = %v, want %v", tt.input, ok, tt.wantOK)
-			}
-			if !ok {
+			config := &Config{Route: &Route{
+				Receiver: "default",
+				Routes:   []*Route{{Receiver: "target", Matchers: []string{tt.input}}},
+			}}
+			tree, err := nativeRouteTreeForConfig(config)
+			if !tt.wantOK {
+				if err == nil {
+					t.Fatalf("native parser accepted invalid matcher %q", tt.input)
+				}
 				return
 			}
-			if got.Label != tt.wantLabel {
-				t.Errorf("Label = %q, want %q", got.Label, tt.wantLabel)
+			if err != nil {
+				t.Fatalf("native parser rejected matcher %q: %v", tt.input, err)
 			}
-			if got.Operator != tt.wantOp {
-				t.Errorf("Operator = %q, want %q", got.Operator, tt.wantOp)
+			matchers := tree.root.Routes[0].Matchers
+			if len(matchers) != 1 {
+				t.Fatalf("native parser returned %d matchers, want 1", len(matchers))
+			}
+			got := matchers[0]
+			if got.Name != tt.wantLabel {
+				t.Errorf("Label = %q, want %q", got.Name, tt.wantLabel)
+			}
+			if got.Type.String() != tt.wantOp {
+				t.Errorf("Operator = %q, want %q", got.Type.String(), tt.wantOp)
 			}
 			if got.Value != tt.wantValue {
 				t.Errorf("Value = %q, want %q", got.Value, tt.wantValue)
 			}
 		})
 	}
+}
+
+type parsedNativeMatcher struct {
+	Label    string
+	Operator string
+	Value    string
+}
+
+func parseNativeMatcher(input string) (parsedNativeMatcher, bool) {
+	config := &Config{Route: &Route{
+		Receiver: "default",
+		Routes:   []*Route{{Receiver: "target", Matchers: []string{input}}},
+	}}
+	tree, err := nativeRouteTreeForConfig(config)
+	if err != nil || len(tree.root.Routes[0].Matchers) != 1 {
+		return parsedNativeMatcher{}, false
+	}
+	matcher := tree.root.Routes[0].Matchers[0]
+	return parsedNativeMatcher{Label: matcher.Name, Operator: matcher.Type.String(), Value: matcher.Value}, true
+}
+
+func matchesNativeRoute(labels map[string]string, route *Route) bool {
+	config := &Config{Route: &Route{Receiver: "default", Routes: []*Route{route}}}
+	_, matched, err := (&Client{}).FindMatchingRoute(labels, config)
+	if err != nil {
+		return false
+	}
+	for _, result := range matched {
+		if result.Route == route {
+			return true
+		}
+	}
+	return false
 }
 
 // ---------------------------------------------------------------------------
@@ -1432,10 +1478,13 @@ func TestConfigCache(t *testing.T) {
 func TestExtractLabelKeys(t *testing.T) {
 	config := &Config{
 		Route: &Route{
-			Match: map[string]string{
-				"severity": "critical",
-			},
+			Receiver: "default",
 			Routes: []*Route{
+				{
+					Match: map[string]string{
+						"severity": "critical",
+					},
+				},
 				{
 					Match: map[string]string{
 						"team": "platform",
@@ -1488,6 +1537,7 @@ func TestExtractLabelKeys(t *testing.T) {
 func TestExtractLabelSuggestions(t *testing.T) {
 	config := &Config{
 		Route: &Route{
+			Receiver: "default",
 			Routes: []*Route{
 				{
 					Match:    map[string]string{"severity": "critical"},

@@ -11,14 +11,13 @@ import (
 	"net"
 	"net/http"
 	"os"
-	"regexp"
-	"strconv"
+	"sort"
 	"strings"
 	"sync"
 	"time"
-	"unicode"
-	"unicode/utf8"
 
+	"github.com/prometheus/alertmanager/dispatch"
+	amlabels "github.com/prometheus/alertmanager/pkg/labels"
 	"gopkg.in/yaml.v3"
 )
 
@@ -48,8 +47,9 @@ type StatusResponse struct {
 }
 
 type Config struct {
-	Route     *Route     `json:"route" yaml:"route"`
-	Receivers []Receiver `json:"receivers" yaml:"receivers"`
+	Route        *Route     `json:"route" yaml:"route"`
+	Receivers    []Receiver `json:"receivers" yaml:"receivers"`
+	nativeRoutes *nativeRouteTree
 }
 
 type Route struct {
@@ -345,6 +345,18 @@ func (c *Client) fetchConfig(ctx context.Context) (*Config, error) {
 	if err := c.extractRawReceiverConfigs(&config, status.ConfigYAML.Original); err != nil {
 		return nil, fmt.Errorf("failed to extract receiver configs: %w", err)
 	}
+	if config.Route == nil {
+		return &config, nil
+	}
+
+	nativeConfig, err := loadNativeConfig(status.ConfigYAML.Original)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse Alertmanager routing config: %w", err)
+	}
+	config.nativeRoutes, err = newNativeRouteTree(nativeConfig.Route, config.Route)
+	if err != nil {
+		return nil, fmt.Errorf("failed to build Alertmanager routing tree: %w", err)
+	}
 
 	return &config, nil
 }
@@ -547,19 +559,53 @@ type MatchedRoute struct {
 // It returns a flat, ordered list of MatchedRoute entries that captures the
 // full parent→child traversal path so callers can reconstruct the chain.
 func (c *Client) FindMatchingRoute(labels map[string]string, config *Config) (string, []MatchedRoute, error) {
-	if config.Route == nil {
-		return "", nil, fmt.Errorf("no route configuration found")
+	tree, err := nativeRouteTreeForConfig(config)
+	if err != nil {
+		return "", nil, err
 	}
 
-	matched := []MatchedRoute{}
-	receiver := findMatchingRouteRecursive(labels, config.Route, &matched, 0, nil, config.Route.Receiver)
-
-	// If no specific routes matched, use the root route's receiver as default
-	if receiver == "" && config.Route.Receiver != "" {
-		receiver = config.Route.Receiver
+	routes := tree.root.Match(nativeLabels(labels))
+	if len(routes) == 0 {
+		return "", []MatchedRoute{}, nil
+	}
+	if len(routes) == 1 && routes[0] == tree.root {
+		return tree.root.RouteOpts.Receiver, []MatchedRoute{}, nil
 	}
 
-	return receiver, matched, nil
+	matched := make([]MatchedRoute, 0)
+	seen := make(map[*Route]int, len(routes))
+	for _, terminal := range routes {
+		path := tree.paths[terminal]
+		for index := 1; index < len(path); index++ {
+			nativeRoute := path[index]
+			localRoute := tree.localRoutes[nativeRoute]
+			if matchedIndex, ok := seen[localRoute]; ok {
+				if nativeRoute == terminal {
+					matched[matchedIndex].IsEffective = true
+				}
+				continue
+			}
+
+			parentReceivers := make([]string, 0, index-1)
+			for parentIndex := 1; parentIndex < index; parentIndex++ {
+				if receiver := path[parentIndex].RouteOpts.Receiver; receiver != "" {
+					parentReceivers = append(parentReceivers, receiver)
+				}
+			}
+			depth := index - 1
+			matched = append(matched, MatchedRoute{
+				Route:            localRoute,
+				Depth:            depth,
+				ParentReceivers:  parentReceivers,
+				IsSubroute:       depth > 0,
+				IsEffective:      nativeRoute == terminal,
+				ResolvedReceiver: nativeRoute.RouteOpts.Receiver,
+			})
+			seen[localRoute] = len(matched) - 1
+		}
+	}
+
+	return routes[len(routes)-1].RouteOpts.Receiver, matched, nil
 }
 
 // FindReceiverByName finds a receiver configuration by name
@@ -570,240 +616,6 @@ func (c *Client) FindReceiverByName(name string, config *Config) *Receiver {
 		}
 	}
 	return nil
-}
-
-func findMatchingRouteRecursive(labels map[string]string, route *Route, matched *[]MatchedRoute, depth int, parentReceivers []string, inheritedReceiver string) string {
-	var finalReceiver string
-
-	for _, childRoute := range route.Routes {
-		if matchesRoute(labels, childRoute) {
-			receiverForRoute := childRoute.Receiver
-			if receiverForRoute == "" {
-				receiverForRoute = inheritedReceiver
-			}
-
-			matchIndex := len(*matched)
-			mr := MatchedRoute{
-				Route:            childRoute,
-				Depth:            depth,
-				ParentReceivers:  parentReceivers,
-				IsSubroute:       depth > 0,
-				ResolvedReceiver: receiverForRoute,
-			}
-			*matched = append(*matched, mr)
-
-			// Build the ancestry list for this route's own children.
-			// Only include non-empty receiver names.
-			childParents := parentReceivers
-			if receiverForRoute != "" {
-				childParents = make([]string, len(parentReceivers)+1)
-				copy(childParents, parentReceivers)
-				childParents[len(parentReceivers)] = receiverForRoute
-			}
-
-			// Recursively check child routes first.
-			if receiver := findMatchingRouteRecursive(labels, childRoute, matched, depth+1, childParents, receiverForRoute); receiver != "" {
-				finalReceiver = receiver
-			} else if receiverForRoute != "" {
-				// No child matched, so this route inherits or supplies the receiver.
-				finalReceiver = receiverForRoute
-				(*matched)[matchIndex].IsEffective = true
-			}
-
-			// If continue is false, stop checking other routes at this level
-			if !childRoute.Continue {
-				break
-			}
-		}
-	}
-
-	return finalReceiver
-}
-
-func matchesRoute(labels map[string]string, route *Route) bool {
-	for key, value := range route.Match {
-		if labels[key] != value {
-			return false
-		}
-	}
-
-	for key, pattern := range route.MatchRE {
-		matched, err := matchesRegex(pattern, labels[key])
-		if err != nil || !matched {
-			return false
-		}
-	}
-
-	for _, matcher := range route.Matchers {
-		if !matchesMatcher(labels, matcher) {
-			return false
-		}
-	}
-
-	return true
-}
-
-type parsedMatcher struct {
-	Label    string
-	Operator string
-	Value    string
-}
-
-func matchesMatcher(labels map[string]string, matcher string) bool {
-	parsed, ok := parseMatcher(matcher)
-	if !ok {
-		return false
-	}
-
-	value := labels[parsed.Label]
-
-	switch parsed.Operator {
-	case "=":
-		return value == parsed.Value
-	case "!=":
-		return value != parsed.Value
-	case "=~":
-		matched, err := matchesRegex(parsed.Value, value)
-		return err == nil && matched
-	case "!~":
-		matched, err := matchesRegex(parsed.Value, value)
-		return err == nil && !matched
-	default:
-		return false
-	}
-}
-
-func matchesRegex(pattern, value string) (bool, error) {
-	return regexp.MatchString("^(?:"+pattern+")$", value)
-}
-
-func parseMatcher(input string) (parsedMatcher, bool) {
-	input = strings.TrimSpace(input)
-	labelIsQuoted := strings.HasPrefix(input, `"`)
-	label, rest, ok := parseMatcherToken(input, unquoteStrictMatcherToken)
-	if !ok {
-		return parsedMatcher{}, false
-	}
-
-	rest = strings.TrimLeftFunc(rest, unicode.IsSpace)
-	operator := ""
-	for _, candidate := range []string{"=~", "!~", "!=", "="} {
-		if strings.HasPrefix(rest, candidate) {
-			operator = candidate
-			rest = rest[len(candidate):]
-			break
-		}
-	}
-	if operator == "" {
-		return parsedMatcher{}, false
-	}
-
-	value := strings.TrimSpace(rest)
-	if strings.HasPrefix(value, `"`) {
-		unquote := unquoteMatcherValue
-		if labelIsQuoted {
-			unquote = unquoteStrictMatcherToken
-		}
-		unquoted, remaining, ok := parseMatcherToken(value, unquote)
-		if !ok || strings.TrimSpace(remaining) != "" {
-			return parsedMatcher{}, false
-		}
-		value = unquoted
-	} else if len(value) >= 2 && value[0] == '\'' && value[len(value)-1] == '\'' {
-		value = value[1 : len(value)-1]
-	}
-
-	return parsedMatcher{Label: label, Operator: operator, Value: value}, true
-}
-
-func parseMatcherToken(input string, unquote func(string) (string, error)) (string, string, bool) {
-	if strings.HasPrefix(input, `"`) {
-		return parseQuotedMatcherToken(input, unquote)
-	}
-
-	end := 0
-	for end < len(input) {
-		r, size := utf8.DecodeRuneInString(input[end:])
-		if unicode.IsSpace(r) || strings.ContainsRune("=!~", r) {
-			break
-		}
-		end += size
-	}
-	if end == 0 || !utf8.ValidString(input[:end]) {
-		return "", input, false
-	}
-	return input[:end], input[end:], true
-}
-
-func parseQuotedMatcherToken(input string, unquote func(string) (string, error)) (string, string, bool) {
-	escaped := false
-	for i := 1; i < len(input); i++ {
-		switch input[i] {
-		case '\\':
-			escaped = !escaped
-		case '"':
-			if escaped {
-				escaped = false
-				continue
-			}
-			value, err := unquote(input[:i+1])
-			return value, input[i+1:], err == nil
-		default:
-			escaped = false
-		}
-	}
-	return "", input, false
-}
-
-func unquoteStrictMatcherToken(value string) (string, error) {
-	unquoted, err := strconv.Unquote(value)
-	if err != nil {
-		return "", err
-	}
-	if !utf8.ValidString(unquoted) {
-		return "", fmt.Errorf("matcher token is not valid UTF-8")
-	}
-	return unquoted, nil
-}
-
-func unquoteMatcherValue(value string) (string, error) {
-	rawValue := value[1 : len(value)-1]
-	if !utf8.ValidString(rawValue) {
-		return "", fmt.Errorf("matcher value is not valid UTF-8")
-	}
-
-	var builder strings.Builder
-	escaped := false
-	for i, r := range rawValue {
-		if escaped {
-			escaped = false
-			switch r {
-			case 'n':
-				builder.WriteByte('\n')
-			case '\\', '"':
-				builder.WriteRune(r)
-			default:
-				builder.WriteByte('\\')
-				builder.WriteRune(r)
-			}
-			continue
-		}
-
-		switch r {
-		case '\\':
-			if i < len(rawValue)-1 {
-				escaped = true
-				continue
-			}
-			builder.WriteByte('\\')
-		case '"':
-			return "", fmt.Errorf("matcher value contains unescaped double quote")
-		default:
-			builder.WriteRune(r)
-		}
-	}
-
-	return builder.String(), nil
 }
 
 type LabelSuggestion struct {
@@ -817,22 +629,45 @@ type SampleAlert struct {
 	Labels      map[string]string
 }
 
-// ExtractLabelKeys extracts all unique label keys from the route configuration
+// ExtractLabelKeys extracts all unique label keys from the route configuration.
 func ExtractLabelKeys(config *Config) []string {
+	tree, err := nativeRouteTreeForConfig(config)
+	if err != nil {
+		return nil
+	}
 	keys := make(map[string]bool)
-	extractFromRoute(config.Route, keys)
+	tree.root.Walk(func(route *dispatch.Route) {
+		for _, matcher := range route.Matchers {
+			keys[matcher.Name] = true
+		}
+	})
 
 	result := make([]string, 0, len(keys))
 	for key := range keys {
 		result = append(result, key)
 	}
+	sort.Strings(result)
 	return result
 }
 
-// ExtractLabelSuggestions extracts label keys and their possible values from the route configuration
+// ExtractLabelSuggestions extracts label keys and their possible values from the route configuration.
 func ExtractLabelSuggestions(config *Config) []LabelSuggestion {
+	tree, err := nativeRouteTreeForConfig(config)
+	if err != nil {
+		return nil
+	}
 	labelValues := make(map[string]map[string]bool)
-	extractLabelValuesFromRoute(config.Route, labelValues)
+	tree.root.Walk(func(route *dispatch.Route) {
+		for _, matcher := range route.Matchers {
+			if matcher.Type != amlabels.MatchEqual {
+				continue
+			}
+			if labelValues[matcher.Name] == nil {
+				labelValues[matcher.Name] = make(map[string]bool)
+			}
+			labelValues[matcher.Name][matcher.Value] = true
+		}
+	})
 
 	suggestions := make([]LabelSuggestion, 0, len(labelValues))
 	for key, valuesMap := range labelValues {
@@ -840,66 +675,13 @@ func ExtractLabelSuggestions(config *Config) []LabelSuggestion {
 		for value := range valuesMap {
 			values = append(values, value)
 		}
-		suggestions = append(suggestions, LabelSuggestion{
-			Key:    key,
-			Values: values,
-		})
+		sort.Strings(values)
+		suggestions = append(suggestions, LabelSuggestion{Key: key, Values: values})
 	}
+	sort.Slice(suggestions, func(i, j int) bool {
+		return suggestions[i].Key < suggestions[j].Key
+	})
 	return suggestions
-}
-
-func extractFromRoute(route *Route, keys map[string]bool) {
-	if route == nil {
-		return
-	}
-
-	for key := range route.Match {
-		keys[key] = true
-	}
-	for key := range route.MatchRE {
-		keys[key] = true
-	}
-	for _, matcher := range route.Matchers {
-		parsed, ok := parseMatcher(matcher)
-		if ok {
-			keys[parsed.Label] = true
-		}
-	}
-
-	for _, child := range route.Routes {
-		extractFromRoute(child, keys)
-	}
-}
-
-func extractLabelValuesFromRoute(route *Route, labelValues map[string]map[string]bool) {
-	if route == nil {
-		return
-	}
-
-	for key, value := range route.Match {
-		if labelValues[key] == nil {
-			labelValues[key] = make(map[string]bool)
-		}
-		labelValues[key][value] = true
-	}
-
-	for _, child := range route.Routes {
-		extractLabelValuesFromRoute(child, labelValues)
-	}
-
-	for _, matcher := range route.Matchers {
-		parsed, ok := parseMatcher(matcher)
-		if !ok {
-			continue
-		}
-		if parsed.Operator != "=" {
-			continue
-		}
-		if labelValues[parsed.Label] == nil {
-			labelValues[parsed.Label] = make(map[string]bool)
-		}
-		labelValues[parsed.Label][parsed.Value] = true
-	}
 }
 
 // GenerateSampleAlerts creates examples that match the configured routes and root fallback.
@@ -908,9 +690,13 @@ func GenerateSampleAlerts(config *Config) []SampleAlert {
 		return nil
 	}
 
+	tree, err := nativeRouteTreeForConfig(config)
+	if err != nil {
+		return nil
+	}
 	client := &Client{}
 	candidates := make([]map[string]string, 0)
-	collectRouteExamples(config.Route, map[string]string{}, &candidates)
+	collectRouteExamples(tree.root, map[string]string{}, &candidates)
 
 	samples := make([]SampleAlert, 0, 3)
 	seen := make(map[string]bool)
@@ -935,8 +721,9 @@ func GenerateSampleAlerts(config *Config) []SampleAlert {
 		})
 	}
 
+	labelKeys := ExtractLabelKeys(config)
 	for attempt := 0; attempt < 100; attempt++ {
-		labels := fallbackLabels(config, attempt)
+		labels := fallbackLabels(labelKeys, attempt)
 		receiver, matched, err := client.FindMatchingRoute(labels, config)
 		if err != nil || len(matched) != 0 || receiver == "" {
 			continue
@@ -952,12 +739,7 @@ func GenerateSampleAlerts(config *Config) []SampleAlert {
 	return samples
 }
 
-type routeLabelConstraint struct {
-	operator string
-	value    string
-}
-
-func collectRouteExamples(route *Route, labels map[string]string, candidates *[]map[string]string) {
+func collectRouteExamples(route *dispatch.Route, labels map[string]string, candidates *[]map[string]string) {
 	continuingLabels := labels
 	hasContinuingLabels := false
 	for _, child := range route.Routes {
@@ -979,41 +761,31 @@ func collectRouteExamples(route *Route, labels map[string]string, candidates *[]
 	}
 }
 
-func routeExampleLabels(parentLabels map[string]string, route *Route) (map[string]string, bool) {
+func routeExampleLabels(parentLabels map[string]string, route *dispatch.Route) (map[string]string, bool) {
 	labels := make(map[string]string, len(parentLabels))
 	for key, value := range parentLabels {
 		labels[key] = value
 	}
 
-	constraints := make(map[string][]routeLabelConstraint)
-	for key, value := range route.Match {
-		constraints[key] = append(constraints[key], routeLabelConstraint{operator: "=", value: value})
-	}
-	for key, value := range route.MatchRE {
-		constraints[key] = append(constraints[key], routeLabelConstraint{operator: "=~", value: value})
-	}
+	constraints := make(map[string][]*amlabels.Matcher)
 	for _, matcher := range route.Matchers {
-		parsed, ok := parseMatcher(matcher)
-		if !ok {
-			return nil, false
-		}
-		constraints[parsed.Label] = append(constraints[parsed.Label], routeLabelConstraint{operator: parsed.Operator, value: parsed.Value})
+		constraints[matcher.Name] = append(constraints[matcher.Name], matcher)
 	}
 
-	for key, conditions := range constraints {
-		if labelsMatchRouteConstraints(labels[key], conditions) {
+	for name, conditions := range constraints {
+		if matchersMatch(labels[name], conditions) {
 			continue
 		}
 		found := false
 		candidates := []string{"alertmanager-route-tester-example", "example", "test", "critical", "warning", "production", "api", "x", "0", ""}
 		for _, condition := range conditions {
-			if condition.operator == "=" {
-				candidates = append([]string{condition.value}, candidates...)
+			if condition.Type == amlabels.MatchEqual {
+				candidates = append([]string{condition.Value}, candidates...)
 			}
 		}
 		for _, candidate := range candidates {
-			if labelsMatchRouteConstraints(candidate, conditions) {
-				labels[key] = candidate
+			if matchersMatch(candidate, conditions) {
+				labels[name] = candidate
 				found = true
 				break
 			}
@@ -1021,30 +793,17 @@ func routeExampleLabels(parentLabels map[string]string, route *Route) (map[strin
 		if !found {
 			return nil, false
 		}
-		if labels[key] == "" {
-			delete(labels, key)
+		if labels[name] == "" {
+			delete(labels, name)
 		}
 	}
 
 	return labels, true
 }
 
-func labelsMatchRouteConstraints(value string, constraints []routeLabelConstraint) bool {
-	for _, constraint := range constraints {
-		matches := false
-		switch constraint.operator {
-		case "=":
-			matches = value == constraint.value
-		case "!=":
-			matches = value != constraint.value
-		case "=~":
-			matched, err := matchesRegex(constraint.value, value)
-			matches = err == nil && matched
-		case "!~":
-			matched, err := matchesRegex(constraint.value, value)
-			matches = err == nil && !matched
-		}
-		if !matches {
+func matchersMatch(value string, matchers []*amlabels.Matcher) bool {
+	for _, matcher := range matchers {
+		if !matcher.Matches(value) {
 			return false
 		}
 	}
@@ -1067,8 +826,7 @@ func effectiveReceivers(receiver string, matched []MatchedRoute) []string {
 	return receivers
 }
 
-func fallbackLabels(config *Config, attempt int) map[string]string {
-	keys := ExtractLabelKeys(config)
+func fallbackLabels(keys []string, attempt int) map[string]string {
 	if len(keys) == 0 {
 		keys = []string{"alertname"}
 	}

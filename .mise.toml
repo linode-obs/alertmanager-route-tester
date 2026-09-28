@@ -66,7 +66,7 @@ run = """
 #!/bin/bash
 set -e
 
-ALERTMANAGER_VERSION="0.27.0"
+ALERTMANAGER_VERSION="0.33.0"
 OS=$(uname -s | tr '[:upper:]' '[:lower:]')
 ARCH=$(uname -m)
 
@@ -78,9 +78,15 @@ fi
 
 ALERTMANAGER_DIR="./bin/alertmanager"
 
-if [ -f "$ALERTMANAGER_DIR/alertmanager" ]; then
-    echo "Alertmanager already installed"
-    exit 0
+if [ -d "$ALERTMANAGER_DIR" ]; then
+    if [ -x "$ALERTMANAGER_DIR/alertmanager" ] && "$ALERTMANAGER_DIR/alertmanager" --version 2>/dev/null | grep -Fq "version ${ALERTMANAGER_VERSION}"; then
+        echo "Alertmanager ${ALERTMANAGER_VERSION} already installed"
+        exit 0
+    fi
+
+    previous_dir="${ALERTMANAGER_DIR}-$(date +%s)"
+    echo "Moving the existing Alertmanager to ${previous_dir}..."
+    mv "$ALERTMANAGER_DIR" "$previous_dir"
 fi
 
 echo "Downloading Alertmanager ${ALERTMANAGER_VERSION} for ${OS}/${ARCH}..."

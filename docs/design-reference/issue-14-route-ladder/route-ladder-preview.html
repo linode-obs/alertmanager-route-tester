@@ -1,0 +1,543 @@
+<!doctype html>
+<html lang="en" data-layout="route-ladder" data-theme="light">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>ATR Bauhaus layout studies</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --paper: #f1e6c9;
+      --panel: #fffaf0;
+      --panel-alt: #f3d965;
+      --ink: #171717;
+      --muted: #57554e;
+      --line: #171717;
+      --red: #d9382d;
+      --blue: #174b91;
+      --yellow: #f0d65d;
+      --green: #285741;
+      --sans: Arial, Helvetica, sans-serif;
+      --mono: "SFMono-Regular", Consolas, monospace;
+      background: var(--paper);
+      color: var(--ink);
+      font-family: var(--sans);
+    }
+
+    * { box-sizing: border-box; }
+    body { margin: 0; background: var(--paper); color: var(--ink); font: 15px/1.45 var(--sans); }
+    button { font: inherit; }
+
+    .topbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 18px;
+      padding: 12px clamp(18px, 4vw, 56px);
+      border-bottom: 2px solid var(--ink);
+      background: var(--panel);
+    }
+    .brand { display: flex; align-items: center; gap: 11px; font-weight: 800; letter-spacing: -.03em; }
+    .brand-mark { display: grid; width: 34px; height: 34px; place-items: center; border-radius: 50%; background: var(--blue); color: white; font: 800 11px/1 var(--mono); }
+    .theme-toggle { display: flex; gap: 5px; }
+    .theme-toggle button { padding: 6px 9px; border: 1px solid var(--line); background: transparent; color: var(--ink); font: 10px/1.2 var(--mono); cursor: pointer; }
+    .theme-toggle button[aria-pressed="true"] { background: var(--blue); border-color: var(--blue); color: white; }
+    .topbar .theme-toggle button { border-color: #69737d; background: transparent; color: #f5f7fa; }
+    .topbar .theme-toggle button[aria-pressed="true"] { border-color: #337ab7; background: #337ab7; color: #ffffff; }
+    .prototype-note { color: var(--muted); font: 10px/1.4 var(--mono); text-transform: uppercase; letter-spacing: .08em; }
+
+    .controls { display: grid; gap: 10px; padding: 14px clamp(18px, 4vw, 56px); background: var(--paper); border-bottom: 1px solid rgba(23,23,23,.22); }
+    .control-row { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 10px 18px; align-items: center; }
+    .control-label { color: var(--muted); font: 10px/1.3 var(--mono); letter-spacing: .08em; text-transform: uppercase; }
+    .layout-tabs, .state-tabs { display: flex; flex-wrap: wrap; gap: 6px; }
+    .layout-tabs button, .state-tabs button {
+      min-height: 33px;
+      padding: 6px 10px;
+      border: 1px solid var(--ink);
+      background: transparent;
+      color: var(--ink);
+      font: 11px/1.2 var(--mono);
+      cursor: pointer;
+    }
+    .layout-tabs button[aria-pressed="true"], .state-tabs button[aria-pressed="true"] { background: var(--ink); color: var(--panel); }
+
+    .page { width: min(1440px, calc(100% - 48px)); margin: 0 auto; padding: 22px 0 36px; }
+    .hero { display: flex; align-items: end; justify-content: space-between; gap: 24px; margin: 4px 0 18px; }
+    .eyebrow { margin: 0 0 5px; color: var(--red); font: 700 10px/1.2 var(--mono); letter-spacing: .12em; text-transform: uppercase; }
+    h1 { max-width: 780px; margin: 0; font-size: 26px; line-height: 1.15; letter-spacing: -.02em; }
+    .hero-copy { margin: 7px 0 0; color: var(--muted); font-size: 13px; }
+    .state-tabs { justify-content: flex-end; }
+
+    .workspace { display: grid; grid-template-columns: minmax(310px, .78fr) minmax(500px, 1.22fr); gap: 16px; align-items: start; }
+    .input-pane, .result-pane { min-width: 0; }
+    .input-pane { padding: 16px; border: 2px solid var(--ink); background: var(--panel); }
+    .pane-heading { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; margin: 0 0 12px; font-size: 14px; font-weight: 800; }
+    .step-label { font: 10px/1.2 var(--mono); color: var(--muted); }
+    .quick-examples { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 13px; }
+    .quick-examples span { padding: 5px 8px; border: 1px solid var(--ink); background: var(--yellow); font: 10px/1.2 var(--mono); }
+    .label-list { display: grid; gap: 5px; }
+    .label-chip { display: flex; justify-content: space-between; gap: 10px; padding: 7px 9px; background: var(--paper); font: 11px/1.3 var(--mono); }
+    .label-chip strong { color: var(--blue); }
+    .team-label { display: none; }
+    .ladder-label { display: none; }
+    main[data-state="added"] .team-label,
+    main[data-state="tested"] .team-label,
+    main[data-state="shared"] .team-label { display: flex; }
+    main[data-state="added"] .add-label,
+    main[data-state="tested"] .add-label,
+    main[data-state="shared"] .add-label { display: none; }
+    .add-label { width: 100%; margin-top: 8px; padding: 7px 9px; border: 1px dashed var(--blue); background: transparent; color: var(--blue); text-align: left; font: 11px/1.3 var(--mono); cursor: pointer; }
+    .form-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+    .action-button { min-height: 39px; padding: 0 13px; border: 2px solid var(--ink); background: var(--red); color: white; font-size: 12px; font-weight: 800; cursor: pointer; }
+    .action-button.secondary { background: var(--panel); color: var(--ink); }
+    .action-message { min-height: 18px; margin: 8px 0 0; color: var(--green); font: 10px/1.3 var(--mono); }
+    main[data-state="added"] .action-message::after { content: "LABEL ADDED · team=monitoring"; }
+    main[data-state="shared"] .action-message::after { content: "LINK COPIED · labels only"; }
+
+    .result-pane { padding: 14px; border: 2px solid var(--ink); background: var(--panel); }
+    .result-kicker { display: flex; justify-content: space-between; gap: 12px; color: var(--muted); font: 10px/1.2 var(--mono); letter-spacing: .08em; text-transform: uppercase; }
+    .receiver-band { display: flex; align-items: end; justify-content: space-between; gap: 16px; margin: 8px 0 12px; }
+    .receiver-name { margin: 0; color: var(--blue); font-size: clamp(31px, 4vw, 54px); line-height: .88; letter-spacing: -.06em; font-weight: 900; }
+    .receiver-count { padding: 5px 8px; background: var(--yellow); font: 10px/1.2 var(--mono); }
+    .fallback-message { margin: 0; padding: 9px 11px; border-left: 7px solid var(--red); background: var(--yellow); font-size: 12px; font-weight: 700; }
+    .fallback-message strong { color: var(--red); }
+    .result-live { display: none; }
+    .long-route-result { display: none; }
+    .ladder-path-label { display: none; }
+    main[data-state="tested"] .result-idle,
+    main[data-state="shared"] .result-idle { display: none; }
+    main[data-state="tested"] .result-live,
+    main[data-state="shared"] .result-live { display: block; }
+    .result-idle { margin-top: 14px; padding: 12px; border: 1px dashed var(--line); color: var(--muted); font: 11px/1.4 var(--mono); }
+    .share-note { display: none; }
+    main[data-state="shared"] .share-note { display: block; }
+    .outcome-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; margin-top: 12px; }
+    .receiver-card { padding: 9px 10px; border: 1px solid var(--ink); background: var(--yellow); }
+    .receiver-card:nth-child(2) { background: #dfe8f3; border-color: var(--blue); }
+    .receiver-card b { display: block; font-size: 13px; }
+    .receiver-card small { color: var(--muted); font: 9px/1.3 var(--mono); }
+    .result-section { margin-top: 14px; }
+    .section-line { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; margin-bottom: 6px; }
+    .section-line h3 { margin: 0; font-size: 12px; }
+    .section-line small { color: var(--muted); font: 9px/1.2 var(--mono); }
+    .route-list { display: grid; gap: 5px; }
+    .route-step { display: grid; grid-template-columns: 28px 1fr auto; gap: 8px; align-items: center; padding: 7px 8px; border-left: 4px solid var(--blue); background: var(--paper); }
+    .route-step:nth-child(2) { border-left-color: var(--red); }
+    .route-number { color: var(--muted); font: 10px/1 var(--mono); }
+    .route-step b { font-size: 11px; }
+    .route-badge { color: var(--green); font: 9px/1.2 var(--mono); text-transform: uppercase; }
+    .static-note { margin: 11px 0 0; color: var(--muted); font: 9px/1.3 var(--mono); }
+
+    /* 1: control board, balanced input and result panels. */
+    html[data-layout="control-board"] {
+      --paper: #f1e6c9;
+      --panel: #fffaf0;
+      --panel-alt: #f3d965;
+      --ink: #171717;
+      --muted: #57554e;
+      --line: #171717;
+      --red: #d9382d;
+      --blue: #174b91;
+      --yellow: #f0d65d;
+    }
+
+    /* 2: a wide result poster below a compact input row. */
+    html[data-layout="poster-board"] {
+      --paper: #f3e8c8;
+      --panel: #fff8e7;
+      --panel-alt: #f2d350;
+      --ink: #151515;
+      --muted: #514f48;
+      --line: #151515;
+      --red: #cf3128;
+      --blue: #214f9b;
+      --yellow: #f3d74d;
+    }
+    html[data-layout="poster-board"] .workspace { grid-template-columns: 1fr; gap: 12px; }
+    html[data-layout="poster-board"] .input-pane { display: grid; grid-template-columns: 1fr 1.3fr; grid-template-areas: "heading labels" "examples labels" "actions mode" "message mode"; column-gap: 22px; row-gap: 5px; align-items: center; padding: 12px 16px; }
+    html[data-layout="poster-board"] .input-pane > .pane-heading { grid-area: heading; }
+    html[data-layout="poster-board"] .input-pane > .quick-examples { grid-area: examples; }
+    html[data-layout="poster-board"] .input-pane > .label-section { grid-area: labels; }
+    html[data-layout="poster-board"] .input-pane > .mode-section { grid-area: mode; }
+    html[data-layout="poster-board"] .input-pane > .form-actions { grid-area: actions; }
+    html[data-layout="poster-board"] .input-pane > .action-message { grid-area: message; }
+    html[data-layout="poster-board"] .result-pane { padding: 16px 20px; border-width: 0 0 0 10px; background: var(--yellow); }
+    html[data-layout="poster-board"] .result-pane > .result { padding: 0; border: 0; background: transparent; }
+    html[data-layout="poster-board"] .result-live { grid-template-columns: .7fr 1.3fr; gap: 6px 18px; align-items: start; }
+    html[data-layout="poster-board"] main[data-state="tested"] .result-live,
+    html[data-layout="poster-board"] main[data-state="shared"] .result-live { display: grid; }
+    html[data-layout="poster-board"] .result-live > .result-kicker,
+    html[data-layout="poster-board"] .result-live > .receiver-band,
+    html[data-layout="poster-board"] .result-live > .fallback-message { grid-column: 1; }
+    html[data-layout="poster-board"] .result-live > .outcome-grid,
+    html[data-layout="poster-board"] .result-live > .result-section,
+    html[data-layout="poster-board"] .result-live > .share-note { grid-column: 2; }
+    html[data-layout="poster-board"] .result-pane .receiver-name { color: var(--red); }
+    html[data-layout="poster-board"] .result-pane .fallback-message { border-color: var(--blue); background: var(--panel); }
+
+    /* 3: route ladder, receiver sequence becomes the main visual. */
+    html[data-layout="route-ladder"] {
+      --paper: #f0e5c6;
+      --panel: #fffaf0;
+      --panel-alt: #f0cf4a;
+      --ink: #181818;
+      --muted: #55534b;
+      --line: #181818;
+      --red: #d5442c;
+      --blue: #1a4b91;
+      --yellow: #f0cf4a;
+    }
+    html[data-layout="route-ladder"] .workspace { grid-template-columns: minmax(280px, .65fr) minmax(560px, 1.35fr); }
+    html[data-layout="route-ladder"] .result-pane { border: 0; padding: 0; background: transparent; }
+    html[data-layout="route-ladder"] .result-pane > .pane-heading { padding: 0 4px; }
+    html[data-layout="route-ladder"] .result-pane > .result { padding: 18px; border: 2px solid var(--ink); background: var(--panel); }
+    html[data-layout="route-ladder"] .result-live { grid-template-columns: .8fr 1.2fr; gap: 12px 20px; align-items: center; }
+    html[data-layout="route-ladder"] main[data-state="tested"] .result-live,
+    html[data-layout="route-ladder"] main[data-state="shared"] .result-live { display: grid; }
+    html[data-layout="route-ladder"] .result-live > .result-kicker,
+    html[data-layout="route-ladder"] .result-live > .receiver-band,
+    html[data-layout="route-ladder"] .result-live > .fallback-message { grid-column: 1; }
+    html[data-layout="route-ladder"] .result-live > .outcome-grid,
+    html[data-layout="route-ladder"] .result-live > .result-section,
+    html[data-layout="route-ladder"] .result-live > .share-note { grid-column: 2; }
+    html[data-layout="route-ladder"] .result-pane .receiver-name { font-size: clamp(30px, 3vw, 44px); white-space: nowrap; }
+    html[data-layout="route-ladder"] .base-label,
+    html[data-layout="route-ladder"] .team-label { display: none !important; }
+    html[data-layout="route-ladder"] .ladder-label { display: flex; }
+    html[data-layout="route-ladder"] [data-action="add"],
+    html[data-layout="route-ladder"] [data-state-choice="added"] { display: none; }
+    html[data-layout="route-ladder"] .continue-route-result,
+    html[data-layout="route-ladder"] .continue-path-label { display: none !important; }
+    html[data-layout="route-ladder"] .ladder-path-label { display: inline; }
+    html[data-layout="route-ladder"] .result-live .result-kicker,
+    html[data-layout="route-ladder"] main[data-state="tested"] .long-route-result,
+    html[data-layout="route-ladder"] main[data-state="shared"] .long-route-result { grid-column: 1 / -1; }
+    html[data-layout="route-ladder"] main[data-state="tested"] .long-route-result,
+    html[data-layout="route-ladder"] main[data-state="shared"] .long-route-result { display: block; }
+    html[data-layout="route-ladder"] .result-pane .route-list { gap: 0; border-left: 3px solid var(--blue); margin-left: 8px; padding-left: 12px; }
+    html[data-layout="route-ladder"] .result-pane .route-step { position: relative; margin: 0 0 7px; }
+    html[data-layout="route-ladder"] .result-pane .route-step::before { content: ""; position: absolute; left: -21px; width: 8px; height: 8px; border: 2px solid var(--blue); border-radius: 50%; background: var(--panel); }
+
+    /* 4: asymmetric receiver block, label controls stay compact. */
+    html[data-layout="offset-result"] {
+      --paper: #eee6d6;
+      --panel: #fffaf1;
+      --panel-alt: #dbe5f1;
+      --ink: #171717;
+      --muted: #55534c;
+      --line: #171717;
+      --red: #d3432f;
+      --blue: #194d96;
+      --yellow: #edd24f;
+    }
+    html[data-layout="offset-result"] .workspace { grid-template-columns: minmax(310px, .7fr) minmax(540px, 1.3fr); gap: 28px; }
+    html[data-layout="offset-result"] .input-pane { margin-top: 28px; border-width: 0 0 0 7px; background: transparent; padding: 6px 0 6px 14px; }
+    html[data-layout="offset-result"] .result-pane { padding: 18px; border: 0; background: var(--blue); color: white; box-shadow: 9px 9px 0 var(--ink); }
+    html[data-layout="offset-result"] .result-pane .pane-heading,
+    html[data-layout="offset-result"] .result-pane .result-kicker,
+    html[data-layout="offset-result"] .result-pane .section-line small,
+    html[data-layout="offset-result"] .result-pane .static-note { color: #e1e8f1; }
+    html[data-layout="offset-result"] .result-pane .result { padding: 20px; border: 0; background: var(--panel); color: var(--ink); }
+    html[data-layout="offset-result"] .result-pane .receiver-name { color: var(--blue); }
+    html[data-layout="offset-result"] .result-pane .fallback-message { background: var(--panel-alt); }
+
+    /* 5: information strip, then a full-width route report. */
+    html[data-layout="field-report"] {
+      --paper: #f3e9d5;
+      --panel: #fffdf7;
+      --panel-alt: #eee0bf;
+      --ink: #171717;
+      --muted: #59554d;
+      --line: #171717;
+      --red: #d23d2d;
+      --blue: #245190;
+      --yellow: #efce4c;
+    }
+    html[data-layout="field-report"] .workspace { grid-template-columns: 1fr; gap: 12px; }
+    html[data-layout="field-report"] .input-pane { display: grid; grid-template-columns: .75fr 1fr 1fr; gap: 12px 20px; align-items: center; padding: 12px 16px; }
+    html[data-layout="field-report"] .input-pane > .pane-heading { grid-column: 1; }
+    html[data-layout="field-report"] .input-pane > .quick-examples { grid-column: 1; }
+    html[data-layout="field-report"] .input-pane > .form-section:nth-child(3) { grid-column: 2; grid-row: 1 / span 3; }
+    html[data-layout="field-report"] .input-pane > .form-section:nth-child(4) { grid-column: 3; grid-row: 1 / span 3; }
+    html[data-layout="field-report"] .input-pane > .form-actions,
+    html[data-layout="field-report"] .input-pane > .action-message { grid-column: 1; }
+    html[data-layout="field-report"] .result-pane { padding: 16px 20px; border-width: 2px 0 0; background: var(--panel); }
+    html[data-layout="field-report"] .result-live { grid-template-columns: .7fr 1.3fr; gap: 8px 22px; }
+    html[data-layout="field-report"] main[data-state="tested"] .result-live,
+    html[data-layout="field-report"] main[data-state="shared"] .result-live { display: grid; }
+    html[data-layout="field-report"] .result-live > .result-kicker,
+    html[data-layout="field-report"] .result-live > .receiver-band,
+    html[data-layout="field-report"] .result-live > .fallback-message { grid-column: 1; }
+    html[data-layout="field-report"] .result-live > .outcome-grid,
+    html[data-layout="field-report"] .result-live > .result-section,
+    html[data-layout="field-report"] .result-live > .share-note { grid-column: 2; }
+    html[data-layout="field-report"] .result-pane .receiver-name { font-size: 46px; }
+    html[data-layout="field-report"] .result-pane .route-step { border-left-width: 0; border-top: 1px solid var(--line); background: transparent; }
+
+    .long-route-result { margin-top: 12px; }
+    .long-route-steps { display: grid; gap: 4px; margin: 10px 0 0 12px; padding-left: 13px; border-left: 3px solid var(--blue); }
+    .long-route-step { position: relative; display: grid; grid-template-columns: 28px minmax(0, 1fr) auto; gap: 8px; align-items: center; padding: 8px 10px; border-left: 3px solid var(--blue); background: var(--panel-alt); }
+    .long-route-step::before { content: ""; position: absolute; left: -21px; width: 8px; height: 8px; border: 2px solid var(--blue); border-radius: 50%; background: var(--panel); }
+    .long-route-step:nth-child(even) { border-left-color: var(--red); }
+    .long-route-step small { display: block; margin-top: 2px; color: var(--muted); font: 9px/1.3 var(--mono); }
+    .long-route-step:last-child .route-badge { color: var(--green); font-weight: 800; }
+
+    html[data-theme="light"] {
+      color-scheme: light;
+      --paper: #f5f7fa;
+      --panel: #ffffff;
+      --panel-alt: #e8f2fb;
+      --ink: #303840;
+      --muted: #6b747d;
+      --line: #d1d7dd;
+      --red: #bd4d43;
+      --blue: #337ab7;
+      --yellow: #e8f2fb;
+      --yellow-ink: #303840;
+      --green: #27864b;
+    }
+    html[data-theme="light"] .topbar { background: #343a40; border-color: #343a40; color: #f5f7fa; }
+    html[data-theme="light"] .topbar .prototype-note { color: #c8d0d8; }
+    html[data-theme="light"] .layout-tabs button[aria-pressed="true"],
+    html[data-theme="light"] .state-tabs button[aria-pressed="true"] { border-color: var(--blue); background: var(--blue); color: #ffffff; }
+    html[data-theme="light"] .action-button:not(.secondary) { border-color: var(--blue); background: var(--blue); color: #ffffff; }
+    html[data-theme="light"] .quick-examples span { border-color: #b6cde0; background: #e8f2fb; color: #334454; }
+    html[data-theme="light"] .receiver-card { border-color: #b6cde0; background: #e8f2fb; color: #303840; }
+    html[data-theme="light"] .receiver-card:nth-child(2) { border-color: #b6cde0; background: #f0f3f6; color: #303840; }
+
+    html[data-theme="dark"] {
+      color-scheme: dark;
+      --paper: #22272e;
+      --panel: #2d333b;
+      --panel-alt: #37414b;
+      --ink: #e6edf3;
+      --muted: #aab5bf;
+      --line: #58636e;
+      --red: #f0786b;
+      --blue: #3d91d5;
+      --yellow: #21394f;
+      --yellow-ink: #e6edf3;
+      --green: #3fb878;
+    }
+    html[data-theme="dark"] .topbar { background: #343a40; border-color: #49515a; color: #f5f7fa; }
+    html[data-theme="dark"] .topbar .prototype-note { color: #c8d0d8; }
+    html[data-theme="dark"] .layout-tabs button[aria-pressed="true"],
+    html[data-theme="dark"] .state-tabs button[aria-pressed="true"] { border-color: #2384d1; background: #2384d1; color: #ffffff; }
+    html[data-theme="dark"] .action-button:not(.secondary) { border-color: #2384d1; background: #2384d1; color: #ffffff; }
+    html[data-theme="dark"] .quick-examples span { border-color: #4c6881; background: #31485d; color: #edf4fa; }
+    html[data-theme="dark"] .receiver-card { border-color: #4c6881; background: #31485d; color: #edf4fa; }
+    html[data-theme="dark"] .receiver-card:nth-child(2) { border-color: #4c6881; background: #2b3540; color: #edf4fa; }
+    html[data-theme="dark"][data-layout="poster-board"] .result-pane { border-left-color: #2384d1; background: #233545; }
+    html[data-theme="dark"][data-layout="offset-result"] .result-pane { background: #233545; }
+    html[data-theme="dark"][data-layout="offset-result"] .result-pane .result { background: #2d333b; }
+
+    @media (max-width: 900px) {
+      .page { width: min(100% - 32px, 680px); padding-top: 16px; }
+      .hero { align-items: flex-start; flex-direction: column; }
+      .state-tabs { justify-content: flex-start; }
+      .workspace,
+      html[data-layout="route-ladder"] .workspace,
+      html[data-layout="offset-result"] .workspace { grid-template-columns: 1fr; }
+      html[data-layout="poster-board"] .input-pane,
+      html[data-layout="field-report"] .input-pane { grid-template-columns: 1fr; }
+      html[data-layout="poster-board"] .input-pane > *,
+      html[data-layout="field-report"] .input-pane > * { grid-column: 1 !important; grid-row: auto !important; }
+      html[data-layout="route-ladder"] .result-live,
+      html[data-layout="field-report"] .result-live { grid-template-columns: 1fr; }
+      html[data-layout="route-ladder"] .result-live > *,
+      html[data-layout="field-report"] .result-live > * { grid-column: 1; }
+      html[data-layout="offset-result"] .input-pane { margin-top: 0; }
+    }
+
+    @media (max-width: 620px) {
+      .topbar { align-items: flex-start; flex-direction: column; }
+      .control-row { align-items: flex-start; flex-direction: column; }
+      .layout-tabs button, .state-tabs button { padding: 6px 7px; font-size: 10px; }
+      .page { width: calc(100% - 28px); }
+      .outcome-grid { grid-template-columns: 1fr; }
+      .receiver-band { align-items: flex-start; flex-direction: column; }
+    }
+  </style>
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand"><span class="brand-mark">ATR</span><span>Alertmanager Route Tester</span></div>
+    <div class="theme-toggle" role="group" aria-label="Preview theme">
+      <button type="button" data-theme-choice="light" aria-pressed="true">Light</button>
+      <button type="button" data-theme-choice="dark" aria-pressed="false">Dark</button>
+    </div>
+    <span class="prototype-note">Local preview · no requests sent</span>
+  </header>
+
+  <section class="controls" aria-label="Preview controls">
+    <div class="control-row">
+      <span class="control-label">Bauhaus and modernist layout variations</span>
+      <div class="layout-tabs" role="tablist" aria-label="Layout variations">
+        <button type="button" role="tab" data-layout-choice="control-board" aria-pressed="false">1 · Control board</button>
+        <button type="button" role="tab" data-layout-choice="poster-board" aria-pressed="false">2 · Poster panel</button>
+        <button type="button" role="tab" data-layout-choice="route-ladder" aria-pressed="true">3 · Route ladder</button>
+        <button type="button" role="tab" data-layout-choice="offset-result" aria-pressed="false">4 · Offset result</button>
+        <button type="button" role="tab" data-layout-choice="field-report" aria-pressed="false">5 · Field report</button>
+      </div>
+    </div>
+    <div class="control-row">
+      <span class="control-label">Action state</span>
+      <div class="state-tabs" role="group" aria-label="Simulated action state">
+        <button type="button" data-state-choice="ready" aria-pressed="false">Ready</button>
+        <button type="button" data-state-choice="added" aria-pressed="false">Label added</button>
+        <button type="button" data-state-choice="tested" aria-pressed="true">Route tested</button>
+        <button type="button" data-state-choice="shared" aria-pressed="false">Link shared</button>
+      </div>
+    </div>
+  </section>
+
+  <main class="page" data-state="tested">
+    <section class="hero">
+      <div>
+        <p class="eyebrow" id="layout-caption">03 · ROUTE LADDER</p>
+        <h1>Route test</h1>
+        <p class="hero-copy">Results stay beside the labels. The full route trace appears after a test.</p>
+      </div>
+      <div class="state-tabs" role="group" aria-label="Alert actions">
+        <button type="button" data-action="add">Add team label</button>
+        <button type="button" class="action-button" data-action="test">Test route</button>
+        <button type="button" data-action="share">Share link</button>
+      </div>
+    </section>
+
+    <div class="workspace">
+      <section class="input-pane" aria-labelledby="input-heading">
+        <h2 class="pane-heading" id="input-heading">Build your alert <span class="step-label">01 / INPUT</span></h2>
+        <div class="quick-examples"><span>Critical CPU</span><span>API latency</span><span>Unrouted</span></div>
+        <div class="form-section label-section">
+          <div class="section-head"><h2>Alert labels</h2><span id="label-count">6 LABELS</span></div>
+          <div class="label-list">
+            <div class="label-chip base-label"><span><strong>severity</strong> = warning</span><span>×</span></div>
+            <div class="label-chip base-label"><span><strong>alertname</strong> = NodeDown</span><span>×</span></div>
+            <div class="label-chip team-label base-label"><span><strong>team</strong> = monitoring</span><span>×</span></div>
+            <div class="label-chip ladder-label"><span><strong>alertname</strong> = HighAPILatency</span><span>×</span></div>
+            <div class="label-chip ladder-label"><span><strong>cluster</strong> = prod-west</span><span>×</span></div>
+            <div class="label-chip ladder-label"><span><strong>team</strong> = platform</span><span>×</span></div>
+            <div class="label-chip ladder-label"><span><strong>service</strong> = api</span><span>×</span></div>
+            <div class="label-chip ladder-label"><span><strong>environment</strong> = production</span><span>×</span></div>
+            <div class="label-chip ladder-label"><span><strong>severity</strong> = critical</span><span>×</span></div>
+          </div>
+          <button type="button" class="add-label" data-action="add">+ Add team=monitoring</button>
+        </div>
+        <div class="form-section mode-section">
+          <div class="section-head"><h2>Input mode</h2><span>SELECT</span></div>
+          <div class="quick-examples"><span>Label editor</span><span>Paste YAML</span></div>
+        </div>
+        <div class="form-actions">
+          <button class="action-button" type="button" data-action="test">Test route</button>
+          <button class="action-button secondary" type="button" data-action="share">Share link</button>
+        </div>
+        <p class="action-message" aria-live="polite"></p>
+      </section>
+
+      <section class="result-pane" aria-labelledby="result-heading">
+        <h2 class="pane-heading" id="result-heading">Route result <span class="step-label">02 / OUTPUT</span></h2>
+        <div class="result">
+          <div class="result-idle">
+            <div class="result-kicker"><span>RESULT STATUS</span><span>WAITING</span></div>
+            <div class="receiver-band"><h2 class="receiver-name">Not tested</h2><span class="receiver-count">READY</span></div>
+            <p>Run Test route to see the receiver here.</p>
+          </div>
+          <div class="result-live">
+            <div class="result-kicker"><span>ALERTMANAGER RESPONSE</span><span class="continue-path-label">CONTINUE PATH</span><span class="ladder-path-label">5 NESTED LEVELS</span></div>
+            <div class="receiver-band continue-route-result"><h2 class="receiver-name">2 receivers</h2><span class="receiver-count">BOTH NOTIFIED</span></div>
+            <p class="fallback-message continue-route-result">Two routes matched. Each receiver gets a copy.</p>
+            <div class="outcome-grid continue-route-result">
+              <div class="receiver-card"><b>slack-warnings</b><small>RECEIVER 01 · CONTINUE</small></div>
+              <div class="receiver-card"><b>monitoring-team</b><small>RECEIVER 02 · CONTINUE</small></div>
+            </div>
+            <section class="result-section continue-route-result">
+              <div class="section-line"><h3>Why it matched</h3><small>2 RECEIVERS</small></div>
+              <div class="route-list">
+                <div class="route-step"><span class="route-number">01</span><b>severity = “warning”</b><span class="route-badge">CONTINUE</span></div>
+                <div class="route-step"><span class="route-number">02</span><b>team = “monitoring”</b><span class="route-badge">DELIVERS</span></div>
+              </div>
+            </section>
+            <section class="long-route-result">
+              <div class="receiver-band"><h2 class="receiver-name">pagerduty-platform</h2><span class="receiver-count">1 RECEIVER · 5 LEVELS</span></div>
+              <p class="fallback-message">Five nested routes matched. Delivery goes to <strong>pagerduty-platform</strong>.</p>
+              <div class="long-route-steps">
+                <div class="long-route-step"><span class="route-number">01</span><span><b>cluster = “prod-west”</b><small>region-router</small></span><span class="route-badge">MATCHED</span></div>
+                <div class="long-route-step"><span class="route-number">02</span><span><b>team = “platform”</b><small>team-platform</small></span><span class="route-badge">MATCHED</span></div>
+                <div class="long-route-step"><span class="route-number">03</span><span><b>service = “api”</b><small>api-platform</small></span><span class="route-badge">MATCHED</span></div>
+                <div class="long-route-step"><span class="route-number">04</span><span><b>environment = “production”</b><small>slack-platform-prod</small></span><span class="route-badge">MATCHED</span></div>
+                <div class="long-route-step"><span class="route-number">05</span><span><b>severity = “critical”</b><small>pagerduty-platform</small></span><span class="route-badge">DELIVERS</span></div>
+              </div>
+            </section>
+            <p class="static-note share-note">Share link copied. It contains labels only.</p>
+          </div>
+          <p class="static-note">Static interaction concept. No Alertmanager request is sent.</p>
+        </div>
+      </section>
+    </div>
+  </main>
+
+  <script>
+    const layoutNames = {
+      "control-board": "01 · CONTROL BOARD",
+      "poster-board": "02 · POSTER PANEL",
+      "route-ladder": "03 · ROUTE LADDER",
+      "offset-result": "04 · OFFSET RESULT",
+      "field-report": "05 · FIELD REPORT"
+    };
+    const preview = document.querySelector("main.page");
+    const labelCount = document.getElementById("label-count");
+
+    for (const button of document.querySelectorAll("[data-theme-choice]")) {
+      button.addEventListener("click", () => {
+        const theme = button.dataset.themeChoice;
+        document.documentElement.dataset.theme = theme;
+        for (const toggle of document.querySelectorAll("[data-theme-choice]")) {
+          toggle.setAttribute("aria-pressed", String(toggle === button));
+        }
+      });
+    }
+
+    for (const button of document.querySelectorAll("[data-layout-choice]")) {
+      button.addEventListener("click", () => {
+        const layout = button.dataset.layoutChoice;
+        document.documentElement.dataset.layout = layout;
+        document.getElementById("layout-caption").textContent = layoutNames[layout];
+        for (const tab of document.querySelectorAll("[data-layout-choice]")) {
+          tab.setAttribute("aria-pressed", String(tab === button));
+        }
+        updateLabelCount();
+      });
+    }
+
+    function updateLabelCount() {
+      if (document.documentElement.dataset.layout === "route-ladder") {
+        labelCount.textContent = "6 LABELS";
+        return;
+      }
+      labelCount.textContent = preview.dataset.state === "ready" ? "2 LABELS" : "3 LABELS";
+    }
+
+    function setActionState(state) {
+      preview.dataset.state = state;
+      updateLabelCount();
+      for (const button of document.querySelectorAll("[data-state-choice]")) {
+        button.setAttribute("aria-pressed", String(button.dataset.stateChoice === state));
+      }
+    }
+
+    for (const button of document.querySelectorAll("[data-state-choice]")) {
+      button.addEventListener("click", () => setActionState(button.dataset.stateChoice));
+    }
+    for (const button of document.querySelectorAll('[data-action="add"]')) {
+      button.addEventListener("click", () => setActionState("added"));
+    }
+    for (const button of document.querySelectorAll('[data-action="test"]')) {
+      button.addEventListener("click", () => setActionState("tested"));
+    }
+    for (const button of document.querySelectorAll('[data-action="share"]')) {
+      button.addEventListener("click", () => setActionState("shared"));
+    }
+  </script>
+</body>
+</html>

@@ -5,6 +5,8 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"os/exec"
+	"path/filepath"
 	"testing"
 	"time"
 )
@@ -107,6 +109,49 @@ func TestServeCancelsHandlerContextsOnSignal(t *testing.T) {
 		t.Fatal("serve() did not shut down after signal")
 	}
 	<-requestResult
+}
+
+func TestCleanAlertmanagerDataRemovesVersionBackups(t *testing.T) {
+	repoRoot, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	tempRoot := t.TempDir()
+	files := []string{
+		"bin/alertmanager/alertmanager",
+		"bin/alertmanager-123456789/alertmanager",
+		"bin/alertmanager-route-tester",
+		"data/alertmanager/chunks",
+		"data/alertmanager-test/chunks",
+	}
+	for _, path := range files {
+		fullPath := filepath.Join(tempRoot, path)
+		if err := os.MkdirAll(filepath.Dir(fullPath), 0700); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(fullPath, []byte("generated"), 0600); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	command := exec.Command("bash", filepath.Join(repoRoot, "scripts", "clean-alertmanager-data.sh"))
+	command.Dir = tempRoot
+	if output, err := command.CombinedOutput(); err != nil {
+		t.Fatalf("clean-alertmanager-data.sh failed: %v\n%s", err, output)
+	}
+	for _, path := range []string{
+		"bin/alertmanager",
+		"bin/alertmanager-123456789",
+		"data/alertmanager",
+		"data/alertmanager-test",
+	} {
+		if _, err := os.Stat(filepath.Join(tempRoot, path)); !os.IsNotExist(err) {
+			t.Errorf("generated path %q remains after cleanup, stat error = %v", path, err)
+		}
+	}
+	if _, err := os.Stat(filepath.Join(tempRoot, "bin", "alertmanager-route-tester")); err != nil {
+		t.Errorf("application binary was removed by Alertmanager cleanup: %v", err)
+	}
 }
 
 func TestServeShutsDownOnSignal(t *testing.T) {

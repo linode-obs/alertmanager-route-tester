@@ -3131,6 +3131,10 @@ html[data-theme="dark"] .workspace-result-pane {
 
 @media (max-width: 560px) {
     .help-tip::after {
-        width: min(220px, calc(100vw - 180px));
+        width: min(220px, calc(100vw - 216px));
+    }
+
+    #raw-builder .help-tip::after {
+        width: min(220px, calc(100vw - 205px));
     }
 }

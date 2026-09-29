@@ -9,7 +9,7 @@
     <div class="result-surface result-success {{if .DefaultRoot}}result-default{{end}}">
         <div class="result-heading">
             <h2>Route result</h2>
-            <span class="help-tip" role="img" data-tooltip="Alertmanager uses matched route rules to select the receiver or receivers." aria-label="Route result help" tabindex="0">ⓘ</span>
+            <span class="help-tip" role="img" data-tooltip="Alertmanager uses matched route rules to select the receiver or receivers." aria-label="Route result help: Alertmanager uses matched route rules to select the receiver or receivers." tabindex="0">ⓘ</span>
         </div>
         <div class="result-primary-outcome">
             <h3>Selected {{if or (gt (len .MatchedReceiverSummaries) 1) (gt (len .MatchedReceivers) 1)}}receivers{{else}}receiver{{end}}</h3>
@@ -193,7 +193,7 @@
     <details class="result-details route-details">
         <summary>Route details</summary>
         <div class="route-path result-section">
-        <h3>Matched route rules <span class="help-tip" role="img" data-tooltip="These rules match the alert labels." aria-label="Matched route rules help" tabindex="0">ⓘ</span></h3>
+        <h3>Matched route rules <span class="help-tip" role="img" data-tooltip="These rules match the alert labels." aria-label="Matched route rules help: These rules match the alert labels." tabindex="0">ⓘ</span></h3>
         <p class="route-explanation">These rules match the alert:</p>
         {{if gt (len .MatchedReceivers) 1}}
         <div class="multiple-receivers-notice">
@@ -312,7 +312,7 @@ repeat_interval: {{.Route.RepeatInterval}}{{end}}</pre>
 
 {{define "route-ladder"}}
 <div class="route-ladder route-trace">
-    <h3>Route ladder <span class="help-tip" role="img" data-tooltip="This shows the matching condition and receiver for each route." aria-label="Route ladder help" tabindex="0">ⓘ</span></h3>
+    <h3>Route ladder <span class="help-tip" role="img" data-tooltip="This shows the matching condition and receiver for each route." aria-label="Route ladder help: This shows the matching condition and receiver for each route." tabindex="0">ⓘ</span></h3>
     <p class="route-explanation">Alertmanager checks these rules in this order.</p>
     <div class="trace-timeline">
         {{range .RouteSteps}}
@@ -357,7 +357,7 @@ repeat_interval: {{.Route.RepeatInterval}}{{end}}</pre>
                     <span class="trace-index">#{{.Index}}</span>
                     <span class="trace-receiver">{{.Receiver}}</span>
                     {{if .IsSubroute}}
-                    <span class="trace-subroute-badge help-tip" role="img" data-tooltip="This rule is inside the parent rule." aria-label="Nested subroute" tabindex="0">subroute (level {{.Depth}})</span>
+                    <span class="trace-subroute-badge help-tip" role="img" data-tooltip="This rule is inside the parent rule." aria-label="Nested subroute: This rule is inside the parent rule." tabindex="0">subroute (level {{.Depth}})</span>
                     {{end}}
                     {{if .TypeLabel}}
                     <!-- TODO: Replace emoji with actual receiver logos -->

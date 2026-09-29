@@ -1153,8 +1153,8 @@ func TestIndexTemplateUsesInfoIconsForAllHelpTips(t *testing.T) {
 
 	output := buf.String()
 	for _, tooltip := range []string{
-		`data-tooltip="A route matches only when its labels match." aria-label="Alert label help" tabindex="0">ⓘ</span>`,
-		`data-tooltip="Use one key: value pair per line." aria-label="Raw input help" tabindex="0">ⓘ</span>`,
+		`data-tooltip="A route matches only when its labels match." aria-label="Alert label help: A route matches only when its labels match." tabindex="0">ⓘ</span>`,
+		`data-tooltip="Use one key: value pair per line." aria-label="Paste labels as YAML help: Use one key: value pair per line." tabindex="0">ⓘ</span>`,
 	} {
 		if !strings.Contains(output, tooltip) {
 			t.Errorf("index help tooltip does not render its info icon: %q", tooltip)
@@ -1230,7 +1230,7 @@ func TestResultTemplateUsesInfoIconForRouteResultHelp(t *testing.T) {
 		t.Fatalf("result.html failed to render: %v", err)
 	}
 
-	if !strings.Contains(buf.String(), `<span class="help-tip" role="img" data-tooltip="Alertmanager uses matched route rules to select the receiver or receivers." aria-label="Route result help" tabindex="0">ⓘ</span>`) {
+	if !strings.Contains(buf.String(), `<span class="help-tip" role="img" data-tooltip="Alertmanager uses matched route rules to select the receiver or receivers." aria-label="Route result help: Alertmanager uses matched route rules to select the receiver or receivers." tabindex="0">ⓘ</span>`) {
 		t.Fatal("route result help does not render an info icon with its tooltip")
 	}
 }
@@ -1257,9 +1257,9 @@ func TestResultTemplateUsesInfoIconsForRouteDetails(t *testing.T) {
 
 	output := buf.String()
 	for _, tooltip := range []string{
-		`data-tooltip="These rules match the alert labels." aria-label="Matched route rules help" tabindex="0">ⓘ</span>`,
-		`data-tooltip="This shows the matching condition and receiver for each route." aria-label="Route ladder help" tabindex="0">ⓘ</span>`,
-		`data-tooltip="This rule is inside the parent rule." aria-label="Nested subroute" tabindex="0">subroute (level 1)</span>`,
+		`data-tooltip="These rules match the alert labels." aria-label="Matched route rules help: These rules match the alert labels." tabindex="0">ⓘ</span>`,
+		`data-tooltip="This shows the matching condition and receiver for each route." aria-label="Route ladder help: This shows the matching condition and receiver for each route." tabindex="0">ⓘ</span>`,
+		`data-tooltip="This rule is inside the parent rule." aria-label="Nested subroute: This rule is inside the parent rule." tabindex="0">subroute (level 1)</span>`,
 	} {
 		if !strings.Contains(output, tooltip) {
 			t.Errorf("result help tooltip does not render consistently: %q", tooltip)

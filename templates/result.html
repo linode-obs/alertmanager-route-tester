@@ -1,4 +1,5 @@
 <div class="result-panel">
+    <span class="workspace-pane-label">ROUTING OUTPUT</span>
     {{if .Error}}
     <div class="result-surface result-error">
         <h2>Error</h2>
@@ -8,8 +9,33 @@
     <div class="result-surface result-success {{if .DefaultRoot}}result-default{{end}}">
         <div class="result-heading">
             <h2>Route result</h2>
-            <span class="help-tip" role="img" data-tooltip="Alertmanager uses matched route rules to select the receiver or receivers." aria-label="Route result help" tabindex="0">?</span>
+            <span class="help-tip" role="img" data-tooltip="Alertmanager uses matched route rules to select the receiver or receivers." aria-label="Route result help" tabindex="0">ⓘ</span>
         </div>
+        <div class="result-primary-outcome">
+            <h3>Selected {{if or (gt (len .MatchedReceiverSummaries) 1) (gt (len .MatchedReceivers) 1)}}receivers{{else}}receiver{{end}}</h3>
+            <div class="result-primary-receivers">
+                {{if .MatchedReceiverSummaries}}
+                {{range .MatchedReceiverSummaries}}
+                <span class="result-primary-receiver">{{.Name}}{{if .IsFinal}}<span class="result-primary-final">final</span>{{end}}</span>
+                {{end}}
+                {{else if .MatchedReceivers}}
+                {{range .MatchedReceivers}}
+                <span class="result-primary-receiver">{{.}}{{if eq . $.Receiver}}<span class="result-primary-final">final</span>{{end}}</span>
+                {{end}}
+                {{else}}
+                <span class="result-primary-receiver">{{.Receiver}}<span class="result-primary-final">final</span></span>
+                {{end}}
+            </div>
+            <div class="result-primary-count">
+                <span>{{if .MatchedReceiverSummaries}}{{len .MatchedReceiverSummaries}}{{else if .MatchedReceivers}}{{len .MatchedReceivers}}{{else}}1{{end}} selected receiver{{if or (gt (len .MatchedReceiverSummaries) 1) (gt (len .MatchedReceivers) 1)}}s{{end}}</span>
+                <span>{{len .RouteSteps}} matched route rule{{if ne (len .RouteSteps) 1}}s{{end}}</span>
+            </div>
+        </div>
+        {{if .RouteSteps}}
+        <details class="result-details route-matching-details">
+            <summary>Expand: How routing matched ({{len .RouteSteps}} matched route rule{{if ne (len .RouteSteps) 1}}s{{end}})</summary>
+        {{end}}
+        {{if not .DefaultRoot}}
         <div class="route-outcome-flow" role="group" aria-label="Matched route rules and selected receivers">
             <div class="route-flow-source">
                 <h3>Matched route rules</h3>
@@ -90,6 +116,11 @@
                 </div>
             </div>
         </div>
+        {{end}}
+        {{if .RouteSteps}}
+        {{template "route-ladder" .}}
+        </details>
+        {{end}}
 
         {{if .DefaultRoot}}
         <div class="route-info">
@@ -119,10 +150,6 @@
             </div>
             {{end}}
         </div>
-        {{end}}
-
-        {{if .RouteSteps}}
-        {{template "route-ladder" .}}
         {{end}}
 
         {{if .ReceiverConfig}}
@@ -166,7 +193,7 @@
     <details class="result-details route-details">
         <summary>Route details</summary>
         <div class="route-path result-section">
-        <h3>Matched route rules <span class="help-tip" role="img" data-tooltip="These rules match the alert labels." aria-label="Matched route rules help" tabindex="0">?</span></h3>
+        <h3>Matched route rules <span class="help-tip" role="img" data-tooltip="These rules match the alert labels." aria-label="Matched route rules help" tabindex="0">ⓘ</span></h3>
         <p class="route-explanation">These rules match the alert:</p>
         {{if gt (len .MatchedReceivers) 1}}
         <div class="multiple-receivers-notice">
@@ -285,7 +312,7 @@ repeat_interval: {{.Route.RepeatInterval}}{{end}}</pre>
 
 {{define "route-ladder"}}
 <div class="route-ladder route-trace">
-    <h3>Route ladder <span class="help-tip" role="img" data-tooltip="This shows the matching condition and receiver for each route." aria-label="Route ladder help" tabindex="0">?</span></h3>
+    <h3>Route ladder <span class="help-tip" role="img" data-tooltip="This shows the matching condition and receiver for each route." aria-label="Route ladder help" tabindex="0">ⓘ</span></h3>
     <p class="route-explanation">Alertmanager checks these rules in this order.</p>
     <div class="trace-timeline">
         {{range .RouteSteps}}

@@ -912,10 +912,13 @@ func TestResultTemplateRendersDefaultRoot(t *testing.T) {
 	if !strings.Contains(output, "root receiver") || !strings.Contains(output, "result-default") {
 		t.Fatalf("default root output = %q, want default notice and styling", output)
 	}
-	for _, expected := range []string{"0 matched route rules", "1 selected receiver", "Root route applies", `class="route-flow-receiver-name">default</span>`} {
+	for _, expected := range []string{"0 matched route rules", "1 selected receiver", "No child route matched", `class="result-primary-receiver">default`} {
 		if !strings.Contains(output, expected) {
-			t.Errorf("default root flow does not contain %q", expected)
+			t.Errorf("default root result does not contain %q", expected)
 		}
+	}
+	if strings.Contains(output, `class="route-outcome-flow"`) {
+		t.Error("default root repeats its selected receiver in the route flow")
 	}
 }
 
@@ -1112,6 +1115,154 @@ func TestIndexTemplateIncludesRedesignControls(t *testing.T) {
 	} {
 		if !strings.Contains(output, expected) {
 			t.Errorf("rendered index template does not contain %q", expected)
+		}
+	}
+}
+
+func TestIndexTemplateExplainsEmptyLabelsAreAddedBelow(t *testing.T) {
+	tmpl := loadTemplates(t)
+	var buf bytes.Buffer
+	if err := tmpl.ExecuteTemplate(&buf, "index.html", IndexData{}); err != nil {
+		t.Fatalf("index.html failed to render: %v", err)
+	}
+
+	output := buf.String()
+	if !strings.Contains(output, "No labels added. Add labels below, then test the route.") {
+		t.Fatal("empty label message does not point to the label controls below")
+	}
+	containerStart := strings.Index(output, `<div id="current-labels" class="current-labels">`)
+	if containerStart < 0 {
+		t.Fatal("initial labels area is missing")
+	}
+	containerEndOffset := strings.Index(output[containerStart:], `</div>`)
+	if containerEndOffset < 0 {
+		t.Fatal("initial labels area is not closed")
+	}
+	containerMarkup := output[containerStart : containerStart+containerEndOffset]
+	if !strings.Contains(containerMarkup, `<p class="no-labels-text">No labels added. Add labels below, then test the route.</p>`) {
+		t.Fatal("initial labels area does not render its empty-state message")
+	}
+}
+
+func TestIndexTemplateUsesInfoIconsForAllHelpTips(t *testing.T) {
+	tmpl := loadTemplates(t)
+	var buf bytes.Buffer
+	if err := tmpl.ExecuteTemplate(&buf, "index.html", IndexData{}); err != nil {
+		t.Fatalf("index.html failed to render: %v", err)
+	}
+
+	output := buf.String()
+	for _, tooltip := range []string{
+		`data-tooltip="A route matches only when its labels match." aria-label="Alert label help" tabindex="0">ⓘ</span>`,
+		`data-tooltip="Use one key: value pair per line." aria-label="Raw input help" tabindex="0">ⓘ</span>`,
+	} {
+		if !strings.Contains(output, tooltip) {
+			t.Errorf("index help tooltip does not render its info icon: %q", tooltip)
+		}
+	}
+}
+
+func TestIndexTemplateLabelsInputAndOutputPanes(t *testing.T) {
+	tmpl := loadTemplates(t)
+	data := IndexData{AlertmanagerURL: "http://localhost:9093"}
+
+	var buf bytes.Buffer
+	if err := tmpl.ExecuteTemplate(&buf, "index.html", data); err != nil {
+		t.Fatalf("index.html failed to render: %v", err)
+	}
+
+	output := buf.String()
+	for _, label := range []string{
+		`<span class="workspace-pane-label">ALERT INPUT</span>`,
+		`<span class="workspace-pane-label">ROUTING OUTPUT</span>`,
+	} {
+		if !strings.Contains(output, label) {
+			t.Errorf("workspace does not label pane %q", label)
+		}
+	}
+}
+
+func TestResultTemplateHighlightsReceiverAndCollapsesRouteExplanation(t *testing.T) {
+	tmpl := loadTemplates(t)
+	data := resultData{
+		Receiver: "pagerduty-platform",
+		RouteSteps: []RouteStep{
+			{Index: 1, Receiver: "region-router", Match: map[string]string{"cluster": "prod-west"}},
+			{Index: 2, Receiver: "pagerduty-platform", Match: map[string]string{"severity": "critical"}, IsFinal: true},
+		},
+		MatchedReceivers:         []string{"pagerduty-platform"},
+		MatchedReceiverSummaries: []ReceiverSummary{{Name: "pagerduty-platform", IsFinal: true}},
+	}
+
+	var buf bytes.Buffer
+	if err := tmpl.ExecuteTemplate(&buf, "result.html", data); err != nil {
+		t.Fatalf("result.html failed to render: %v", err)
+	}
+
+	output := buf.String()
+	detailsStart := strings.Index(output, `<details class="result-details route-matching-details">`)
+	if detailsStart < 0 {
+		t.Fatal("route explanation is not inside a disclosure")
+	}
+	if !strings.Contains(output[:detailsStart], "ROUTING OUTPUT") || !strings.Contains(output[:detailsStart], "Selected receiver") || !strings.Contains(output[:detailsStart], `class="result-primary-receiver">pagerduty-platform`) {
+		t.Fatal("routing output does not show the selected receiver before route details")
+	}
+	if !strings.Contains(output, `<summary>Expand: How routing matched (2 matched route rules)</summary>`) {
+		t.Fatal("route disclosure does not explain what expands")
+	}
+	detailsTagEnd := strings.Index(output[detailsStart:], ">") + detailsStart
+	if detailsTagEnd <= detailsStart || strings.Contains(output[detailsStart:detailsTagEnd], " open") {
+		t.Fatal("route disclosure is open by default")
+	}
+	condition := strings.Index(output, `cluster=&#34;prod-west&#34;`)
+	ladder := strings.Index(output, `class="route-ladder route-trace"`)
+	if condition < detailsStart || ladder < detailsStart {
+		t.Fatal("matched conditions and route ladder must be inside the collapsed disclosure")
+	}
+}
+
+func TestResultTemplateUsesInfoIconForRouteResultHelp(t *testing.T) {
+	tmpl := loadTemplates(t)
+	data := resultData{Receiver: "default", DefaultRoot: true}
+
+	var buf bytes.Buffer
+	if err := tmpl.ExecuteTemplate(&buf, "result.html", data); err != nil {
+		t.Fatalf("result.html failed to render: %v", err)
+	}
+
+	if !strings.Contains(buf.String(), `<span class="help-tip" role="img" data-tooltip="Alertmanager uses matched route rules to select the receiver or receivers." aria-label="Route result help" tabindex="0">ⓘ</span>`) {
+		t.Fatal("route result help does not render an info icon with its tooltip")
+	}
+}
+
+func TestResultTemplateUsesInfoIconsForRouteDetails(t *testing.T) {
+	tmpl := loadTemplates(t)
+	data := resultData{
+		Receiver: "pagerduty-platform",
+		MatchedRoutes: []alertmanager.MatchedRoute{
+			{Route: &alertmanager.Route{Receiver: "team-platform"}},
+			{Route: &alertmanager.Route{Receiver: "pagerduty-platform"}, Depth: 1, IsSubroute: true},
+		},
+		RouteSteps: []RouteStep{
+			{Index: 1, Receiver: "team-platform"},
+			{Index: 2, Receiver: "pagerduty-platform", Depth: 1, IsSubroute: true, IsFinal: true},
+		},
+		MatchedReceivers: []string{"pagerduty-platform"},
+	}
+
+	var buf bytes.Buffer
+	if err := tmpl.ExecuteTemplate(&buf, "result.html", data); err != nil {
+		t.Fatalf("result.html failed to render: %v", err)
+	}
+
+	output := buf.String()
+	for _, tooltip := range []string{
+		`data-tooltip="These rules match the alert labels." aria-label="Matched route rules help" tabindex="0">ⓘ</span>`,
+		`data-tooltip="This shows the matching condition and receiver for each route." aria-label="Route ladder help" tabindex="0">ⓘ</span>`,
+		`data-tooltip="This rule is inside the parent rule." aria-label="Nested subroute" tabindex="0">subroute (level 1)</span>`,
+	} {
+		if !strings.Contains(output, tooltip) {
+			t.Errorf("result help tooltip does not render consistently: %q", tooltip)
 		}
 	}
 }

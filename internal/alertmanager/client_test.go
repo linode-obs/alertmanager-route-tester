@@ -1694,6 +1694,52 @@ func TestFindMatchingRouteErrors(t *testing.T) {
 	})
 }
 
+func TestClientGetSampleAlertsCachesForCurrentConfig(t *testing.T) {
+	config := &Config{
+		Route: &Route{
+			Receiver: "default",
+			Routes: []*Route{
+				{Receiver: "api-team", Match: map[string]string{"service": "api"}},
+			},
+		},
+	}
+	client := &Client{}
+
+	first, deferred := client.GetSampleAlerts(config)
+	if deferred {
+		t.Fatal("GetSampleAlerts() deferred a small route tree")
+	}
+	if len(first) == 0 {
+		t.Fatal("GetSampleAlerts() returned no examples")
+	}
+	if client.sampleAlertsConfig != config || len(client.sampleAlerts) == 0 || !client.sampleAlertsReady {
+		t.Fatal("GetSampleAlerts() did not cache examples for the config")
+	}
+
+	first[0].Labels["service"] = "changed"
+	second, deferred := client.GetSampleAlerts(config)
+	if deferred || second[0].Labels["service"] != "api" {
+		t.Fatalf("cached result = %#v, deferred = %v, want service=api", second, deferred)
+	}
+}
+
+func TestClientGetSampleAlertsDefersLargeRouteTree(t *testing.T) {
+	routes := make([]*Route, maxAutomaticSampleAlertRoutes+1)
+	for index := range routes {
+		routes[index] = &Route{Receiver: "receiver", Match: map[string]string{"route": fmt.Sprint(index)}}
+	}
+	config := &Config{Route: &Route{Receiver: "default", Routes: routes}}
+	client := &Client{}
+
+	samples, deferred := client.GetSampleAlerts(config)
+	if !deferred || len(samples) != 0 {
+		t.Fatalf("GetSampleAlerts() = %#v, %v, want deferred generation", samples, deferred)
+	}
+	if client.sampleAlertsReady {
+		t.Fatal("deferred sample generation was cached as complete")
+	}
+}
+
 func TestGenerateSampleAlertsUsesConfiguredRoutes(t *testing.T) {
 	config := &Config{
 		Route: &Route{

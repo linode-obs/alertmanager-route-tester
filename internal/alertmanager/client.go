@@ -38,6 +38,10 @@ type Client struct {
 	cacheGeneration      uint64
 	configFetchOnce      sync.Once
 	configFetchSemaphore chan struct{}
+	sampleAlertsMu       sync.Mutex
+	sampleAlertsConfig   *Config
+	sampleAlerts         []SampleAlert
+	sampleAlertsReady    bool
 }
 
 type StatusResponse struct {
@@ -629,6 +633,8 @@ type SampleAlert struct {
 	Labels      map[string]string
 }
 
+const maxAutomaticSampleAlertRoutes = 5000
+
 // ExtractLabelKeys extracts all unique label keys from the route configuration.
 func ExtractLabelKeys(config *Config) []string {
 	tree, err := nativeRouteTreeForConfig(config)
@@ -759,6 +765,71 @@ func GenerateSampleAlerts(config *Config) []SampleAlert {
 	}
 
 	return samples
+}
+
+func (c *Client) GetSampleAlerts(config *Config) ([]SampleAlert, bool) {
+	return c.sampleAlertsForConfig(config, false)
+}
+
+func (c *Client) GenerateSampleAlerts(config *Config) []SampleAlert {
+	samples, _ := c.sampleAlertsForConfig(config, true)
+	return samples
+}
+
+func (c *Client) sampleAlertsForConfig(config *Config, generateLargeTree bool) ([]SampleAlert, bool) {
+	c.sampleAlertsMu.Lock()
+	defer c.sampleAlertsMu.Unlock()
+
+	if c.sampleAlertsReady && config == c.sampleAlertsConfig {
+		return cloneSampleAlerts(c.sampleAlerts), false
+	}
+	if config == nil || config.Route == nil {
+		c.sampleAlertsConfig = config
+		c.sampleAlerts = nil
+		c.sampleAlertsReady = true
+		return nil, false
+	}
+	if !generateLargeTree && routeTreeNodeCount(config.Route) > maxAutomaticSampleAlertRoutes {
+		return nil, true
+	}
+
+	c.sampleAlertsConfig = config
+	c.sampleAlerts = cloneSampleAlerts(GenerateSampleAlerts(config))
+	c.sampleAlertsReady = true
+	return cloneSampleAlerts(c.sampleAlerts), false
+}
+
+func routeTreeNodeCount(route *Route) int {
+	if route == nil {
+		return 0
+	}
+	count := 0
+	pending := []*Route{route}
+	for len(pending) > 0 {
+		current := pending[len(pending)-1]
+		pending = pending[:len(pending)-1]
+		count++
+		pending = append(pending, current.Routes...)
+	}
+	return count
+}
+
+func cloneSampleAlerts(samples []SampleAlert) []SampleAlert {
+	if samples == nil {
+		return nil
+	}
+	cloned := make([]SampleAlert, len(samples))
+	for index, sample := range samples {
+		cloned[index] = sample
+		if sample.Labels == nil {
+			continue
+		}
+		cloned[index].Labels = make(map[string]string, len(sample.Labels))
+		for key, value := range sample.Labels {
+			cloned[index].Labels[key] = value
+		}
+	}
+	return cloned
 }
 
 func collectRouteExamples(route *dispatch.Route, labels map[string]string, candidates *[]map[string]string) {

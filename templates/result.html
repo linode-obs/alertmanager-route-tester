@@ -8,16 +8,88 @@
     <div class="result-surface result-success {{if .DefaultRoot}}result-default{{end}}">
         <div class="result-heading">
             <h2>Route result</h2>
-            <span class="help-tip" role="img" data-tooltip="Alertmanager selects this receiver as the final routing result." aria-label="Route result help" tabindex="0">?</span>
+            <span class="help-tip" role="img" data-tooltip="Alertmanager uses matched route rules to select the receiver or receivers." aria-label="Route result help" tabindex="0">?</span>
         </div>
-        <div class="result-meta">
-            <span>ALERTMANAGER RESPONSE</span>
-            {{if .RouteSteps}}<span>{{len .RouteSteps}} ROUTE STEPS</span>{{else if gt (len .MatchedReceivers) 1}}<span>{{len .MatchedReceivers}} RECEIVERS</span>{{end}}
+        <div class="route-outcome-flow" role="group" aria-label="Matched route rules and selected receivers">
+            <div class="route-flow-source">
+                <h3>Matched route rules</h3>
+                <div class="route-flow-count">{{len .RouteSteps}} matched route rule{{if ne (len .RouteSteps) 1}}s{{end}}</div>
+                {{if .RouteSteps}}
+                <div class="route-flow-rule-list">
+                    {{range .RouteSteps}}
+                    <div class="route-flow-rule">
+                        <span class="route-flow-rule-index">#{{.Index}}</span>
+                        <div class="route-flow-rule-conditions">
+                            {{if .Match}}
+                            {{range $key, $value := .Match}}
+                            <code>{{$key}}={{printf "%q" $value}}</code>
+                            {{end}}
+                            {{end}}
+                            {{if .MatchRE}}
+                            {{range $key, $value := .MatchRE}}
+                            <code>{{$key}}=~{{printf "%q" $value}}</code>
+                            {{end}}
+                            {{end}}
+                            {{range .Matchers}}
+                            <code>{{.}}</code>
+                            {{end}}
+                            {{if not (or .Match .MatchRE .Matchers)}}
+                            <span class="route-flow-no-conditions">No explicit conditions</span>
+                            {{end}}
+                        </div>
+                    </div>
+                    {{end}}
+                </div>
+                {{else}}
+                <p class="route-flow-empty">Root route applies</p>
+                {{end}}
+            </div>
+            <span class="route-flow-arrow" aria-hidden="true">&rarr;</span>
+            <div class="route-flow-destination">
+                <h3>Selected {{if or (gt (len .MatchedReceiverSummaries) 1) (gt (len .MatchedReceivers) 1)}}receivers{{else}}receiver{{end}}</h3>
+                {{if .MatchedReceiverSummaries}}
+                <div class="route-flow-count">{{len .MatchedReceiverSummaries}} selected receiver{{if ne (len .MatchedReceiverSummaries) 1}}s{{end}}</div>
+                {{else if .MatchedReceivers}}
+                <div class="route-flow-count">{{len .MatchedReceivers}} selected receiver{{if ne (len .MatchedReceivers) 1}}s{{end}}</div>
+                {{else}}
+                <div class="route-flow-count">1 selected receiver</div>
+                {{end}}
+                {{if gt (len .MatchedReceiverSummaries) 1}}
+                <p class="route-flow-copy">Each receiver gets a copy.</p>
+                {{else if gt (len .MatchedReceivers) 1}}
+                <p class="route-flow-copy">Each receiver gets a copy.</p>
+                {{end}}
+                <div class="route-flow-receiver-list">
+                    {{if .MatchedReceiverSummaries}}
+                    {{range .MatchedReceiverSummaries}}
+                    <div class="route-flow-receiver {{if .IsFinal}}route-flow-receiver-final{{end}}">
+                        <span class="route-flow-receiver-name">{{.Name}}</span>
+                        {{if .IsFinal}}<span class="route-flow-final">final</span>{{end}}
+                        {{if .TypeLabels}}
+                        <div class="receiver-types">
+                            {{range .TypeLabels}}
+                            <span class="receiver-type-chip">{{.}}</span>
+                            {{end}}
+                        </div>
+                        {{end}}
+                    </div>
+                    {{end}}
+                    {{else if .MatchedReceivers}}
+                    {{range .MatchedReceivers}}
+                    <div class="route-flow-receiver {{if eq . $.Receiver}}route-flow-receiver-final{{end}}">
+                        <span class="route-flow-receiver-name">{{.}}</span>
+                        {{if eq . $.Receiver}}<span class="route-flow-final">final</span>{{end}}
+                    </div>
+                    {{end}}
+                    {{else}}
+                    <div class="route-flow-receiver route-flow-receiver-final">
+                        <span class="route-flow-receiver-name">{{.Receiver}}</span>
+                        <span class="route-flow-final">final</span>
+                    </div>
+                    {{end}}
+                </div>
+            </div>
         </div>
-        {{if gt (len .MatchedReceivers) 1}}
-        <p class="receiver-count-notice">Each receiver gets a copy.</p>
-        {{end}}
-        <div class="receiver-name {{if .DefaultRoot}}receiver-default{{end}}">{{ .Receiver }}</div>
 
         {{if .DefaultRoot}}
         <div class="route-info">
@@ -53,7 +125,7 @@
         {{template "route-ladder" .}}
         {{end}}
 
-        {{if or .ReceiverConfig .MatchedReceiverSummaries}}
+        {{if .ReceiverConfig}}
         <details class="result-details">
             <summary>Receiver details</summary>
             {{if .ReceiverConfig}}
@@ -86,31 +158,6 @@
         </div>
         {{end}}
 
-        {{if .MatchedReceiverSummaries}}
-        <div class="receiver-others result-section">
-            <h3>Matched receivers</h3>
-            <p class="route-explanation">These receivers match the alert. The final receiver is marked.</p>
-            <div class="receiver-summary-grid">
-                {{range .MatchedReceiverSummaries}}
-                <div class="receiver-summary-card {{if .IsFinal}}receiver-summary-final{{end}}">
-                    <div class="receiver-summary-header">
-                        <span class="receiver-summary-name">{{.Name}}</span>
-                        {{if .IsFinal}}
-                        <span class="receiver-summary-pill">final</span>
-                        {{end}}
-                    </div>
-                    {{if .TypeLabels}}
-                    <div class="receiver-types">
-                        {{range .TypeLabels}}
-                        <span class="receiver-type-chip">{{.}}</span>
-                        {{end}}
-                    </div>
-                    {{end}}
-                </div>
-                {{end}}
-            </div>
-        </div>
-        {{end}}
         </details>
         {{end}}
     </div>

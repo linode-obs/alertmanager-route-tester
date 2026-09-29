@@ -96,21 +96,16 @@
             <div class="panel workspace-pane workspace-input-pane">
                 <h2>Build your alert</h2>
 
-                {{if .SampleAlerts}}
+                {{if or .SampleAlerts .SampleAlertsDeferred}}
                 <div class="quick-start-section">
                     <h3>Quick examples</h3>
                     <p class="help-text">Choose an example. The app loads its labels.</p>
-                    <div class="sample-alerts-grid">
-                        {{range $i, $sample := .SampleAlerts}}
-                        <div class="sample-alert-card" role="button" tabindex="0" aria-label="Load sample alert {{$sample.Name}}" onclick="loadSampleAlertByIndex({{$i}})" onkeydown="if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); loadSampleAlertByIndex({{$i}}); }">
-                            <div class="sample-name">{{$sample.Name}}</div>
-                            <div class="sample-description">{{$sample.Description}}</div>
-                            <div class="sample-labels">
-                                {{range $key, $value := $sample.Labels}}
-                                <span class="mini-label">{{$key}}={{$value}}</span>
-                                {{end}}
-                            </div>
-                        </div>
+                    <div id="sample-alerts">
+                        {{if .SampleAlerts}}
+                        {{template "sample-alert-cards" .}}
+                        {{else}}
+                        <p class="sample-examples-deferred">This route tree is large. Generate examples only when needed.</p>
+                        <button type="button" class="btn-secondary btn-load-samples" hx-get="/config/samples?alertmanager={{.SelectedAlertmanager | urlquery}}" hx-target="#sample-alerts" hx-swap="innerHTML">Generate examples</button>
                         {{end}}
                     </div>
                 </div>
@@ -200,17 +195,6 @@ team: platform'></textarea>
             "{{$suggestion.Key}}": [{{range $i, $value := $suggestion.Values}}{{if $i}}, {{end}}"{{$value}}"{{end}}],
             {{end}}
         };
-
-        // Sample alerts from config
-        const sampleAlerts = [
-            {{range $i, $sample := .SampleAlerts}}
-            {{if $i}},{{end}}
-            {
-                name: "{{$sample.Name}}",
-                labels: {{$sample.Labels | json}}
-            }
-            {{end}}
-        ];
 
         // Render labels as badges
         function renderLabels() {
@@ -373,11 +357,13 @@ team: platform'></textarea>
         }
 
         // Load sample alert
-        function loadSampleAlertByIndex(index) {
-            const sample = sampleAlerts[index];
-            if (!sample) return;
+        function loadSampleAlertFromCard(card) {
+            const labels = {};
+            card.querySelectorAll('.mini-label').forEach(label => {
+                labels[label.dataset.labelKey] = label.dataset.labelValue;
+            });
 
-            currentLabels = { ...sample.labels };
+            currentLabels = labels;
             renderLabels();
 
             // Scroll to form
@@ -577,3 +563,19 @@ team: platform'></textarea>
     </script>
 </body>
 </html>
+
+{{define "sample-alert-cards"}}
+<div class="sample-alerts-grid">
+    {{range $sample := .SampleAlerts}}
+    <div class="sample-alert-card" role="button" tabindex="0" aria-label="Load sample alert {{$sample.Name}}" onclick="loadSampleAlertFromCard(this)" onkeydown="if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); loadSampleAlertFromCard(this); }">
+        <div class="sample-name">{{$sample.Name}}</div>
+        <div class="sample-description">{{$sample.Description}}</div>
+        <div class="sample-labels">
+            {{range $key, $value := $sample.Labels}}
+            <span class="mini-label" data-label-key="{{$key}}" data-label-value="{{$value}}">{{$key}}={{$value}}</span>
+            {{end}}
+        </div>
+    </div>
+    {{end}}
+</div>
+{{end}}

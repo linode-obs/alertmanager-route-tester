@@ -275,6 +275,17 @@
     html[data-layout="field-report"] .result-pane .route-step { border-left-width: 0; border-top: 1px solid var(--line); background: transparent; }
 
     .long-route-result { margin-top: 12px; }
+    .long-route-flow { display: grid; grid-template-columns: minmax(0, 1fr) 22px minmax(0, .85fr); align-items: stretch; gap: 7px; margin: 10px 0 14px; }
+    .long-route-flow-section { min-width: 0; padding: 10px; border: 1px solid var(--line); background: var(--panel); }
+    .long-route-flow-section.destination { border-color: var(--green); background: var(--panel-alt); }
+    .long-route-flow-heading { display: flex; justify-content: space-between; gap: 8px; color: var(--muted); font: 9px/1.3 var(--mono); text-transform: uppercase; }
+    .long-route-flow-list { display: grid; gap: 4px; margin-top: 8px; }
+    .long-route-flow-rule { display: grid; grid-template-columns: 22px minmax(0, 1fr); gap: 5px; align-items: center; padding-top: 5px; border-top: 1px solid var(--line); font: 9px/1.3 var(--mono); }
+    .long-route-flow-rule span:last-child { overflow-wrap: anywhere; }
+    .long-route-flow-arrow { align-self: center; color: var(--blue); font-size: 19px; text-align: center; }
+    .long-route-flow-receiver { margin-top: 8px; padding: 9px; border: 1px solid var(--green); background: var(--panel); }
+    .long-route-flow-receiver strong { display: block; font-size: 13px; }
+    .long-route-flow-receiver small { display: block; margin-top: 4px; color: var(--muted); font: 9px/1.3 var(--mono); }
     .long-route-steps { display: grid; gap: 4px; margin: 10px 0 0 12px; padding-left: 13px; border-left: 3px solid var(--blue); }
     .long-route-step { position: relative; display: grid; grid-template-columns: 28px minmax(0, 1fr) auto; gap: 8px; align-items: center; padding: 8px 10px; border-left: 3px solid var(--blue); background: var(--panel-alt); }
     .long-route-step::before { content: ""; position: absolute; left: -21px; width: 8px; height: 8px; border: 2px solid var(--blue); border-radius: 50%; background: var(--panel); }
@@ -347,6 +358,8 @@
       html[data-layout="route-ladder"] .result-live > *,
       html[data-layout="field-report"] .result-live > * { grid-column: 1; }
       html[data-layout="offset-result"] .input-pane { margin-top: 0; }
+      .long-route-flow { grid-template-columns: 1fr; }
+      .long-route-flow-arrow { transform: rotate(90deg); }
     }
 
     @media (max-width: 620px) {
@@ -444,7 +457,7 @@
             <p>Run Test route to see the receiver here.</p>
           </div>
           <div class="result-live">
-            <div class="result-kicker"><span>ALERTMANAGER RESPONSE</span><span class="continue-path-label">CONTINUE PATH</span><span class="ladder-path-label">5 NESTED LEVELS</span></div>
+            <div class="result-kicker"><span>ALERTMANAGER RESPONSE</span><span class="continue-path-label">CONTINUE PATH</span><span class="ladder-path-label">5 MATCHED ROUTE RULES</span></div>
             <div class="receiver-band continue-route-result"><h2 class="receiver-name">2 receivers</h2><span class="receiver-count">BOTH NOTIFIED</span></div>
             <p class="fallback-message continue-route-result">Two routes matched. Each receiver gets a copy.</p>
             <div class="outcome-grid continue-route-result">
@@ -459,8 +472,24 @@
               </div>
             </section>
             <section class="long-route-result">
-              <div class="receiver-band"><h2 class="receiver-name">pagerduty-platform</h2><span class="receiver-count">1 RECEIVER · 5 LEVELS</span></div>
-              <p class="fallback-message">Five nested routes matched. The route result is <strong>pagerduty-platform</strong>.</p>
+              <div class="long-route-flow">
+                <div class="long-route-flow-section">
+                  <div class="long-route-flow-heading"><span>Matched route rules</span><span>5 rules</span></div>
+                  <div class="long-route-flow-list">
+                    <div class="long-route-flow-rule"><span>#1</span><span>cluster="prod-west"</span></div>
+                    <div class="long-route-flow-rule"><span>#2</span><span>team="platform"</span></div>
+                    <div class="long-route-flow-rule"><span>#3</span><span>service="api"</span></div>
+                    <div class="long-route-flow-rule"><span>#4</span><span>environment="production"</span></div>
+                    <div class="long-route-flow-rule"><span>#5</span><span>severity="critical"</span></div>
+                  </div>
+                </div>
+                <span class="long-route-flow-arrow" aria-hidden="true">&rarr;</span>
+                <div class="long-route-flow-section destination">
+                  <div class="long-route-flow-heading"><span>Selected receiver</span><span>1 receiver</span></div>
+                  <div class="long-route-flow-receiver"><strong>pagerduty-platform</strong><small>webhook_configs (1) · final receiver</small></div>
+                </div>
+              </div>
+              <div class="section-line"><h3>Route ladder</h3><small>5 ROUTE STEPS</small></div>
               <div class="long-route-steps">
                 <div class="long-route-step"><span class="route-number">01</span><span><b>cluster = “prod-west”</b><small>region-router</small></span><span class="route-badge">MATCHED</span></div>
                 <div class="long-route-step"><span class="route-number">02</span><span><b>team = “platform”</b><small>team-platform</small></span><span class="route-badge">MATCHED</span></div>

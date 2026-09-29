@@ -3094,6 +3094,7 @@ html[data-theme="dark"] .workspace-result-pane {
 
 .help-tip::after {
     position: absolute;
+    box-sizing: border-box;
     top: calc(100% + 6px);
     left: 0;
     z-index: 20;
@@ -3111,6 +3112,7 @@ html[data-theme="dark"] .workspace-result-pane {
     line-height: 1.4;
     text-align: left;
     white-space: normal;
+    overflow-wrap: anywhere;
     opacity: 0;
     visibility: hidden;
     pointer-events: none;
@@ -3135,6 +3137,29 @@ html[data-theme="dark"] .workspace-result-pane {
     }
 
     #raw-builder .help-tip::after {
-        width: min(220px, calc(100vw - 205px));
+        left: auto;
+        right: 0;
+        width: min(180px, calc(100vw - 205px));
+    }
+
+    .route-path .help-tip::after {
+        left: auto;
+        right: 0;
+        width: min(180px, calc(100vw - 216px));
+    }
+}
+
+@media (max-width: 320px) {
+    .help-tip::after,
+    #raw-builder .help-tip::after,
+    .route-path .help-tip::after {
+        width: 100px;
+        overflow-wrap: anywhere;
+    }
+
+    #raw-builder .help-tip::after,
+    .workspace-result-pane .help-tip::after {
+        left: auto;
+        right: 0;
     }
 }

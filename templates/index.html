@@ -191,6 +191,7 @@ team: platform'></textarea>
     <script>
         // Current alert labels
         let currentLabels = {};
+        const emptyLabelsMessage = document.querySelector('#current-labels .no-labels-text');
 
         // Label suggestions from config
         const labelSuggestions = {
@@ -205,10 +206,7 @@ team: platform'></textarea>
             container.replaceChildren();
 
             if (Object.keys(currentLabels).length === 0) {
-                const emptyMessage = document.createElement('p');
-                emptyMessage.className = 'no-labels-text';
-                emptyMessage.textContent = 'No labels added. Add labels below, then test the route.';
-                container.appendChild(emptyMessage);
+                container.appendChild(emptyLabelsMessage);
                 return;
             }
 

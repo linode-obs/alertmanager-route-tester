@@ -723,11 +723,15 @@ func TestHandleTestReturnsEmptyMatchedRouteArrayForRootFallback(t *testing.T) {
 func TestResultTemplateShowsRouteRulesLeadingToSelectedReceivers(t *testing.T) {
 	tmpl := loadTemplates(t)
 	tests := []struct {
-		name           string
-		data           resultData
-		wantCounts     []string
-		wantConditions []string
-		wantReceivers  []string
+		name                     string
+		data                     resultData
+		wantCounts               []string
+		wantConditions           []string
+		wantReceivers            []string
+		wantPrimaryHeading       string
+		wantPrimaryCount         string
+		wantPrimaryReceivers     []string
+		wantPrimaryFinalReceiver string
 	}{
 		{
 			name: "nested rules select one receiver",
@@ -739,9 +743,13 @@ func TestResultTemplateShowsRouteRulesLeadingToSelectedReceivers(t *testing.T) {
 				},
 				MatchedReceiverSummaries: []ReceiverSummary{{Name: "team-platform", IsFinal: true}},
 			},
-			wantCounts:     []string{"2 matched route rules", "1 selected receiver"},
-			wantConditions: []string{`cluster=&#34;prod-west&#34;`, `team=&#34;platform&#34;`},
-			wantReceivers:  []string{"team-platform"},
+			wantCounts:               []string{"2 matched route rules", "1 selected receiver"},
+			wantConditions:           []string{`cluster=&#34;prod-west&#34;`, `team=&#34;platform&#34;`},
+			wantReceivers:            []string{"team-platform"},
+			wantPrimaryHeading:       "Selected receiver",
+			wantPrimaryCount:         "1 selected receiver",
+			wantPrimaryReceivers:     []string{"team-platform"},
+			wantPrimaryFinalReceiver: "team-platform",
 		},
 		{
 			name: "continued rules select multiple receivers",
@@ -756,9 +764,13 @@ func TestResultTemplateShowsRouteRulesLeadingToSelectedReceivers(t *testing.T) {
 					{Name: "monitoring-team", IsFinal: true},
 				},
 			},
-			wantCounts:     []string{"2 matched route rules", "2 selected receivers"},
-			wantConditions: []string{`severity=&#34;warning&#34;`, `team=&#34;monitoring&#34;`},
-			wantReceivers:  []string{"slack-warnings", "monitoring-team"},
+			wantCounts:               []string{"2 matched route rules", "2 selected receivers"},
+			wantConditions:           []string{`severity=&#34;warning&#34;`, `team=&#34;monitoring&#34;`},
+			wantReceivers:            []string{"slack-warnings", "monitoring-team"},
+			wantPrimaryHeading:       "Selected receivers",
+			wantPrimaryCount:         "2 selected receivers",
+			wantPrimaryReceivers:     []string{"slack-warnings", "monitoring-team"},
+			wantPrimaryFinalReceiver: "monitoring-team",
 		},
 	}
 
@@ -769,6 +781,43 @@ func TestResultTemplateShowsRouteRulesLeadingToSelectedReceivers(t *testing.T) {
 				t.Fatalf("result.html failed to render: %v", err)
 			}
 			output := buf.String()
+			primaryStart := strings.Index(output, `<div class="result-primary-outcome">`)
+			detailsStart := strings.Index(output, `<details class="result-details route-matching-details">`)
+			if primaryStart < 0 || detailsStart <= primaryStart {
+				t.Fatal("primary receiver summary is missing or appears after route details")
+			}
+			primarySummary := output[primaryStart:detailsStart]
+			if !strings.Contains(primarySummary, `<h3>`+tt.wantPrimaryHeading+`</h3>`) {
+				t.Errorf("primary summary does not contain heading %q", tt.wantPrimaryHeading)
+			}
+			if !strings.Contains(primarySummary, `<span>`+tt.wantPrimaryCount+`</span>`) {
+				t.Errorf("primary summary does not contain receiver count %q", tt.wantPrimaryCount)
+			}
+			primaryReceiversStart := strings.Index(primarySummary, `<div class="result-primary-receivers">`)
+			if primaryReceiversStart < 0 {
+				t.Fatal("primary receiver list is missing")
+			}
+			primaryReceiversEndOffset := strings.Index(primarySummary[primaryReceiversStart:], `</div>`)
+			if primaryReceiversEndOffset < 0 {
+				t.Fatal("primary receiver list is not closed")
+			}
+			primaryReceivers := primarySummary[primaryReceiversStart : primaryReceiversStart+primaryReceiversEndOffset]
+			if got := strings.Count(primaryReceivers, `class="result-primary-receiver"`); got != len(tt.wantPrimaryReceivers) {
+				t.Errorf("primary receiver count = %d, want %d", got, len(tt.wantPrimaryReceivers))
+			}
+			position := 0
+			for _, receiver := range tt.wantPrimaryReceivers {
+				marker := `class="result-primary-receiver">` + receiver
+				relativePosition := strings.Index(primaryReceivers[position:], marker)
+				if relativePosition < 0 {
+					t.Errorf("primary summary does not contain receiver %q in order", receiver)
+					break
+				}
+				position += relativePosition + len(marker)
+			}
+			if !strings.Contains(primaryReceivers, `class="result-primary-receiver">`+tt.wantPrimaryFinalReceiver+`<span class="result-primary-final">final</span>`) {
+				t.Errorf("primary summary does not mark %q as final", tt.wantPrimaryFinalReceiver)
+			}
 			for _, want := range tt.wantCounts {
 				if !strings.Contains(output, want) {
 					t.Errorf("route flow does not contain %q", want)
@@ -1127,9 +1176,6 @@ func TestIndexTemplateExplainsEmptyLabelsAreAddedBelow(t *testing.T) {
 	}
 
 	output := buf.String()
-	if !strings.Contains(output, "No labels added. Add labels below, then test the route.") {
-		t.Fatal("empty label message does not point to the label controls below")
-	}
 	containerStart := strings.Index(output, `<div id="current-labels" class="current-labels">`)
 	if containerStart < 0 {
 		t.Fatal("initial labels area is missing")

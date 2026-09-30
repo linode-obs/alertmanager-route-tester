@@ -1,20 +1,16 @@
-AI-generated content prepared on Will's behalf.
-
 # Alertmanager Route Tester
 
-Alertmanager Route Tester (ATR) is a web app and CLI designed to help figure out where your Prometheus alerts will actually wind up in complex Alertmanager routes. It pulls Alertmanager's sanitized configuration directly from the Alertmanager API and allows the user to see exactly what receiver(s) their alerts will route to.
+Alertmanager Route Tester (a-t-r) is a web app and CLI designed to help figure out where your Prometheus alerts will actually wind up in complex Alertmanager routes. It pulls Alertmanager's sanitized configuration directly from the Alertmanager API and allows the user to see exactly what receiver(s) their alerts will route to.
 
 ### Browser UI
 
-ATR has a two-pane browser UI. Blue marks alert input, and green marks selected receivers. The UI supports light and dark themes.
+a-t-r has a two-pane browser UI. Blue marks alert input, and green marks selected receivers. The UI supports light and dark themes.
 
 ![Light theme showing two selected receivers](docs/screenshots/route-tester-light.png)
 
-![Dark theme showing two selected receivers](docs/screenshots/route-tester-dark.png)
-
 ## Usage
 
-Point it at any Alertmanager instance with `config.yaml`. ATR supports multiple Alertmanager instances/clusters.
+Point it at any Alertmanager instance with `config.yaml`. a-t-r supports multiple Alertmanager instances/clusters.
 
 ```bash
 go run .
@@ -62,11 +58,11 @@ alertmanagers:
     url: "https://alerts-staging.example.com"
 ```
 
-Each entry under `alertmanagers` has a name and URL. HTTP, TLS, retry, connection-pool, and matcher parsing settings can be configured per instance. Set `matcher_mode` to `fallback` (the default), `classic`, or `utf8-strict` to match the connected Alertmanager's `--enable-feature` mode. When more than one instance is configured, the web UI shows an Alertmanager selector above the connection status. Changing the selection reloads the route suggestions and uses that instance for route tests and config reloads. It is recommended to use multiple Alertmanagers only when configuring ATR for multiple clusters, not for multiple Alertmanagers within the same cluster.
+Each entry under `alertmanagers` has a name and URL. HTTP, TLS, retry, connection-pool, and matcher parsing settings can be configured per instance. Set `matcher_mode` to `fallback` (the default), `classic`, or `utf8-strict` to match the connected Alertmanager's `--enable-feature` mode. When more than one instance is configured, the web UI shows an Alertmanager selector above the connection status. Changing the selection reloads the route suggestions and uses that instance for route tests and config reloads. It is recommended to use multiple Alertmanagers only when configuring a-t-r for multiple clusters, not for multiple Alertmanagers within the same cluster.
 
-ATR caches Alertmanager configuration with an option to reload the configuration.
+a-t-r caches Alertmanager configuration with an option to reload the configuration.
 
-Deploy ATR behind the same authentication, network protection, and access controls as the Alertmanager it connects to. In general, its deployment boundary and public URL should match the protected boundary used for that Alertmanager rather than exposing ATR directly. ATR displays routing metadata and raw receiver configuration, which may contain sensitive endpoints or fields that Alertmanager does not redact.
+Deploy a-t-r behind the same authentication, network protection, and access controls as the Alertmanager it connects to. In general, its deployment boundary and public URL should match the protected boundary used for that Alertmanager rather than exposing a-t-r directly. a-t-r displays routing metadata and raw receiver configuration, which may contain sensitive endpoints or fields that Alertmanager does not redact.
 
 The selected instance is not included in shareable label links. Shared links contain alert labels only, so opening one cannot change the configured Alertmanager connection.
 
@@ -179,7 +175,7 @@ Integration tests cover:
 ### Local Development Environment
 
 ```bash
-# locally, build and deploy ATR along with a local sample Alertmanager setup
+# locally, build and deploy a-t-r along with a local sample Alertmanager setup
 mise run start
 ```
 

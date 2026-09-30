@@ -134,6 +134,9 @@
             <div class="route-mismatch-list">
                 <h3>{{if .DefaultRoot}}Why no child route matched{{else}}Why other routes did not match{{end}}</h3>
                 <p class="route-explanation">These route matchers failed. Every matcher on a route must match.</p>
+                {{if gt .RouteMismatchesOmitted 0}}
+                <p class="route-explanation">Showing the first {{len .RouteMismatches}} mismatches; {{.RouteMismatchesOmitted}} more omitted.</p>
+                {{end}}
                 <div class="route-list">
                     {{range .RouteMismatches}}
                     <div class="route-item">

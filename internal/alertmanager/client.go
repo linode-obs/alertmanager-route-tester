@@ -11,6 +11,8 @@ import (
 	"net"
 	"net/http"
 	"os"
+	"regexp"
+	"regexp/syntax"
 	"sort"
 	"strings"
 	"sync"
@@ -914,8 +916,14 @@ func routeExampleLabels(parentLabels map[string]string, route *dispatch.Route) (
 		found := false
 		candidates := []string{"alertmanager-route-tester-example", "example", "test", "critical", "warning", "production", "api", "x", "0", ""}
 		for _, condition := range conditions {
-			if condition.Type == amlabels.MatchEqual {
+			switch condition.Type {
+			case amlabels.MatchEqual:
 				candidates = append([]string{condition.Value}, candidates...)
+			case amlabels.MatchRegexp:
+				if candidate, ok := regexMatcherExample(condition.Value); ok {
+					candidates = append([]string{candidate}, candidates...)
+				}
+			case amlabels.MatchNotEqual, amlabels.MatchNotRegexp:
 			}
 		}
 		for _, candidate := range candidates {
@@ -934,6 +942,74 @@ func routeExampleLabels(parentLabels map[string]string, route *dispatch.Route) (
 	}
 
 	return labels, true
+}
+
+func regexMatcherExample(expression string) (string, bool) {
+	parsed, err := syntax.Parse(expression, syntax.Perl)
+	if err != nil {
+		return "", false
+	}
+	candidate, ok := regexSyntaxExample(parsed)
+	if !ok {
+		return "", false
+	}
+	compiled, err := regexp.Compile(expression)
+	return candidate, err == nil && compiled.MatchString(candidate)
+}
+
+func regexSyntaxExample(expression *syntax.Regexp) (string, bool) {
+	switch expression.Op {
+	case syntax.OpNoMatch:
+		return "", false
+	case syntax.OpEmptyMatch, syntax.OpBeginLine, syntax.OpEndLine, syntax.OpBeginText, syntax.OpEndText, syntax.OpWordBoundary, syntax.OpNoWordBoundary:
+		return "", true
+	case syntax.OpLiteral:
+		return string(expression.Rune), true
+	case syntax.OpCharClass:
+		return regexClassExample(expression.Rune)
+	case syntax.OpAnyChar, syntax.OpAnyCharNotNL:
+		return "a", true
+	case syntax.OpCapture:
+		return regexSyntaxExample(expression.Sub[0])
+	case syntax.OpStar, syntax.OpQuest:
+		return "", true
+	case syntax.OpPlus:
+		return regexSyntaxExample(expression.Sub[0])
+	case syntax.OpRepeat:
+		unit, ok := regexSyntaxExample(expression.Sub[0])
+		if !ok || (len(unit) > 0 && expression.Min > 128/len(unit)) {
+			return "", false
+		}
+		return strings.Repeat(unit, expression.Min), true
+	case syntax.OpConcat:
+		var candidate strings.Builder
+		for _, sub := range expression.Sub {
+			part, ok := regexSyntaxExample(sub)
+			if !ok {
+				return "", false
+			}
+			candidate.WriteString(part)
+		}
+		return candidate.String(), true
+	case syntax.OpAlternate:
+		for _, sub := range expression.Sub {
+			if candidate, ok := regexSyntaxExample(sub); ok {
+				return candidate, true
+			}
+		}
+	}
+	return "", false
+}
+
+func regexClassExample(ranges []rune) (string, bool) {
+	for _, candidate := range []rune{'0', 'a', 'A', '_', ' '} {
+		for index := 0; index+1 < len(ranges); index += 2 {
+			if candidate >= ranges[index] && candidate <= ranges[index+1] {
+				return string(candidate), true
+			}
+		}
+	}
+	return "", false
 }
 
 func matchersMatch(value string, matchers []*amlabels.Matcher) bool {

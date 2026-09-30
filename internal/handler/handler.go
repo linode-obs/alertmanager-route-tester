@@ -18,6 +18,7 @@ import (
 )
 
 const maxTestRequestBodyBytes int64 = 1 << 20
+const maxRouteMismatchDiagnostics = 100
 
 type Handler struct {
 	client              *alertmanager.Client
@@ -334,7 +335,7 @@ func (h *Handler) HandleTest(w http.ResponseWriter, r *http.Request) {
 		routeSteps, matchedReceivers, continueCount, finalMatch := buildRouteSummary(matchedRoutes, receiver, config)
 		matchedReceiverSummaries := buildReceiverSummaries(matchedRoutes, receiver, config)
 		defaultRoot := isDefaultRoot(receiver, matchedRoutes, config)
-		routeMismatches := alertmanager.FindRouteMismatches(labels, config)
+		routeMismatches, routeMismatchesOmitted := alertmanager.FindRouteMismatchesWithLimit(labels, config, maxRouteMismatchDiagnostics)
 		data := struct {
 			Receiver                 string
 			ReceiverConfig           *alertmanager.Receiver
@@ -346,6 +347,7 @@ func (h *Handler) HandleTest(w http.ResponseWriter, r *http.Request) {
 			DefaultRoot              bool
 			MatchedReceiverSummaries []ReceiverSummary
 			RouteMismatches          []alertmanager.RouteMismatch
+			RouteMismatchesOmitted   int
 			Labels                   map[string]string
 			Error                    string
 		}{
@@ -359,6 +361,7 @@ func (h *Handler) HandleTest(w http.ResponseWriter, r *http.Request) {
 			DefaultRoot:              defaultRoot,
 			MatchedReceiverSummaries: matchedReceiverSummaries,
 			RouteMismatches:          routeMismatches,
+			RouteMismatchesOmitted:   routeMismatchesOmitted,
 			Labels:                   labels,
 			Error:                    errorMsg,
 		}

@@ -1822,6 +1822,45 @@ func TestGenerateSampleAlertsUsesConfiguredRoutes(t *testing.T) {
 	}
 }
 
+func TestGenerateSampleAlertsFindsRegexOnlyRoute(t *testing.T) {
+	for _, test := range []struct {
+		name  string
+		route *Route
+	}{
+		{
+			name: "match_re",
+			route: &Route{
+				Receiver: "production",
+				MatchRE:  map[string]string{"instance": `^prod-[0-9]+$`},
+			},
+		},
+		{
+			name: "matchers",
+			route: &Route{
+				Receiver: "production",
+				Matchers: []string{`instance=~"prod-[0-9]+"`},
+			},
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			config := &Config{Route: &Route{Receiver: "default", Routes: []*Route{test.route}}}
+			for _, sample := range GenerateSampleAlerts(config) {
+				receiver, matched, err := (&Client{}).FindMatchingRoute(sample.Labels, config)
+				if err != nil {
+					t.Fatalf("FindMatchingRoute(%v): %v", sample.Labels, err)
+				}
+				if len(matched) > 0 && receiver == "production" {
+					if sample.Labels["instance"] == "" {
+						t.Fatal("regex sample has no instance label")
+					}
+					return
+				}
+			}
+			t.Fatalf("no quick example matched regex-only route: %#v", GenerateSampleAlerts(config))
+		})
+	}
+}
+
 func TestGenerateSampleAlertsIncludesMultipleReceiverContinueExample(t *testing.T) {
 	config := &Config{
 		Route: &Route{

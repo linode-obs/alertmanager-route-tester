@@ -387,7 +387,7 @@ repeat_interval: {{.Route.RepeatInterval}}{{end}}</pre>
                     {{if .Continue}}
                     <span class="trace-continue">continue</span>
                     {{end}}
-                    <span class="trace-match-status">MATCHED</span>
+                    <span class="trace-match-status">{{if .IsEffective}}EFFECTIVE{{else}}MATCHED ANCESTOR{{end}}</span>
                 </div>
             </div>
         </div>

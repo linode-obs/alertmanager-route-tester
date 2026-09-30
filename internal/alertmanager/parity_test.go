@@ -25,6 +25,13 @@ import (
 )
 
 func TestRoutingMatchesAlertmanagerDeliveries(t *testing.T) {
+	if testing.Short() {
+		t.Skip("Skipping integration test in short mode")
+	}
+	if os.Getenv("SKIP_INTEGRATION_TESTS") != "" {
+		t.Skip("Skipping integration tests (SKIP_INTEGRATION_TESTS is set)")
+	}
+
 	binary := alertmanagerBinary(t)
 	deliveries := make(chan webhookDelivery, 100)
 	webhook := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

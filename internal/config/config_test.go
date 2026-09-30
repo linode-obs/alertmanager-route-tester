@@ -3,6 +3,7 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -38,6 +39,69 @@ alertmanagers:
 	}
 	if got := cfg.App.CLITestMode.Suite[0].ExpectedReceivers; len(got) != 1 || got[0] != "pagerduty-critical" {
 		t.Fatalf("expected receivers = %v, want [pagerduty-critical]", got)
+	}
+}
+
+func TestValidateRejectsInvalidCLITestSuites(t *testing.T) {
+	validCase := CLITestCase{Name: "alert", ExpectedReceivers: []string{"default"}}
+	suite := func(cases ...CLITestCase) TestConfig {
+		return TestConfig{Enabled: true, Suite: cases}
+	}
+	tests := []struct {
+		name string
+		mode TestConfig
+		want string
+	}{
+		{
+			name: "suite mode disabled",
+			mode: TestConfig{Suite: []CLITestCase{validCase}},
+			want: "cli-test-mode.enabled must be true",
+		},
+		{
+			name: "suite combined with labels",
+			mode: TestConfig{Enabled: true, Labels: map[string]string{"severity": "critical"}, Suite: []CLITestCase{validCase}},
+			want: "labels cannot be combined with suite",
+		},
+		{
+			name: "blank case name",
+			mode: suite(CLITestCase{ExpectedReceivers: []string{"default"}}),
+			want: "suite[0].name is required",
+		},
+		{
+			name: "duplicate case names",
+			mode: suite(validCase, validCase),
+			want: "contains duplicate case name",
+		},
+		{
+			name: "missing expected receivers",
+			mode: suite(CLITestCase{Name: "alert"}),
+			want: "suite[0].expected_receivers is required",
+		},
+		{
+			name: "blank expected receiver",
+			mode: suite(CLITestCase{Name: "alert", ExpectedReceivers: []string{" "}}),
+			want: "contains an empty receiver",
+		},
+		{
+			name: "duplicate expected receivers",
+			mode: suite(CLITestCase{Name: "alert", ExpectedReceivers: []string{"default", "default"}}),
+			want: "contains duplicate receiver",
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			cfg := &Config{
+				App:           AppConfig{CLITestMode: test.mode},
+				Alertmanagers: map[string]AlertmanagerConfig{"test": {URL: "http://alertmanager.example.test"}},
+			}
+			applyDefaults(cfg)
+
+			err := validate(cfg)
+			if err == nil || !strings.Contains(err.Error(), test.want) {
+				t.Fatalf("validate() error = %v, want substring %q", err, test.want)
+			}
+		})
 	}
 }
 

@@ -364,6 +364,9 @@ func TestContinuedReceiversHaveNoFinalDistinction(t *testing.T) {
 	if strings.Contains(buf.String(), "final") {
 		t.Fatalf("continued receiver output marks a receiver final: %s", buf.String())
 	}
+	if got := strings.Count(buf.String(), `class="trace-match-status">EFFECTIVE</span>`); got != 2 {
+		t.Fatalf("effective route statuses = %d, want two", got)
+	}
 }
 
 func TestIsDefaultRootRejectsEffectiveTopLevelMatch(t *testing.T) {
@@ -980,6 +983,26 @@ func TestResultTemplateShowsRouteRulesLeadingToSelectedReceivers(t *testing.T) {
 	}
 }
 
+func TestRouteLadderDistinguishesEffectiveRoutesFromAncestors(t *testing.T) {
+	data := resultData{
+		Receiver: "pagerduty",
+		RouteSteps: []RouteStep{
+			{Index: 1, Receiver: "team-router"},
+			{Index: 2, Receiver: "pagerduty", IsEffective: true},
+		},
+	}
+
+	var buf bytes.Buffer
+	if err := loadTemplates(t).ExecuteTemplate(&buf, "result.html", data); err != nil {
+		t.Fatalf("result.html failed to render: %v", err)
+	}
+	for _, status := range []string{"MATCHED ANCESTOR", "EFFECTIVE"} {
+		if !strings.Contains(buf.String(), status) {
+			t.Errorf("route ladder does not distinguish %q: %s", status, buf.String())
+		}
+	}
+}
+
 func TestResultTemplateRendersMatchedRoutes(t *testing.T) {
 	tmpl := loadTemplates(t)
 
@@ -1001,10 +1024,11 @@ func TestResultTemplateRendersMatchedRoutes(t *testing.T) {
 		MatchedReceivers: []string{"pagerduty-critical"},
 		RouteSteps: []RouteStep{
 			{
-				Index:    1,
-				Receiver: "pagerduty-critical",
-				Match:    map[string]string{"severity": "critical"},
-				IsFinal:  true,
+				Index:       1,
+				Receiver:    "pagerduty-critical",
+				Match:       map[string]string{"severity": "critical"},
+				IsFinal:     true,
+				IsEffective: true,
 			},
 		},
 		FinalMatch: MatchSummary{
@@ -1068,8 +1092,8 @@ func TestResultTemplateRendersSubroute(t *testing.T) {
 	if bytes.Contains(out, []byte("Multiple receivers will be notified")) {
 		t.Error("nested parent and child should not trigger multiple-receiver notice")
 	}
-	if !bytes.Contains(out, []byte(`class="trace-match-status">MATCHED</span>`)) {
-		t.Error("matched route status is missing")
+	if !bytes.Contains(out, []byte(`class="trace-match-status">MATCHED ANCESTOR</span>`)) || !bytes.Contains(out, []byte(`class="trace-match-status">EFFECTIVE</span>`)) {
+		t.Error("effective and ancestor route statuses are missing")
 	}
 }
 
@@ -1181,7 +1205,7 @@ func TestResultTemplatePlacesLongRouteTraceBeforeSecondaryDetails(t *testing.T) 
 	if !strings.Contains(output, `class="result-heading"`) || !strings.Contains(output, "Route result") || !strings.Contains(output, "5 matched route rules") {
 		t.Fatal("route result summary is missing its heading or route count")
 	}
-	if !strings.Contains(output, `class="trace-match-status">MATCHED</span>`) || !strings.Contains(output, "Match conditions") || strings.Contains(strings.ToLower(output), "deliver") {
+	if !strings.Contains(output, `class="trace-match-status">MATCHED ANCESTOR</span>`) || !strings.Contains(output, `class="trace-match-status">EFFECTIVE</span>`) || !strings.Contains(output, "Match conditions") || strings.Contains(strings.ToLower(output), "deliver") {
 		t.Fatal("long route ladder output is missing clear match status")
 	}
 	trace := output[tracePosition:receiverConfigPosition]
@@ -1223,7 +1247,7 @@ func TestResultTemplateLabelsNativeMatchersAsConditions(t *testing.T) {
 		"Match conditions",
 		`severity=&#34;warning&#34;`,
 		`team=&#34;monitoring&#34;`,
-		`class="trace-match-status">MATCHED</span>`,
+		`class="trace-match-status">EFFECTIVE</span>`,
 	} {
 		if !strings.Contains(output, expected) {
 			t.Errorf("native matcher output does not contain %q", expected)

@@ -94,23 +94,19 @@
 
         <main class="workspace">
             <div class="panel workspace-pane workspace-input-pane">
+                <span class="workspace-pane-label">ALERT INPUT</span>
                 <h2>Build your alert</h2>
 
-                {{if .SampleAlerts}}
+                {{if or .SampleAlerts .SampleAlertsDeferred}}
                 <div class="quick-start-section">
                     <h3>Quick examples</h3>
                     <p class="help-text">Choose an example. The app loads its labels.</p>
-                    <div class="sample-alerts-grid">
-                        {{range $i, $sample := .SampleAlerts}}
-                        <div class="sample-alert-card" role="button" tabindex="0" aria-label="Load sample alert {{$sample.Name}}" onclick="loadSampleAlertByIndex({{$i}})" onkeydown="if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); loadSampleAlertByIndex({{$i}}); }">
-                            <div class="sample-name">{{$sample.Name}}</div>
-                            <div class="sample-description">{{$sample.Description}}</div>
-                            <div class="sample-labels">
-                                {{range $key, $value := $sample.Labels}}
-                                <span class="mini-label">{{$key}}={{$value}}</span>
-                                {{end}}
-                            </div>
-                        </div>
+                    <div id="sample-alerts">
+                        {{if .SampleAlerts}}
+                        {{template "sample-alert-cards" .}}
+                        {{else}}
+                        <p class="sample-examples-deferred">This route tree is large. Generate examples only when needed.</p>
+                        <button type="button" class="btn-secondary btn-load-samples" hx-get="/config/samples?alertmanager={{.SelectedAlertmanager | urlquery}}" hx-target="#sample-alerts" hx-swap="innerHTML">Generate examples</button>
                         {{end}}
                     </div>
                 </div>
@@ -125,14 +121,15 @@
                     <input type="hidden" name="alertmanager" value="{{.SelectedAlertmanager}}">
                     <div id="ui-builder">
                         <div class="label-section">
-                            <h3>Alert labels <span class="help-tip" data-tooltip="A route matches only when its labels match." aria-label="Alert label help" tabindex="0">?</span></h3>
+                            <h3>Alert labels <span class="help-tip" role="img" data-tooltip="A route matches only when its labels match." aria-label="Alert label help: A route matches only when its labels match." tabindex="0">ⓘ</span></h3>
                             <p class="help-text">Add labels from the configuration, or enter them.</p>
 
                             <div id="current-labels" class="current-labels">
+                                <p class="no-labels-text">No labels added. Add labels below, then test the route.</p>
                                 <!-- Labels will appear here as badges -->
                             </div>
 
-                            <div class="add-label-form" aria-label="Add alert label">
+                            <div class="add-label-form" role="group" aria-label="Add alert label">
                                 <input type="text"
                                        id="label-key-input"
                                        placeholder="key"
@@ -164,7 +161,7 @@
 
                     <div id="raw-builder" style="display: none;">
                         <div class="label-section">
-                            <label for="raw-input">Paste labels as YAML <span class="help-tip" data-tooltip="Use one key: value pair per line." aria-label="Raw input help" tabindex="0">?</span></label>
+                            <label for="raw-input">Paste labels as YAML <span class="help-tip" role="img" data-tooltip="Use one key: value pair per line." aria-label="Paste labels as YAML help: Use one key: value pair per line." tabindex="0">ⓘ</span></label>
                             <textarea id="raw-input" rows="10" placeholder='alertname: HighErrorRate
 severity: critical
 job: api
@@ -183,6 +180,7 @@ team: platform'></textarea>
             </div>
 
             <div class="panel workspace-pane workspace-result-pane" id="result" aria-live="polite" aria-atomic="true">
+                <span class="workspace-pane-label">ROUTING OUTPUT</span>
                 <div class="placeholder">
                     <p>Add labels, then select "Test route". The app shows the matching receiver.</p>
                 </div>
@@ -193,6 +191,7 @@ team: platform'></textarea>
     <script>
         // Current alert labels
         let currentLabels = {};
+        const emptyLabelsMessage = document.querySelector('#current-labels .no-labels-text');
 
         // Label suggestions from config
         const labelSuggestions = {
@@ -201,27 +200,13 @@ team: platform'></textarea>
             {{end}}
         };
 
-        // Sample alerts from config
-        const sampleAlerts = [
-            {{range $i, $sample := .SampleAlerts}}
-            {{if $i}},{{end}}
-            {
-                name: "{{$sample.Name}}",
-                labels: {{$sample.Labels | json}}
-            }
-            {{end}}
-        ];
-
         // Render labels as badges
         function renderLabels() {
             const container = document.getElementById('current-labels');
             container.replaceChildren();
 
             if (Object.keys(currentLabels).length === 0) {
-                const emptyMessage = document.createElement('p');
-                emptyMessage.className = 'no-labels-text';
-                emptyMessage.textContent = 'No labels added. Add labels above, then test the route.';
-                container.appendChild(emptyMessage);
+                container.appendChild(emptyLabelsMessage);
                 return;
             }
 
@@ -373,11 +358,13 @@ team: platform'></textarea>
         }
 
         // Load sample alert
-        function loadSampleAlertByIndex(index) {
-            const sample = sampleAlerts[index];
-            if (!sample) return;
+        function loadSampleAlertFromCard(card) {
+            const labels = {};
+            card.querySelectorAll('.mini-label').forEach(label => {
+                labels[label.dataset.labelKey] = label.dataset.labelValue;
+            });
 
-            currentLabels = { ...sample.labels };
+            currentLabels = labels;
             renderLabels();
 
             // Scroll to form
@@ -577,3 +564,23 @@ team: platform'></textarea>
     </script>
 </body>
 </html>
+
+{{define "sample-alert-cards"}}
+<div class="sample-alerts-grid">
+    {{range $sample := .SampleAlerts}}
+    <div class="sample-alert-card" role="button" tabindex="0" aria-label="Load sample alert {{$sample.Name}}" onclick="loadSampleAlertFromCard(this)" onkeydown="if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); loadSampleAlertFromCard(this); }">
+        <div class="sample-name">{{$sample.Name}}</div>
+        <div class="sample-description">{{$sample.Description}}</div>
+        <div class="sample-labels">
+            {{range $key, $value := $sample.Labels}}
+            <span class="mini-label" data-label-key="{{$key}}" data-label-value="{{$value}}">{{$key}}={{$value}}</span>
+            {{end}}
+        </div>
+    </div>
+    {{end}}
+</div>
+{{end}}
+
+{{define "sample-alert-generation-limit"}}
+<p class="sample-examples-deferred">This route tree exceeds the quick-example generation limit. You can still test routes by entering labels manually.</p>
+{{end}}

@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"sort"
 	"strings"
 
 	"github.com/wbollock/alertmanager-route-tester/internal/alertmanager"
@@ -18,8 +19,88 @@ type TestResult struct {
 	Error          string                      `json:"error,omitempty"`
 }
 
+type SuiteCase struct {
+	Name              string
+	Labels            map[string]string
+	ExpectedReceivers []string
+}
+
+type SuiteResult struct {
+	Name              string   `json:"name"`
+	Passed            bool     `json:"passed"`
+	ExpectedReceivers []string `json:"expected_receivers"`
+	ActualReceivers   []string `json:"actual_receivers"`
+	Error             string   `json:"error,omitempty"`
+}
+
 // TestRouting tests alert routing using the exact same logic as the web UI
 // This function is designed to be used in Go tests
+func RunSuite(client *alertmanager.Client, cases []SuiteCase) []SuiteResult {
+	results := make([]SuiteResult, 0, len(cases))
+	for _, testCase := range cases {
+		result, err := TestRouting(client, testCase.Labels)
+		suiteResult := SuiteResult{
+			Name:              testCase.Name,
+			ExpectedReceivers: sortedReceivers(testCase.ExpectedReceivers),
+		}
+		if err != nil {
+			suiteResult.Error = err.Error()
+		} else {
+			suiteResult.ActualReceivers = receiversForResult(result)
+			suiteResult.Passed = sameReceiverSet(suiteResult.ExpectedReceivers, suiteResult.ActualReceivers)
+		}
+		results = append(results, suiteResult)
+	}
+	return results
+}
+
+func receiversForResult(result *TestResult) []string {
+	receivers := make([]string, 0, len(result.MatchedRoutes))
+	seen := make(map[string]bool)
+	for _, matched := range result.MatchedRoutes {
+		if !matched.IsEffective {
+			continue
+		}
+		receiver := matched.ResolvedReceiver
+		if receiver == "" && matched.Route != nil {
+			receiver = matched.Route.Receiver
+		}
+		if receiver != "" && !seen[receiver] {
+			receivers = append(receivers, receiver)
+			seen[receiver] = true
+		}
+	}
+	if len(receivers) == 0 && result.Receiver != "" {
+		receivers = append(receivers, result.Receiver)
+	}
+	return sortedReceivers(receivers)
+}
+
+func sortedReceivers(receivers []string) []string {
+	unique := make(map[string]bool, len(receivers))
+	result := make([]string, 0, len(receivers))
+	for _, receiver := range receivers {
+		if !unique[receiver] {
+			result = append(result, receiver)
+			unique[receiver] = true
+		}
+	}
+	sort.Strings(result)
+	return result
+}
+
+func sameReceiverSet(expected, actual []string) bool {
+	if len(expected) != len(actual) {
+		return false
+	}
+	for i := range expected {
+		if expected[i] != actual[i] {
+			return false
+		}
+	}
+	return true
+}
+
 func TestRouting(client *alertmanager.Client, labels map[string]string) (*TestResult, error) {
 	config, err := client.GetConfig()
 	if err != nil {
@@ -64,6 +145,36 @@ func TestRouting(client *alertmanager.Client, labels map[string]string) (*TestRe
 		MatchedRoutes:  matchedRoutes,
 		Labels:         labels,
 	}, nil
+}
+
+func PrintSuiteResults(results []SuiteResult, format OutputFormat) error {
+	switch format {
+	case OutputFormatJSON:
+		encoder := json.NewEncoder(os.Stdout)
+		encoder.SetIndent("", "  ")
+		return encoder.Encode(results)
+	case OutputFormatSimple:
+		for _, result := range results {
+			status := "FAIL"
+			if result.Passed {
+				status = "PASS"
+			}
+			if _, err := fmt.Fprintf(os.Stdout, "%s %s: expected=%v actual=%v", status, result.Name, result.ExpectedReceivers, result.ActualReceivers); err != nil {
+				return err
+			}
+			if result.Error != "" {
+				if _, err := fmt.Fprintf(os.Stdout, " error=%s", result.Error); err != nil {
+					return err
+				}
+			}
+			if _, err := fmt.Fprintln(os.Stdout); err != nil {
+				return err
+			}
+		}
+		return nil
+	default:
+		return fmt.Errorf("unknown output format: %s", format)
+	}
 }
 
 // OutputFormat represents the output format

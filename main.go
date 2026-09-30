@@ -73,6 +73,33 @@ func main() {
 
 	// CLI test mode
 	if cliMode {
+		if len(cfg.App.CLITestMode.Suite) > 0 {
+			if *labelsJSON != "" {
+				fmt.Fprintln(os.Stderr, "--labels-json cannot be used with cli-test-mode.suite")
+				os.Exit(1)
+			}
+			suite := make([]cli.SuiteCase, 0, len(cfg.App.CLITestMode.Suite))
+			for _, testCase := range cfg.App.CLITestMode.Suite {
+				suite = append(suite, cli.SuiteCase{
+					Name:              testCase.Name,
+					Labels:            testCase.Labels,
+					ExpectedReceivers: testCase.ExpectedReceivers,
+				})
+			}
+			results := cli.RunSuite(client, suite)
+			format := cli.OutputFormat(strings.ToLower(cfg.App.CLITestMode.Format))
+			if err := cli.PrintSuiteResults(results, format); err != nil {
+				fmt.Fprintln(os.Stderr, err.Error())
+				os.Exit(1)
+			}
+			for _, result := range results {
+				if !result.Passed {
+					os.Exit(1)
+				}
+			}
+			return
+		}
+
 		labels := cfg.App.CLITestMode.Labels
 		if *labelsJSON != "" {
 			labels, err = parseLabelsJSON(*labelsJSON)
@@ -110,6 +137,7 @@ func main() {
 	http.HandleFunc("/test", h.HandleTest)
 	http.HandleFunc("/config/labels", h.HandleConfigLabels)
 	http.HandleFunc("/config/reload", h.HandleReloadConfig)
+	http.HandleFunc("/config/samples", h.HandleGenerateSampleAlerts)
 
 	slog.Info("starting server", "listen", cfg.App.Server.Listen)
 	slog.Info("using alertmanager", "name", defaultName, "url", clients[defaultName].BaseURL())
@@ -212,7 +240,8 @@ func newClients(cfg *appconfig.Config) (map[string]*alertmanager.Client, []strin
 	for _, name := range names {
 		am := cfg.Alertmanagers[name]
 		client, err := alertmanager.NewClientWithOptions(alertmanager.ClientOptions{
-			BaseURL: am.URL,
+			BaseURL:     am.URL,
+			MatcherMode: alertmanager.MatcherMode(am.MatcherMode),
 			TLS: alertmanager.TLSOptions{
 				SkipVerify: am.HTTP.TLS.SkipVerify,
 				CAFile:     am.HTTP.TLS.CAFile,

@@ -2,6 +2,7 @@ package alertmanager
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -196,7 +197,7 @@ func TestAlertmanagerMatcherSemantics(t *testing.T) {
 			want:   true,
 		},
 		{
-			name:   "tab escape remains literal in compatibility mode",
+			name:   "tab escape remains literal",
 			labels: map[string]string{"message": `a\tb`},
 			route:  &Route{Matchers: []string{`message="a\tb"`}},
 			want:   true,
@@ -208,13 +209,13 @@ func TestAlertmanagerMatcherSemantics(t *testing.T) {
 			want:   false,
 		},
 		{
-			name:   "unicode escape remains literal in compatibility mode",
+			name:   "unicode escape remains literal",
 			labels: map[string]string{"message": `\u0062ar`},
 			route:  &Route{Matchers: []string{`message="\u0062ar"`}},
 			want:   true,
 		},
 		{
-			name:   "quoted UTF-8 name uses strict value escaping",
+			name:   "quoted UTF-8 label name supports escaped values",
 			labels: map[string]string{"foo bar": "a\tb"},
 			route:  &Route{Matchers: []string{`"foo bar"="a\tb"`}},
 			want:   true,
@@ -229,8 +230,43 @@ func TestAlertmanagerMatcherSemantics(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			if got := matchesRoute(tt.labels, tt.route); got != tt.want {
-				t.Fatalf("matchesRoute() = %v, want %v", got, tt.want)
+			if got := matchesNativeRoute(tt.labels, tt.route); got != tt.want {
+				t.Fatalf("nativeRouteMatches() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestClientsParseMatchersUsingTheirConfiguredMode(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"config":{"original":"route:\n  receiver: default\n  routes:\n  - receiver: api\n    matchers:\n    - 'message=\"a\\qb\"'\nreceivers:\n- name: default\n- name: api\n"}}`))
+	}))
+	defer server.Close()
+
+	classic, err := NewClientWithOptions(ClientOptions{BaseURL: server.URL, MatcherMode: MatcherModeClassic})
+	if err != nil {
+		t.Fatalf("create classic-mode client: %v", err)
+	}
+	strict, err := NewClientWithOptions(ClientOptions{BaseURL: server.URL, MatcherMode: MatcherModeUTF8Strict})
+	if err != nil {
+		t.Fatalf("create UTF-8 strict-mode client: %v", err)
+	}
+
+	for _, test := range []struct {
+		name      string
+		client    *Client
+		wantError bool
+	}{
+		{name: "classic", client: classic},
+		{name: "strict", client: strict, wantError: true},
+		{name: "classic after strict", client: classic},
+		{name: "strict after classic", client: strict, wantError: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			_, err := test.client.GetConfig()
+			if (err != nil) != test.wantError {
+				t.Fatalf("GetConfig() error = %v, want error %v", err, test.wantError)
 			}
 		})
 	}
@@ -519,10 +555,10 @@ func TestGetConfigDoesNotPublishFetchStartedBeforeInvalidation(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
-// matchesRoute tests
+// Native route matching tests
 // ---------------------------------------------------------------------------
 
-func TestMatchesRoute(t *testing.T) {
+func TestNativeRouteMatching(t *testing.T) {
 	tests := []struct {
 		name     string
 		labels   map[string]string
@@ -686,19 +722,19 @@ func TestMatchesRoute(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := matchesRoute(tt.labels, tt.route)
+			result := matchesNativeRoute(tt.labels, tt.route)
 			if result != tt.expected {
-				t.Errorf("matchesRoute() = %v, want %v", result, tt.expected)
+				t.Errorf("nativeRouteMatches() = %v, want %v", result, tt.expected)
 			}
 		})
 	}
 }
 
 // ---------------------------------------------------------------------------
-// parseMatcher tests
+// Native matcher parsing tests
 // ---------------------------------------------------------------------------
 
-func TestParseMatcher(t *testing.T) {
+func TestParseNativeMatcher(t *testing.T) {
 	tests := []struct {
 		input     string
 		wantOK    bool
@@ -710,11 +746,12 @@ func TestParseMatcher(t *testing.T) {
 		{`severity!="critical"`, true, "severity", "!=", "critical"},
 		{`service=~"^api$"`, true, "service", "=~", "^api$"},
 		{`service!~"^api$"`, true, "service", "!~", "^api$"},
-		{`severity='critical'`, true, "severity", "=", "critical"},      // single-quote stripping
+		{`severity='critical'`, true, "severity", "=", "'critical'"},    // single quotes are part of the matcher value
 		{`severity=critical`, true, "severity", "=", "critical"},        // unquoted value
 		{`  severity = "critical" `, true, "severity", "=", "critical"}, // whitespace
 		{`"severity"="critical"`, true, "severity", "=", "critical"},
 		{`"foo bar"="x"`, true, "foo bar", "=", "x"},
+		{`"foo bar"="a\tb"`, true, "foo bar", "=", "a\tb"},
 		{`"foo\u0020bar"="x"`, true, "foo bar", "=", "x"},
 		{`"føø"="x"`, true, "føø", "=", "x"},
 		{`"foo\"bar"="x"`, true, `foo"bar`, "=", "x"},
@@ -725,24 +762,69 @@ func TestParseMatcher(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.input, func(t *testing.T) {
-			got, ok := parseMatcher(tt.input)
-			if ok != tt.wantOK {
-				t.Fatalf("parseMatcher(%q) ok = %v, want %v", tt.input, ok, tt.wantOK)
-			}
-			if !ok {
+			config := &Config{Route: &Route{
+				Receiver: "default",
+				Routes:   []*Route{{Receiver: "target", Matchers: []string{tt.input}}},
+			}}
+			tree, err := nativeRouteTreeForConfig(config)
+			if !tt.wantOK {
+				if err == nil {
+					t.Fatalf("native parser accepted invalid matcher %q", tt.input)
+				}
 				return
 			}
-			if got.Label != tt.wantLabel {
-				t.Errorf("Label = %q, want %q", got.Label, tt.wantLabel)
+			if err != nil {
+				t.Fatalf("native parser rejected matcher %q: %v", tt.input, err)
 			}
-			if got.Operator != tt.wantOp {
-				t.Errorf("Operator = %q, want %q", got.Operator, tt.wantOp)
+			matchers := tree.root.Routes[0].Matchers
+			if len(matchers) != 1 {
+				t.Fatalf("native parser returned %d matchers, want 1", len(matchers))
+			}
+			got := matchers[0]
+			if got.Name != tt.wantLabel {
+				t.Errorf("Label = %q, want %q", got.Name, tt.wantLabel)
+			}
+			if got.Type.String() != tt.wantOp {
+				t.Errorf("Operator = %q, want %q", got.Type.String(), tt.wantOp)
 			}
 			if got.Value != tt.wantValue {
 				t.Errorf("Value = %q, want %q", got.Value, tt.wantValue)
 			}
 		})
 	}
+}
+
+type parsedNativeMatcher struct {
+	Label    string
+	Operator string
+	Value    string
+}
+
+func parseNativeMatcher(input string) (parsedNativeMatcher, bool) {
+	config := &Config{Route: &Route{
+		Receiver: "default",
+		Routes:   []*Route{{Receiver: "target", Matchers: []string{input}}},
+	}}
+	tree, err := nativeRouteTreeForConfig(config)
+	if err != nil || len(tree.root.Routes[0].Matchers) != 1 {
+		return parsedNativeMatcher{}, false
+	}
+	matcher := tree.root.Routes[0].Matchers[0]
+	return parsedNativeMatcher{Label: matcher.Name, Operator: matcher.Type.String(), Value: matcher.Value}, true
+}
+
+func matchesNativeRoute(labels map[string]string, route *Route) bool {
+	config := &Config{Route: &Route{Receiver: "default", Routes: []*Route{route}}}
+	_, matched, err := (&Client{}).FindMatchingRoute(labels, config)
+	if err != nil {
+		return false
+	}
+	for _, result := range matched {
+		if result.Route == route {
+			return true
+		}
+	}
+	return false
 }
 
 // ---------------------------------------------------------------------------
@@ -1432,10 +1514,13 @@ func TestConfigCache(t *testing.T) {
 func TestExtractLabelKeys(t *testing.T) {
 	config := &Config{
 		Route: &Route{
-			Match: map[string]string{
-				"severity": "critical",
-			},
+			Receiver: "default",
 			Routes: []*Route{
+				{
+					Match: map[string]string{
+						"severity": "critical",
+					},
+				},
 				{
 					Match: map[string]string{
 						"team": "platform",
@@ -1488,6 +1573,7 @@ func TestExtractLabelKeys(t *testing.T) {
 func TestExtractLabelSuggestions(t *testing.T) {
 	config := &Config{
 		Route: &Route{
+			Receiver: "default",
 			Routes: []*Route{
 				{
 					Match:    map[string]string{"severity": "critical"},
@@ -1642,4 +1728,359 @@ func TestFindMatchingRouteErrors(t *testing.T) {
 			t.Error("expected error for nil route, got nil")
 		}
 	})
+}
+
+func TestClientGetSampleAlertsCachesForCurrentConfig(t *testing.T) {
+	config := &Config{
+		Route: &Route{
+			Receiver: "default",
+			Routes: []*Route{
+				{Receiver: "api-team", Match: map[string]string{"service": "api"}},
+			},
+		},
+	}
+	client := &Client{}
+
+	first, deferred := client.GetSampleAlerts(config)
+	if deferred {
+		t.Fatal("GetSampleAlerts() deferred a small route tree")
+	}
+	if len(first) == 0 {
+		t.Fatal("GetSampleAlerts() returned no examples")
+	}
+	if client.sampleAlertsConfig != config || len(client.sampleAlerts) == 0 || !client.sampleAlertsReady {
+		t.Fatal("GetSampleAlerts() did not cache examples for the config")
+	}
+
+	first[0].Labels["service"] = "changed"
+	second, deferred := client.GetSampleAlerts(config)
+	if deferred || second[0].Labels["service"] != "api" {
+		t.Fatalf("cached result = %#v, deferred = %v, want service=api", second, deferred)
+	}
+}
+
+func TestClientGetSampleAlertsContextReturnsWhenCancelledWhileCacheIsLocked(t *testing.T) {
+	client := &Client{}
+	client.sampleAlertsMu.Lock()
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	result := make(chan error, 1)
+	go func() {
+		_, _, err := client.GetSampleAlertsContext(ctx, &Config{})
+		result <- err
+	}()
+
+	select {
+	case err := <-result:
+		client.sampleAlertsMu.Unlock()
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("GetSampleAlertsContext() error = %v, want context cancellation", err)
+		}
+	case <-time.After(time.Second):
+		client.sampleAlertsMu.Unlock()
+		t.Fatal("GetSampleAlertsContext() blocked on the cache lock after cancellation")
+	}
+}
+
+func TestClientGenerateSampleAlertsContextRejectsLargeRouteTree(t *testing.T) {
+	routes := make([]*Route, maxOnDemandSampleAlertRoutes+1)
+	for index := range routes {
+		routes[index] = &Route{Match: map[string]string{"route": fmt.Sprint(index)}}
+	}
+	config := &Config{Route: &Route{Receiver: "default", Routes: routes}}
+
+	_, err := (&Client{}).GenerateSampleAlertsContext(context.Background(), config)
+	if !errors.Is(err, ErrSampleGenerationTooLarge) {
+		t.Fatalf("GenerateSampleAlertsContext() error = %v, want ErrSampleGenerationTooLarge", err)
+	}
+}
+
+func TestGenerateSampleAlertsContextReturnsCancellation(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	_, err := GenerateSampleAlertsContext(ctx, &Config{Route: &Route{Receiver: "default"}})
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("GenerateSampleAlertsContext() error = %v, want context cancellation", err)
+	}
+}
+
+func TestGenerateSampleAlertsContextStopsDuringRouteTraversal(t *testing.T) {
+	baseContext, cancel := context.WithCancel(context.Background())
+	ctx := &cancelAfterErrChecks{Context: baseContext, cancel: cancel, remaining: 8}
+	routes := make([]*Route, 100)
+	for index := range routes {
+		routes[index] = &Route{Match: map[string]string{"severity": fmt.Sprint(index)}}
+	}
+	config := &Config{Route: &Route{Receiver: "default", Routes: routes}}
+
+	_, err := GenerateSampleAlertsContext(ctx, config)
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("GenerateSampleAlertsContext() error = %v, want cancellation during traversal", err)
+	}
+}
+
+type cancelAfterErrChecks struct {
+	context.Context
+	cancel    context.CancelFunc
+	remaining int
+}
+
+func (ctx *cancelAfterErrChecks) Err() error {
+	ctx.remaining--
+	if ctx.remaining == 0 {
+		ctx.cancel()
+	}
+	return ctx.Context.Err()
+}
+
+func TestClientGetSampleAlertsDefersLargeRouteTree(t *testing.T) {
+	routes := make([]*Route, maxAutomaticSampleAlertRoutes+1)
+	for index := range routes {
+		routes[index] = &Route{Receiver: "receiver", Match: map[string]string{"route": fmt.Sprint(index)}}
+	}
+	config := &Config{Route: &Route{Receiver: "default", Routes: routes}}
+	client := &Client{}
+
+	samples, deferred := client.GetSampleAlerts(config)
+	if !deferred || len(samples) != 0 {
+		t.Fatalf("GetSampleAlerts() = %#v, %v, want deferred generation", samples, deferred)
+	}
+	if client.sampleAlertsReady {
+		t.Fatal("deferred sample generation was cached as complete")
+	}
+
+	generated, err := client.GenerateSampleAlertsContext(context.Background(), config)
+	if err != nil || len(generated) == 0 {
+		t.Fatalf("GenerateSampleAlertsContext() = %v, %v, want bounded examples for a deferred tree", generated, err)
+	}
+}
+
+func TestGenerateSampleAlertsUsesConfiguredRoutes(t *testing.T) {
+	config := &Config{
+		Route: &Route{
+			Receiver: "default",
+			Routes: []*Route{
+				{Receiver: "api-team", Match: map[string]string{"service": "api"}},
+			},
+		},
+	}
+
+	samples := GenerateSampleAlerts(config)
+	if len(samples) == 0 {
+		t.Fatal("GenerateSampleAlerts() returned no examples")
+	}
+
+	client := &Client{}
+	foundConfiguredRoute, foundFallback := false, false
+	for _, sample := range samples {
+		_, matched, err := client.FindMatchingRoute(sample.Labels, config)
+		if err != nil {
+			t.Fatalf("FindMatchingRoute(%v): %v", sample.Labels, err)
+		}
+		if len(matched) == 0 {
+			foundFallback = true
+			if !strings.Contains(sample.Description, "default") {
+				t.Errorf("fallback example description %q does not identify receiver default", sample.Description)
+			}
+			continue
+		}
+
+		foundConfiguredRoute = true
+		if sample.Labels["service"] != "api" {
+			t.Errorf("matching example labels = %v, want service=api", sample.Labels)
+		}
+		if !strings.Contains(sample.Description, "api-team") {
+			t.Errorf("matching example description %q does not identify receiver api-team", sample.Description)
+		}
+	}
+
+	if !foundConfiguredRoute {
+		t.Error("no example matched the configured api route")
+	}
+	if !foundFallback {
+		t.Error("no example exercised the root fallback receiver")
+	}
+}
+
+func TestGenerateSampleAlertsFindsRegexOnlyRoute(t *testing.T) {
+	for _, test := range []struct {
+		name  string
+		route *Route
+	}{
+		{
+			name: "match_re",
+			route: &Route{
+				Receiver: "production",
+				MatchRE:  map[string]string{"instance": `^prod-[0-9]+$`},
+			},
+		},
+		{
+			name: "matchers",
+			route: &Route{
+				Receiver: "production",
+				Matchers: []string{`instance=~"prod-[0-9]+"`},
+			},
+		},
+		{
+			name: "nonzero character class",
+			route: &Route{
+				Receiver: "production",
+				Matchers: []string{`instance=~"[1-9]+"`},
+			},
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			config := &Config{Route: &Route{Receiver: "default", Routes: []*Route{test.route}}}
+			for _, sample := range GenerateSampleAlerts(config) {
+				receiver, matched, err := (&Client{}).FindMatchingRoute(sample.Labels, config)
+				if err != nil {
+					t.Fatalf("FindMatchingRoute(%v): %v", sample.Labels, err)
+				}
+				if len(matched) > 0 && receiver == "production" {
+					if sample.Labels["instance"] == "" {
+						t.Fatal("regex sample has no instance label")
+					}
+					return
+				}
+			}
+			t.Fatalf("no quick example matched regex-only route: %#v", GenerateSampleAlerts(config))
+		})
+	}
+}
+
+func TestCollectRouteExamplesCapsCandidateCount(t *testing.T) {
+	routes := make([]*Route, maxSampleAlertCandidates*2)
+	for index := range routes {
+		routes[index] = &Route{
+			Receiver: "route",
+			Match:    map[string]string{"severity": fmt.Sprint(index)},
+			Continue: true,
+		}
+	}
+	config := &Config{Route: &Route{Receiver: "default", Routes: routes}}
+	tree, err := nativeRouteTreeForConfig(config)
+	if err != nil {
+		t.Fatalf("nativeRouteTreeForConfig(): %v", err)
+	}
+
+	candidates := make([]map[string]string, 0)
+	if err := collectRouteExamples(context.Background(), tree.root, map[string]string{}, &candidates); err != nil {
+		t.Fatalf("collectRouteExamples(): %v", err)
+	}
+	if len(candidates) != maxSampleAlertCandidates {
+		t.Fatalf("candidate count = %d, want %d", len(candidates), maxSampleAlertCandidates)
+	}
+}
+
+func TestGenerateSampleAlertsProducesFallbackForNegativeEqualityMatcher(t *testing.T) {
+	config := &Config{Route: &Route{
+		Receiver: "default",
+		Routes: []*Route{{
+			Receiver: "alert",
+			Matchers: []string{`foo!="bar"`},
+		}},
+	}}
+
+	for _, sample := range GenerateSampleAlerts(config) {
+		if sample.Name == "Default receiver" {
+			if sample.Labels["foo"] != "bar" {
+				t.Fatalf("fallback labels = %v, want foo=bar to disprove foo!=bar", sample.Labels)
+			}
+			return
+		}
+	}
+	t.Fatalf("no root-fallback example for negative equality matcher: %#v", GenerateSampleAlerts(config))
+}
+
+func TestGenerateSampleAlertsProducesFallbackForNegativeRegexMatcher(t *testing.T) {
+	config := &Config{Route: &Route{
+		Receiver: "default",
+		Routes: []*Route{{
+			Receiver: "alert",
+			Matchers: []string{`instance!~"^prod-[0-9]+$"`},
+		}},
+	}}
+
+	for _, sample := range GenerateSampleAlerts(config) {
+		if sample.Name == "Default receiver" {
+			if !strings.HasPrefix(sample.Labels["instance"], "prod-") {
+				t.Fatalf("fallback labels = %v, want instance matching the excluded regex", sample.Labels)
+			}
+			return
+		}
+	}
+	t.Fatalf("no root-fallback example for negative regex matcher: %#v", GenerateSampleAlerts(config))
+}
+
+func TestGenerateSampleAlertsIncludesMultipleReceiverContinueExample(t *testing.T) {
+	config := &Config{
+		Route: &Route{
+			Receiver: "default",
+			Routes: []*Route{
+				{Receiver: "pagerduty-critical", Match: map[string]string{"severity": "critical"}},
+				{Receiver: "slack-high", Match: map[string]string{"severity": "high"}},
+				{Receiver: "slack-warnings", Match: map[string]string{"severity": "warning"}, Continue: true},
+				{Receiver: "monitoring-team", Match: map[string]string{"team": "monitoring"}, Continue: true},
+			},
+		},
+	}
+
+	for _, sample := range GenerateSampleAlerts(config) {
+		if sample.Name != "Multiple receivers" {
+			continue
+		}
+		if len(sample.Labels) != 2 || sample.Labels["severity"] != "warning" || sample.Labels["team"] != "monitoring" {
+			t.Fatalf("multiple receiver example labels = %v, want severity=warning and team=monitoring", sample.Labels)
+		}
+		client := &Client{}
+		receiver, matched, err := client.FindMatchingRoute(sample.Labels, config)
+		if err != nil {
+			t.Fatalf("FindMatchingRoute(%v): %v", sample.Labels, err)
+		}
+		receivers := effectiveReceivers(receiver, matched)
+		if len(receivers) != 2 || receivers[0] != "slack-warnings" || receivers[1] != "monitoring-team" {
+			t.Fatalf("continued receivers = %v, want slack-warnings and monitoring-team", receivers)
+		}
+		if sample.Description != "Continue sends to 2 receivers." {
+			t.Fatalf("multiple receiver example description = %q, want concise continue explanation", sample.Description)
+		}
+		return
+	}
+	t.Fatalf("no quick example exercises multiple continued receivers: %#v", GenerateSampleAlerts(config))
+}
+
+func TestGenerateSampleAlertsDescribesRegexAndContinuedReceivers(t *testing.T) {
+	config := &Config{
+		Route: &Route{
+			Receiver: "default",
+			Routes: []*Route{
+				{Receiver: "operations", MatchRE: map[string]string{"environment": "production|staging"}, Continue: true},
+				{Receiver: "security", Match: map[string]string{"team": "platform"}},
+			},
+		},
+	}
+
+	for _, sample := range GenerateSampleAlerts(config) {
+		if sample.Name != "Multiple receivers" {
+			continue
+		}
+		if sample.Labels["environment"] != "production" || sample.Labels["team"] != "platform" {
+			t.Fatalf("continued route example labels = %v, want production platform", sample.Labels)
+		}
+		client := &Client{}
+		receiver, matched, err := client.FindMatchingRoute(sample.Labels, config)
+		if err != nil {
+			t.Fatalf("FindMatchingRoute(%v): %v", sample.Labels, err)
+		}
+		receivers := effectiveReceivers(receiver, matched)
+		if len(receivers) != 2 || receivers[0] != "operations" || receivers[1] != "security" {
+			t.Fatalf("continued receivers = %v, want operations and security", receivers)
+		}
+		if sample.Description != "Continue sends to 2 receivers." {
+			t.Fatalf("continued route description = %q, want concise continue explanation", sample.Description)
+		}
+		return
+	}
+	t.Fatalf("no quick example matched the continued routes: %#v", GenerateSampleAlerts(config))
 }

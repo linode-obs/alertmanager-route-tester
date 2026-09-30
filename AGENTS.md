@@ -3,7 +3,7 @@
 ## Key Points
 
 - Use `mise run start` to test locally
-- Use the standard library for application code; `gopkg.in/yaml.v3` is the approved YAML parsing dependency
+- Use the standard library for application code; `gopkg.in/yaml.v3` is approved for YAML parsing, and `github.com/prometheus/alertmanager v0.33.0` is approved for native route matching. Keep the Alertmanager version aligned with `.mise.toml` and CI.
 - Route matching logic is in `internal/alertmanager/client.go`
 - All tests must pass before committing
 - Follow TDD when adding features
@@ -46,7 +46,7 @@ mise run clean        # Clean up bin/ and data/
 
 ## Technologies
 
-- Go 1.27 (standard library application code, with `gopkg.in/yaml.v3` for YAML parsing)
+- Go 1.27 (standard library application code, with `gopkg.in/yaml.v3` for YAML parsing and Alertmanager v0.33.0 for native route matching)
 - HTMX for dynamic UI
 - mise for task running
 

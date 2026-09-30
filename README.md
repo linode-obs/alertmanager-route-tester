@@ -1,14 +1,16 @@
+AI-generated content prepared on Will's behalf.
+
 # Alertmanager Route Tester
 
 Alertmanager Route Tester (ATR) is a web app and CLI designed to help figure out where your Prometheus alerts will actually wind up in complex Alertmanager routes. It pulls Alertmanager's sanitized configuration directly from the Alertmanager API and allows the user to see exactly what receiver(s) their alerts will route to.
 
 ### Browser UI
 
-ATR uses a compact purple Qt-style layout in the browser. It uses a system theme by default, with light and dark modes.
+ATR has a two-pane browser UI. Blue marks alert input, and green marks selected receivers. The UI supports light and dark themes.
 
-![System theme](docs/screenshots/qt-purple-system.png)
+![Light theme showing two selected receivers](docs/screenshots/route-tester-light.png)
 
-![Nested route result](docs/screenshots/qt-purple-nested-route.png)
+![Dark theme showing two selected receivers](docs/screenshots/route-tester-dark.png)
 
 ## Usage
 
@@ -35,6 +37,7 @@ alertmanager-route-tester:
 alertmanagers:
   production:
     url: "https://alerts.example.com"
+    matcher_mode: "fallback"
     http:
       tls:
         skip_verify: false
@@ -59,7 +62,7 @@ alertmanagers:
     url: "https://alerts-staging.example.com"
 ```
 
-Each entry under `alertmanagers` has a name and URL. HTTP, TLS, retry, and connection-pool settings can be configured per instance. When more than one instance is configured, the web UI shows an Alertmanager selector above the connection status. Changing the selection reloads the route suggestions and uses that instance for route tests and config reloads. It is recommended to use multiple Alertmanagers only when configuring ATR for multiple clusters, not for multiple Alertmanagers within the same cluster.
+Each entry under `alertmanagers` has a name and URL. HTTP, TLS, retry, connection-pool, and matcher parsing settings can be configured per instance. Set `matcher_mode` to `fallback` (the default), `classic`, or `utf8-strict` to match the connected Alertmanager's `--enable-feature` mode. When more than one instance is configured, the web UI shows an Alertmanager selector above the connection status. Changing the selection reloads the route suggestions and uses that instance for route tests and config reloads. It is recommended to use multiple Alertmanagers only when configuring ATR for multiple clusters, not for multiple Alertmanagers within the same cluster.
 
 ATR caches Alertmanager configuration with an option to reload the configuration.
 
@@ -124,7 +127,9 @@ mise run clean  # cleanup
 
 ### Testing
 
-The project includes comprehensive unit and integration tests:
+The project pins Alertmanager 0.33.0 in `go.mod`, `.mise.toml`, the CI workflow, and the parity test version check. Update these pins together.
+
+The project includes unit and integration tests:
 
 #### Unit Tests
 
@@ -218,4 +223,3 @@ The following features are planned for future releases:
 ### CI/misc
 
 - GitHub Actions for automated tests/coverage/etc
-- Update readme with fresh screenshots

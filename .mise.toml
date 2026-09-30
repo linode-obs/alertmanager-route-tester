@@ -66,7 +66,7 @@ run = """
 #!/bin/bash
 set -e
 
-ALERTMANAGER_VERSION="0.27.0"
+ALERTMANAGER_VERSION="0.33.0"
 OS=$(uname -s | tr '[:upper:]' '[:lower:]')
 ARCH=$(uname -m)
 
@@ -77,25 +77,49 @@ elif [ "$ARCH" = "aarch64" ] || [ "$ARCH" = "arm64" ]; then
 fi
 
 ALERTMANAGER_DIR="./bin/alertmanager"
-
-if [ -f "$ALERTMANAGER_DIR/alertmanager" ]; then
-    echo "Alertmanager already installed"
+if [ -x "$ALERTMANAGER_DIR/alertmanager" ] && "$ALERTMANAGER_DIR/alertmanager" --version 2>/dev/null | grep -Fq "version ${ALERTMANAGER_VERSION}"; then
+    echo "Alertmanager ${ALERTMANAGER_VERSION} already installed"
     exit 0
 fi
 
-echo "Downloading Alertmanager ${ALERTMANAGER_VERSION} for ${OS}/${ARCH}..."
-
 mkdir -p ./bin
-cd ./bin
+INSTALL_DIR=$(mktemp -d ./bin/alertmanager-install.XXXXXX)
+BACKUP_DIR="$INSTALL_DIR/previous"
+cleanup() {
+    status=$?
+    if [ ! -e "$ALERTMANAGER_DIR" ] && [ -d "$BACKUP_DIR" ]; then
+        if ! mv "$BACKUP_DIR" "$ALERTMANAGER_DIR"; then
+            echo "Could not restore the existing Alertmanager from $BACKUP_DIR" >&2
+            status=1
+        fi
+    fi
+    if [ -e "$ALERTMANAGER_DIR" ] || [ ! -d "$BACKUP_DIR" ]; then
+        rm -rf "$INSTALL_DIR" || status=1
+    else
+        echo "Existing Alertmanager backup retained at $BACKUP_DIR" >&2
+    fi
+    exit "$status"
+}
+trap cleanup EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
 
+echo "Downloading Alertmanager ${ALERTMANAGER_VERSION} for ${OS}/${ARCH}..."
 TARBALL="alertmanager-${ALERTMANAGER_VERSION}.${OS}-${ARCH}.tar.gz"
 URL="https://github.com/prometheus/alertmanager/releases/download/v${ALERTMANAGER_VERSION}/${TARBALL}"
+curl -fsSL -o "$INSTALL_DIR/$TARBALL" "$URL"
+tar -xzf "$INSTALL_DIR/$TARBALL" -C "$INSTALL_DIR"
 
-curl -L -O "$URL"
-tar xzf "$TARBALL"
-mv "alertmanager-${ALERTMANAGER_VERSION}.${OS}-${ARCH}" alertmanager
-rm "$TARBALL"
+STAGED_DIR="$INSTALL_DIR/alertmanager-${ALERTMANAGER_VERSION}.${OS}-${ARCH}"
+if [ ! -x "$STAGED_DIR/alertmanager" ] || ! "$STAGED_DIR/alertmanager" --version 2>/dev/null | grep -Fq "version ${ALERTMANAGER_VERSION}"; then
+    echo "Downloaded Alertmanager is missing or has the wrong version" >&2
+    exit 1
+fi
 
+if [ -e "$ALERTMANAGER_DIR" ]; then
+    mv "$ALERTMANAGER_DIR" "$BACKUP_DIR"
+fi
+mv "$STAGED_DIR" "$ALERTMANAGER_DIR"
 echo "Alertmanager installed successfully"
 """
 

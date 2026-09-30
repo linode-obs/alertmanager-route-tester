@@ -3,9 +3,107 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
+
+func TestLoadAllowsCLITestSuiteWithoutSingleLabels(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.yaml")
+	contents := []byte(`alertmanager-route-tester:
+  server:
+    enabled: false
+  cli-test-mode:
+    enabled: true
+    suite:
+      - name: critical alert
+        labels:
+          severity: critical
+        expected_receivers:
+          - pagerduty-critical
+alertmanagers:
+  production:
+    url: http://production.example.test
+`)
+	if err := os.WriteFile(path, contents, 0600); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if got := cfg.App.CLITestMode.Suite; len(got) != 1 || got[0].Name != "critical alert" {
+		t.Fatalf("CLI suite = %#v, want one named case", got)
+	}
+	if got := cfg.App.CLITestMode.Suite[0].ExpectedReceivers; len(got) != 1 || got[0] != "pagerduty-critical" {
+		t.Fatalf("expected receivers = %v, want [pagerduty-critical]", got)
+	}
+}
+
+func TestValidateRejectsInvalidCLITestSuites(t *testing.T) {
+	validCase := CLITestCase{Name: "alert", ExpectedReceivers: []string{"default"}}
+	suite := func(cases ...CLITestCase) TestConfig {
+		return TestConfig{Enabled: true, Suite: cases}
+	}
+	tests := []struct {
+		name string
+		mode TestConfig
+		want string
+	}{
+		{
+			name: "suite mode disabled",
+			mode: TestConfig{Suite: []CLITestCase{validCase}},
+			want: "cli-test-mode.enabled must be true",
+		},
+		{
+			name: "suite combined with labels",
+			mode: TestConfig{Enabled: true, Labels: map[string]string{"severity": "critical"}, Suite: []CLITestCase{validCase}},
+			want: "labels cannot be combined with suite",
+		},
+		{
+			name: "blank case name",
+			mode: suite(CLITestCase{ExpectedReceivers: []string{"default"}}),
+			want: "suite[0].name is required",
+		},
+		{
+			name: "duplicate case names",
+			mode: suite(validCase, validCase),
+			want: "contains duplicate case name",
+		},
+		{
+			name: "missing expected receivers",
+			mode: suite(CLITestCase{Name: "alert"}),
+			want: "suite[0].expected_receivers is required",
+		},
+		{
+			name: "blank expected receiver",
+			mode: suite(CLITestCase{Name: "alert", ExpectedReceivers: []string{" "}}),
+			want: "contains an empty receiver",
+		},
+		{
+			name: "duplicate expected receivers",
+			mode: suite(CLITestCase{Name: "alert", ExpectedReceivers: []string{"default", "default"}}),
+			want: "contains duplicate receiver",
+		},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			cfg := &Config{
+				App:           AppConfig{CLITestMode: test.mode},
+				Alertmanagers: map[string]AlertmanagerConfig{"test": {URL: "http://alertmanager.example.test"}},
+			}
+			applyDefaults(cfg)
+
+			err := validate(cfg)
+			if err == nil || !strings.Contains(err.Error(), test.want) {
+				t.Fatalf("validate() error = %v, want substring %q", err, test.want)
+			}
+		})
+	}
+}
 
 func TestLoadNamedAlertmanagers(t *testing.T) {
 	dir := t.TempDir()
@@ -13,6 +111,7 @@ func TestLoadNamedAlertmanagers(t *testing.T) {
 	contents := []byte(`alertmanagers:
   production:
     url: http://production.example.test
+    matcher_mode: classic
   staging:
     url: http://staging.example.test
 `)
@@ -29,6 +128,29 @@ func TestLoadNamedAlertmanagers(t *testing.T) {
 	}
 	if got := cfg.Alertmanagers["production"].URL; got != "http://production.example.test" {
 		t.Fatalf("production URL = %q, want production URL", got)
+	}
+	if got := cfg.Alertmanagers["production"].MatcherMode; got != "classic" {
+		t.Fatalf("production matcher mode = %q, want classic", got)
+	}
+	if got := cfg.Alertmanagers["staging"].MatcherMode; got != "fallback" {
+		t.Fatalf("staging matcher mode = %q, want fallback default", got)
+	}
+}
+
+func TestLoadRejectsUnknownMatcherMode(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.yaml")
+	contents := []byte(`alertmanagers:
+  production:
+    url: http://production.example.test
+    matcher_mode: invalid
+`)
+	if err := os.WriteFile(path, contents, 0600); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := Load(path); err == nil {
+		t.Fatal("Load() error = nil, want invalid matcher mode error")
 	}
 }
 

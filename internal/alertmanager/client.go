@@ -891,9 +891,9 @@ func (c *Client) sampleAlertsForConfig(ctx context.Context, config *Config, gene
 		return nil, false, err
 	}
 	if c.sampleAlertsReady && config == c.sampleAlertsConfig {
-		samples := cloneSampleAlerts(c.sampleAlerts)
+		samples := c.sampleAlerts
 		c.sampleAlertsMu.Unlock()
-		return samples, false, nil
+		return cloneSampleAlerts(samples), false, nil
 	}
 	c.sampleAlertsMu.Unlock()
 
@@ -906,20 +906,21 @@ func (c *Client) sampleAlertsForConfig(ctx context.Context, config *Config, gene
 		return nil, deferred, err
 	}
 
+	cachedSamples := cloneSampleAlerts(samples)
 	c.sampleAlertsMu.Lock()
 	if err := ctx.Err(); err != nil {
 		c.sampleAlertsMu.Unlock()
 		return nil, false, err
 	}
 	if c.sampleAlertsReady && config == c.sampleAlertsConfig {
-		samples = cloneSampleAlerts(c.sampleAlerts)
+		cachedSamples = c.sampleAlerts
 	} else {
 		c.sampleAlertsConfig = config
-		c.sampleAlerts = cloneSampleAlerts(samples)
+		c.sampleAlerts = cachedSamples
 		c.sampleAlertsReady = true
 	}
 	c.sampleAlertsMu.Unlock()
-	return cloneSampleAlerts(samples), false, nil
+	return cloneSampleAlerts(cachedSamples), false, nil
 }
 
 func routeTreeNodeCount(ctx context.Context, route *Route, limit int) (int, error) {

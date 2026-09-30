@@ -466,6 +466,44 @@ func TestHandleTestShowsMatcherDiagnosticsOnlyForRootFallback(t *testing.T) {
 	}
 }
 
+func TestHandleGenerateSampleAlertsBoundsLargeRouteTree(t *testing.T) {
+	for _, test := range []struct {
+		routeCount int
+		want       string
+	}{
+		{routeCount: 5001, want: `class="sample-alert-card"`},
+		{routeCount: 10001, want: "exceeds the quick-example generation limit"},
+	} {
+		t.Run(fmt.Sprint(test.routeCount), func(t *testing.T) {
+			var original strings.Builder
+			original.WriteString("route:\n  receiver: default\n  routes:\n")
+			for index := 0; index < test.routeCount; index++ {
+				fmt.Fprintf(&original, "  - receiver: leaf\n    match:\n      severity: route-%d\n", index)
+			}
+			original.WriteString("receivers:\n- name: default\n- name: leaf\n")
+			configJSON, err := json.Marshal(map[string]map[string]string{"config": {"original": original.String()}})
+			if err != nil {
+				t.Fatalf("marshal status response: %v", err)
+			}
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.Header().Set("Content-Type", "application/json")
+				_, _ = w.Write(configJSON)
+			}))
+			defer server.Close()
+
+			h := &Handler{client: alertmanager.NewClient(server.URL, false), tmpl: loadTemplates(t)}
+			request := httptest.NewRequest(http.MethodGet, "/config/samples", http.NoBody)
+			response := httptest.NewRecorder()
+
+			h.HandleGenerateSampleAlerts(response, request)
+
+			if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), test.want) {
+				t.Fatalf("response = %d %q, want %q", response.Code, response.Body.String(), test.want)
+			}
+		})
+	}
+}
+
 func TestHandleGenerateSampleAlertsUsesCachedConfig(t *testing.T) {
 	originalConfig := strings.Join([]string{
 		"route:",

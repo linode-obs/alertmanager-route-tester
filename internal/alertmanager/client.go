@@ -27,6 +27,9 @@ const maxAlertmanagerResponseBodyBytes int64 = 10 << 20
 
 var errResponseBodyTooLarge = errors.New("response body exceeds limit")
 
+// ErrSampleGenerationTooLarge indicates the route tree exceeds the sample-generation limit.
+var ErrSampleGenerationTooLarge = errors.New("route tree exceeds the sample-generation limit")
+
 type Client struct {
 	baseURL          string
 	matcherMode      MatcherMode
@@ -677,7 +680,12 @@ type SampleAlert struct {
 	Labels      map[string]string
 }
 
-const maxAutomaticSampleAlertRoutes = 5000
+const (
+	maxAutomaticSampleAlertRoutes  = 5000
+	maxOnDemandSampleAlertRoutes   = 10000
+	maxSampleAlertCandidates       = 64
+	maxSampleAlertFallbackAttempts = 100
+)
 
 // ExtractLabelKeys extracts all unique label keys from the route configuration.
 func ExtractLabelKeys(config *Config) []string {
@@ -736,23 +744,56 @@ func ExtractLabelSuggestions(config *Config) []LabelSuggestion {
 
 // GenerateSampleAlerts creates examples that match the configured routes and root fallback.
 func GenerateSampleAlerts(config *Config) []SampleAlert {
+	samples, _ := GenerateSampleAlertsContext(context.Background(), config)
+	return samples
+}
+
+// GenerateSampleAlertsContext creates examples while observing request cancellation.
+func GenerateSampleAlertsContext(ctx context.Context, config *Config) ([]SampleAlert, error) {
+	samples, deferred, err := generateSampleAlertsContext(ctx, config, maxOnDemandSampleAlertRoutes)
+	if err != nil {
+		return nil, err
+	}
+	if deferred {
+		return nil, ErrSampleGenerationTooLarge
+	}
+	return samples, nil
+}
+
+func generateSampleAlertsContext(ctx context.Context, config *Config, routeLimit int) ([]SampleAlert, bool, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, false, err
+	}
 	if config == nil || config.Route == nil {
-		return nil
+		return nil, false, nil
+	}
+
+	routeCount, err := routeTreeNodeCount(ctx, config.Route, routeLimit)
+	if err != nil {
+		return nil, false, err
+	}
+	if routeCount > routeLimit {
+		return nil, true, nil
 	}
 
 	tree, err := nativeRouteTreeForConfig(config)
 	if err != nil {
-		return nil
+		return nil, false, nil
 	}
 	client := &Client{}
-	candidates := make([]map[string]string, 0)
-	collectRouteExamples(tree.root, map[string]string{}, &candidates)
+	candidates := make([]map[string]string, 0, maxSampleAlertCandidates)
+	if err := collectRouteExamples(ctx, tree.root, map[string]string{}, &candidates); err != nil {
+		return nil, false, err
+	}
 
 	singleReceiverSamples := make([]SampleAlert, 0, 2)
 	var multipleReceiverSample SampleAlert
 	hasMultipleReceiverSample := false
 	seen := make(map[string]bool)
 	for _, labels := range candidates {
+		if err := ctx.Err(); err != nil {
+			return nil, false, err
+		}
 		receiver, matched, err := client.FindMatchingRoute(labels, config)
 		if err != nil || len(matched) == 0 {
 			continue
@@ -794,7 +835,10 @@ func GenerateSampleAlerts(config *Config) []SampleAlert {
 	}
 
 	labelKeys := ExtractLabelKeys(config)
-	for attempt := 0; attempt < 100; attempt++ {
+	for attempt := 0; attempt < maxSampleAlertFallbackAttempts; attempt++ {
+		if err := ctx.Err(); err != nil {
+			return nil, false, err
+		}
 		labels := fallbackLabels(labelKeys, attempt)
 		receiver, matched, err := client.FindMatchingRoute(labels, config)
 		if err != nil || len(matched) != 0 || receiver == "" {
@@ -808,54 +852,95 @@ func GenerateSampleAlerts(config *Config) []SampleAlert {
 		break
 	}
 
-	return samples
+	return samples, false, nil
 }
 
 func (c *Client) GetSampleAlerts(config *Config) ([]SampleAlert, bool) {
-	return c.sampleAlertsForConfig(config, false)
+	samples, deferred, _ := c.GetSampleAlertsContext(context.Background(), config)
+	return samples, deferred
+}
+
+func (c *Client) GetSampleAlertsContext(ctx context.Context, config *Config) ([]SampleAlert, bool, error) {
+	return c.sampleAlertsForConfig(ctx, config, false)
 }
 
 func (c *Client) GenerateSampleAlerts(config *Config) []SampleAlert {
-	samples, _ := c.sampleAlertsForConfig(config, true)
+	samples, _ := c.GenerateSampleAlertsContext(context.Background(), config)
 	return samples
 }
 
-func (c *Client) sampleAlertsForConfig(config *Config, generateLargeTree bool) ([]SampleAlert, bool) {
-	c.sampleAlertsMu.Lock()
-	defer c.sampleAlertsMu.Unlock()
-
-	if c.sampleAlertsReady && config == c.sampleAlertsConfig {
-		return cloneSampleAlerts(c.sampleAlerts), false
+func (c *Client) GenerateSampleAlertsContext(ctx context.Context, config *Config) ([]SampleAlert, error) {
+	samples, deferred, err := c.sampleAlertsForConfig(ctx, config, true)
+	if err != nil {
+		return nil, err
 	}
-	if config == nil || config.Route == nil {
-		c.sampleAlertsConfig = config
-		c.sampleAlerts = nil
-		c.sampleAlertsReady = true
-		return nil, false
+	if deferred {
+		return nil, ErrSampleGenerationTooLarge
 	}
-	if !generateLargeTree && routeTreeNodeCount(config.Route) > maxAutomaticSampleAlertRoutes {
-		return nil, true
-	}
-
-	c.sampleAlertsConfig = config
-	c.sampleAlerts = cloneSampleAlerts(GenerateSampleAlerts(config))
-	c.sampleAlertsReady = true
-	return cloneSampleAlerts(c.sampleAlerts), false
+	return samples, nil
 }
 
-func routeTreeNodeCount(route *Route) int {
+func (c *Client) sampleAlertsForConfig(ctx context.Context, config *Config, generateLargeTree bool) ([]SampleAlert, bool, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, false, err
+	}
+
+	c.sampleAlertsMu.Lock()
+	if err := ctx.Err(); err != nil {
+		c.sampleAlertsMu.Unlock()
+		return nil, false, err
+	}
+	if c.sampleAlertsReady && config == c.sampleAlertsConfig {
+		samples := cloneSampleAlerts(c.sampleAlerts)
+		c.sampleAlertsMu.Unlock()
+		return samples, false, nil
+	}
+	c.sampleAlertsMu.Unlock()
+
+	routeLimit := maxAutomaticSampleAlertRoutes
+	if generateLargeTree {
+		routeLimit = maxOnDemandSampleAlertRoutes
+	}
+	samples, deferred, err := generateSampleAlertsContext(ctx, config, routeLimit)
+	if err != nil || deferred {
+		return nil, deferred, err
+	}
+
+	c.sampleAlertsMu.Lock()
+	if err := ctx.Err(); err != nil {
+		c.sampleAlertsMu.Unlock()
+		return nil, false, err
+	}
+	if c.sampleAlertsReady && config == c.sampleAlertsConfig {
+		samples = cloneSampleAlerts(c.sampleAlerts)
+	} else {
+		c.sampleAlertsConfig = config
+		c.sampleAlerts = cloneSampleAlerts(samples)
+		c.sampleAlertsReady = true
+	}
+	c.sampleAlertsMu.Unlock()
+	return cloneSampleAlerts(samples), false, nil
+}
+
+func routeTreeNodeCount(ctx context.Context, route *Route, limit int) (int, error) {
 	if route == nil {
-		return 0
+		return 0, nil
 	}
 	count := 0
 	pending := []*Route{route}
 	for len(pending) > 0 {
+		if err := ctx.Err(); err != nil {
+			return count, err
+		}
 		current := pending[len(pending)-1]
 		pending = pending[:len(pending)-1]
 		count++
+		if limit > 0 && count+len(pending)+len(current.Routes) > limit {
+			return limit + 1, nil
+		}
 		pending = append(pending, current.Routes...)
 	}
-	return count
+	return count, nil
 }
 
 func cloneSampleAlerts(samples []SampleAlert) []SampleAlert {
@@ -876,17 +961,31 @@ func cloneSampleAlerts(samples []SampleAlert) []SampleAlert {
 	return cloned
 }
 
-func collectRouteExamples(route *dispatch.Route, labels map[string]string, candidates *[]map[string]string) {
+func collectRouteExamples(ctx context.Context, route *dispatch.Route, labels map[string]string, candidates *[]map[string]string) error {
 	continuingLabels := labels
 	hasContinuingLabels := false
 	for _, child := range route.Routes {
-		candidate, ok := routeExampleLabels(continuingLabels, child)
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		if len(*candidates) >= maxSampleAlertCandidates {
+			return nil
+		}
+		candidate, ok, err := routeExampleLabels(ctx, continuingLabels, child)
+		if err != nil {
+			return err
+		}
 		if !ok && hasContinuingLabels {
-			candidate, ok = routeExampleLabels(labels, child)
+			candidate, ok, err = routeExampleLabels(ctx, labels, child)
+			if err != nil {
+				return err
+			}
 		}
 		if ok {
 			*candidates = append(*candidates, candidate)
-			collectRouteExamples(child, candidate, candidates)
+			if err := collectRouteExamples(ctx, child, candidate, candidates); err != nil {
+				return err
+			}
 		}
 		if child.Continue && ok {
 			continuingLabels = candidate
@@ -896,9 +995,10 @@ func collectRouteExamples(route *dispatch.Route, labels map[string]string, candi
 			hasContinuingLabels = false
 		}
 	}
+	return nil
 }
 
-func routeExampleLabels(parentLabels map[string]string, route *dispatch.Route) (map[string]string, bool) {
+func routeExampleLabels(ctx context.Context, parentLabels map[string]string, route *dispatch.Route) (map[string]string, bool, error) {
 	labels := make(map[string]string, len(parentLabels))
 	for key, value := range parentLabels {
 		labels[key] = value
@@ -910,12 +1010,18 @@ func routeExampleLabels(parentLabels map[string]string, route *dispatch.Route) (
 	}
 
 	for name, conditions := range constraints {
+		if err := ctx.Err(); err != nil {
+			return nil, false, err
+		}
 		if matchersMatch(labels[name], conditions) {
 			continue
 		}
 		found := false
 		candidates := []string{"alertmanager-route-tester-example", "example", "test", "critical", "warning", "production", "api", "x", "0", ""}
 		for _, condition := range conditions {
+			if err := ctx.Err(); err != nil {
+				return nil, false, err
+			}
 			switch condition.Type {
 			case amlabels.MatchEqual:
 				candidates = append([]string{condition.Value}, candidates...)
@@ -927,6 +1033,9 @@ func routeExampleLabels(parentLabels map[string]string, route *dispatch.Route) (
 			}
 		}
 		for _, candidate := range candidates {
+			if err := ctx.Err(); err != nil {
+				return nil, false, err
+			}
 			if matchersMatch(candidate, conditions) {
 				labels[name] = candidate
 				found = true
@@ -934,14 +1043,14 @@ func routeExampleLabels(parentLabels map[string]string, route *dispatch.Route) (
 			}
 		}
 		if !found {
-			return nil, false
+			return nil, false, nil
 		}
 		if labels[name] == "" {
 			delete(labels, name)
 		}
 	}
 
-	return labels, true
+	return labels, true, nil
 }
 
 func regexMatcherExample(expression string) (string, bool) {

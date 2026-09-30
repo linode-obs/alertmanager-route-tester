@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -168,7 +169,14 @@ func (h *Handler) HandleIndex(w http.ResponseWriter, r *http.Request) {
 	} else {
 		data.Config = config
 		data.LabelSuggestions = alertmanager.ExtractLabelSuggestions(config)
-		data.SampleAlerts, data.SampleAlertsDeferred = client.GetSampleAlerts(config)
+		data.SampleAlerts, data.SampleAlertsDeferred, err = client.GetSampleAlertsContext(r.Context(), config)
+		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+			return
+		}
+		if err != nil {
+			slog.Error("error generating sample alerts", "error", err)
+			data.SampleAlertsDeferred = true
+		}
 	}
 
 	if err := h.tmpl.ExecuteTemplate(w, "index.html", data); err != nil {
@@ -195,9 +203,26 @@ func (h *Handler) HandleGenerateSampleAlerts(w http.ResponseWriter, r *http.Requ
 		return
 	}
 
+	sampleAlerts, err := client.GenerateSampleAlertsContext(r.Context(), config)
+	if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
+		return
+	}
+	if errors.Is(err, alertmanager.ErrSampleGenerationTooLarge) {
+		if renderErr := h.tmpl.ExecuteTemplate(w, "sample-alert-generation-limit", nil); renderErr != nil {
+			slog.Error("error rendering sample generation limit", "error", renderErr)
+			http.Error(w, "Failed to render quick examples", http.StatusInternalServerError)
+		}
+		return
+	}
+	if err != nil {
+		slog.Error("error generating sample alerts", "error", err)
+		http.Error(w, "Failed to generate quick examples", http.StatusInternalServerError)
+		return
+	}
+
 	data := struct {
 		SampleAlerts []alertmanager.SampleAlert
-	}{SampleAlerts: client.GenerateSampleAlerts(config)}
+	}{SampleAlerts: sampleAlerts}
 	if err := h.tmpl.ExecuteTemplate(w, "sample-alert-cards", data); err != nil {
 		slog.Error("error rendering sample alerts", "error", err)
 		http.Error(w, "Failed to render quick examples", http.StatusInternalServerError)

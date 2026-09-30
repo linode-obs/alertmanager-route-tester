@@ -141,6 +141,7 @@ func TestCleanAlertmanagerDataRemovesVersionBackups(t *testing.T) {
 	files := []string{
 		"bin/alertmanager/alertmanager",
 		"bin/alertmanager-123456789/alertmanager",
+		"bin/alertmanager-install.A1B2C3/alertmanager",
 		"bin/alertmanager-route-tester",
 		"data/alertmanager/chunks",
 		"data/alertmanager-test/chunks",
@@ -164,6 +165,7 @@ func TestCleanAlertmanagerDataRemovesVersionBackups(t *testing.T) {
 	for _, path := range []string{
 		"bin/alertmanager",
 		"bin/alertmanager-123456789",
+		"bin/alertmanager-install.A1B2C3",
 		"data/alertmanager",
 		"data/alertmanager-test",
 	} {

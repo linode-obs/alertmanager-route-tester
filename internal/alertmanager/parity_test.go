@@ -145,7 +145,7 @@ func TestRoutingMatchesAlertmanagerDeliveries(t *testing.T) {
 			}
 
 			postAlert(t, baseURL, labels)
-			actualReceivers := waitForDeliveries(t, deliveries, labels["alertname"])
+			actualReceivers := waitForDeliveries(t, deliveries, labels["alertname"], predictedReceivers)
 			if !sameReceiverSet(predictedReceivers, actualReceivers) {
 				t.Fatalf("receiver set differs: ATR predicted %v, Alertmanager delivered to %v", predictedReceivers, actualReceivers)
 			}
@@ -350,9 +350,40 @@ func postAlert(t *testing.T, baseURL string, labels map[string]string) {
 	}
 }
 
-func waitForDeliveries(t *testing.T, deliveries <-chan webhookDelivery, alertName string) []string {
+func TestWaitForDeliveriesWaitsForExpectedReceiversAndSettlesExtras(t *testing.T) {
+	deliveries := make(chan webhookDelivery, 3)
+	deliveries <- webhookDelivery{receiver: "first", alertNames: []string{"alert"}}
+	result := make(chan []string, 1)
+	go func() {
+		result <- waitForDeliveries(t, deliveries, "alert", []string{"first", "second"})
+	}()
+
+	select {
+	case receivers := <-result:
+		t.Fatalf("waitForDeliveries() returned %v before the second expected receiver", receivers)
+	case <-time.After(50 * time.Millisecond):
+	}
+	time.Sleep(600 * time.Millisecond)
+	deliveries <- webhookDelivery{receiver: "second", alertNames: []string{"alert"}}
+	deliveries <- webhookDelivery{receiver: "unexpected", alertNames: []string{"alert"}}
+
+	select {
+	case receivers := <-result:
+		if !sameReceiverSet(receivers, []string{"first", "second", "unexpected"}) {
+			t.Fatalf("receivers = %v, want expected and unexpected deliveries", receivers)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("waitForDeliveries() did not settle after all expected receivers arrived")
+	}
+}
+
+func waitForDeliveries(t *testing.T, deliveries <-chan webhookDelivery, alertName string, expectedReceivers []string) []string {
 	t.Helper()
 	actual := make(map[string]bool)
+	expected := make(map[string]bool, len(expectedReceivers))
+	for _, receiver := range expectedReceivers {
+		expected[receiver] = true
+	}
 	deadline := time.NewTimer(5 * time.Second)
 	defer deadline.Stop()
 	var quiet *time.Timer
@@ -361,20 +392,24 @@ func waitForDeliveries(t *testing.T, deliveries <-chan webhookDelivery, alertNam
 		select {
 		case delivery := <-deliveries:
 			for _, deliveredAlertName := range delivery.alertNames {
-				if deliveredAlertName == alertName {
-					actual[delivery.receiver] = true
-					if quiet == nil {
-						quiet = time.NewTimer(500 * time.Millisecond)
-						quietChannel = quiet.C
-					} else {
-						if !quiet.Stop() {
-							select {
-							case <-quiet.C:
-							default:
-							}
+				if deliveredAlertName != alertName {
+					continue
+				}
+				actual[delivery.receiver] = true
+				if !containsExpectedReceivers(actual, expected) {
+					continue
+				}
+				if quiet == nil {
+					quiet = time.NewTimer(500 * time.Millisecond)
+					quietChannel = quiet.C
+				} else {
+					if !quiet.Stop() {
+						select {
+						case <-quiet.C:
+						default:
 						}
-						quiet.Reset(500 * time.Millisecond)
 					}
+					quiet.Reset(500 * time.Millisecond)
 				}
 			}
 		case <-quietChannel:
@@ -383,6 +418,18 @@ func waitForDeliveries(t *testing.T, deliveries <-chan webhookDelivery, alertNam
 			return receiverSet(actual)
 		}
 	}
+}
+
+func containsExpectedReceivers(actual, expected map[string]bool) bool {
+	if len(actual) == 0 {
+		return false
+	}
+	for receiver := range expected {
+		if !actual[receiver] {
+			return false
+		}
+	}
+	return true
 }
 
 func predictedReceiverSet(receiver string, matchedRoutes []alertmanager.MatchedRoute) []string {

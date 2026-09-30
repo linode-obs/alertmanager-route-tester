@@ -2,6 +2,7 @@ package alertmanager
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -1758,6 +1759,81 @@ func TestClientGetSampleAlertsCachesForCurrentConfig(t *testing.T) {
 	}
 }
 
+func TestClientGetSampleAlertsContextReturnsWhenCancelledWhileCacheIsLocked(t *testing.T) {
+	client := &Client{}
+	client.sampleAlertsMu.Lock()
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	result := make(chan error, 1)
+	go func() {
+		_, _, err := client.GetSampleAlertsContext(ctx, &Config{})
+		result <- err
+	}()
+
+	select {
+	case err := <-result:
+		client.sampleAlertsMu.Unlock()
+		if !errors.Is(err, context.Canceled) {
+			t.Fatalf("GetSampleAlertsContext() error = %v, want context cancellation", err)
+		}
+	case <-time.After(time.Second):
+		client.sampleAlertsMu.Unlock()
+		t.Fatal("GetSampleAlertsContext() blocked on the cache lock after cancellation")
+	}
+}
+
+func TestClientGenerateSampleAlertsContextRejectsLargeRouteTree(t *testing.T) {
+	routes := make([]*Route, maxOnDemandSampleAlertRoutes+1)
+	for index := range routes {
+		routes[index] = &Route{Match: map[string]string{"route": fmt.Sprint(index)}}
+	}
+	config := &Config{Route: &Route{Receiver: "default", Routes: routes}}
+
+	_, err := (&Client{}).GenerateSampleAlertsContext(context.Background(), config)
+	if !errors.Is(err, ErrSampleGenerationTooLarge) {
+		t.Fatalf("GenerateSampleAlertsContext() error = %v, want ErrSampleGenerationTooLarge", err)
+	}
+}
+
+func TestGenerateSampleAlertsContextReturnsCancellation(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+
+	_, err := GenerateSampleAlertsContext(ctx, &Config{Route: &Route{Receiver: "default"}})
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("GenerateSampleAlertsContext() error = %v, want context cancellation", err)
+	}
+}
+
+func TestGenerateSampleAlertsContextStopsDuringRouteTraversal(t *testing.T) {
+	baseContext, cancel := context.WithCancel(context.Background())
+	ctx := &cancelAfterErrChecks{Context: baseContext, cancel: cancel, remaining: 8}
+	routes := make([]*Route, 100)
+	for index := range routes {
+		routes[index] = &Route{Match: map[string]string{"severity": fmt.Sprint(index)}}
+	}
+	config := &Config{Route: &Route{Receiver: "default", Routes: routes}}
+
+	_, err := GenerateSampleAlertsContext(ctx, config)
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("GenerateSampleAlertsContext() error = %v, want cancellation during traversal", err)
+	}
+}
+
+type cancelAfterErrChecks struct {
+	context.Context
+	cancel    context.CancelFunc
+	remaining int
+}
+
+func (ctx *cancelAfterErrChecks) Err() error {
+	ctx.remaining--
+	if ctx.remaining == 0 {
+		ctx.cancel()
+	}
+	return ctx.Context.Err()
+}
+
 func TestClientGetSampleAlertsDefersLargeRouteTree(t *testing.T) {
 	routes := make([]*Route, maxAutomaticSampleAlertRoutes+1)
 	for index := range routes {
@@ -1772,6 +1848,11 @@ func TestClientGetSampleAlertsDefersLargeRouteTree(t *testing.T) {
 	}
 	if client.sampleAlertsReady {
 		t.Fatal("deferred sample generation was cached as complete")
+	}
+
+	generated, err := client.GenerateSampleAlertsContext(context.Background(), config)
+	if err != nil || len(generated) == 0 {
+		t.Fatalf("GenerateSampleAlertsContext() = %v, %v, want bounded examples for a deferred tree", generated, err)
 	}
 }
 
@@ -1858,6 +1939,30 @@ func TestGenerateSampleAlertsFindsRegexOnlyRoute(t *testing.T) {
 			}
 			t.Fatalf("no quick example matched regex-only route: %#v", GenerateSampleAlerts(config))
 		})
+	}
+}
+
+func TestCollectRouteExamplesCapsCandidateCount(t *testing.T) {
+	routes := make([]*Route, maxSampleAlertCandidates*2)
+	for index := range routes {
+		routes[index] = &Route{
+			Receiver: "route",
+			Match:    map[string]string{"severity": fmt.Sprint(index)},
+			Continue: true,
+		}
+	}
+	config := &Config{Route: &Route{Receiver: "default", Routes: routes}}
+	tree, err := nativeRouteTreeForConfig(config)
+	if err != nil {
+		t.Fatalf("nativeRouteTreeForConfig(): %v", err)
+	}
+
+	candidates := make([]map[string]string, 0)
+	if err := collectRouteExamples(context.Background(), tree.root, map[string]string{}, &candidates); err != nil {
+		t.Fatalf("collectRouteExamples(): %v", err)
+	}
+	if len(candidates) != maxSampleAlertCandidates {
+		t.Fatalf("candidate count = %d, want %d", len(candidates), maxSampleAlertCandidates)
 	}
 }
 

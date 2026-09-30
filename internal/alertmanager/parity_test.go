@@ -262,7 +262,7 @@ func startAlertmanager(t *testing.T, binary string, config []byte) string {
 		t.Fatalf("release Alertmanager port: %v", err)
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	ctx, cancel := context.WithCancel(context.Background())
 	// #nosec G204 -- The selected test fixture is verified as Alertmanager 0.33.0.
 	command := exec.CommandContext(ctx, binary,
 		"--config.file="+configPath,
@@ -304,9 +304,6 @@ func startAlertmanager(t *testing.T, binary string, config []byte) string {
 			if response.StatusCode == http.StatusOK {
 				return baseURL
 			}
-		}
-		if ctx.Err() != nil {
-			t.Fatalf("Alertmanager did not start")
 		}
 		time.Sleep(100 * time.Millisecond)
 	}

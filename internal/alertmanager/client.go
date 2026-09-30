@@ -17,6 +17,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode"
 
 	"github.com/prometheus/alertmanager/dispatch"
 	amlabels "github.com/prometheus/alertmanager/pkg/labels"
@@ -684,6 +685,7 @@ const (
 	maxAutomaticSampleAlertRoutes  = 5000
 	maxOnDemandSampleAlertRoutes   = 10000
 	maxSampleAlertCandidates       = 64
+	maxSampleAlertCounterexamples  = 100
 	maxSampleAlertFallbackAttempts = 100
 )
 
@@ -835,11 +837,15 @@ func generateSampleAlertsContext(ctx context.Context, config *Config, routeLimit
 	}
 
 	labelKeys := ExtractLabelKeys(config)
+	counterexamples, err := fallbackMatcherCounterexamples(ctx, tree.root)
+	if err != nil {
+		return nil, false, err
+	}
 	for attempt := 0; attempt < maxSampleAlertFallbackAttempts; attempt++ {
 		if err := ctx.Err(); err != nil {
 			return nil, false, err
 		}
-		labels := fallbackLabels(labelKeys, attempt)
+		labels := fallbackLabelsWithMatcherCounterexamples(labelKeys, attempt, counterexamples)
 		receiver, matched, err := client.FindMatchingRoute(labels, config)
 		if err != nil || len(matched) != 0 || receiver == "" {
 			continue
@@ -1119,6 +1125,13 @@ func regexClassExample(ranges []rune) (string, bool) {
 			}
 		}
 	}
+	for index := 0; index+1 < len(ranges); index += 2 {
+		for candidate := ranges[index]; candidate <= ranges[index+1] && candidate-ranges[index] <= 128; candidate++ {
+			if unicode.IsPrint(candidate) {
+				return string(candidate), true
+			}
+		}
+	}
 	return "", false
 }
 
@@ -1145,6 +1158,59 @@ func effectiveReceivers(receiver string, matched []MatchedRoute) []string {
 		receivers = append(receivers, receiver)
 	}
 	return receivers
+}
+
+func fallbackMatcherCounterexamples(ctx context.Context, root *dispatch.Route) (map[string][]string, error) {
+	values := make(map[string][]string)
+	seen := make(map[string]bool)
+	pending := []*dispatch.Route{root}
+	for len(pending) > 0 {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		route := pending[len(pending)-1]
+		pending = pending[:len(pending)-1]
+		for _, matcher := range route.Matchers {
+			var candidate string
+			switch matcher.Type {
+			case amlabels.MatchNotEqual:
+				candidate = matcher.Value
+			case amlabels.MatchNotRegexp:
+				var ok bool
+				candidate, ok = regexMatcherExample(matcher.Value)
+				if !ok {
+					continue
+				}
+			case amlabels.MatchEqual, amlabels.MatchRegexp:
+				continue
+			}
+			fingerprint := matcher.Name + "\x00" + candidate
+			if seen[fingerprint] || len(values[matcher.Name]) >= maxSampleAlertCounterexamples {
+				continue
+			}
+			seen[fingerprint] = true
+			values[matcher.Name] = append(values[matcher.Name], candidate)
+		}
+		pending = append(pending, route.Routes...)
+	}
+	return values, nil
+}
+
+func fallbackLabelsWithMatcherCounterexamples(keys []string, attempt int, counterexamples map[string][]string) map[string]string {
+	labels := fallbackLabels(keys, attempt)
+	for index, key := range keys {
+		values := counterexamples[key]
+		if len(values) == 0 {
+			continue
+		}
+		value := values[(attempt+index)%len(values)]
+		if value == "" {
+			delete(labels, key)
+		} else {
+			labels[key] = value
+		}
+	}
+	return labels
 }
 
 func fallbackLabels(keys []string, attempt int) map[string]string {

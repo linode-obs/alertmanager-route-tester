@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -52,6 +53,20 @@ func TestNewClientsApplyPerInstanceMatcherMode(t *testing.T) {
 	}
 	if _, err := clients["strict"].GetConfig(); err == nil {
 		t.Fatal("strict-mode GetConfig() error = nil, want classic-only matcher rejection")
+	}
+}
+
+func TestRouteLadderPreviewUsesButtonGroupSemantics(t *testing.T) {
+	preview, err := os.ReadFile(filepath.Join("docs", "design-reference", "issue-14-route-ladder", "route-ladder-preview.html"))
+	if err != nil {
+		t.Fatalf("read route ladder preview: %v", err)
+	}
+	markup := string(preview)
+	if !strings.Contains(markup, `<div class="layout-tabs" role="group" aria-label="Layout variations">`) {
+		t.Fatal("layout controls are not exposed as a labeled button group")
+	}
+	if strings.Contains(markup, `role="tablist"`) || strings.Contains(markup, `role="tab"`) {
+		t.Fatal("layout controls expose tab semantics without tab keyboard behavior")
 	}
 }
 

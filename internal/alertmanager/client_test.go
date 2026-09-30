@@ -1922,6 +1922,13 @@ func TestGenerateSampleAlertsFindsRegexOnlyRoute(t *testing.T) {
 				Matchers: []string{`instance=~"prod-[0-9]+"`},
 			},
 		},
+		{
+			name: "nonzero character class",
+			route: &Route{
+				Receiver: "production",
+				Matchers: []string{`instance=~"[1-9]+"`},
+			},
+		},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			config := &Config{Route: &Route{Receiver: "default", Routes: []*Route{test.route}}}
@@ -1964,6 +1971,46 @@ func TestCollectRouteExamplesCapsCandidateCount(t *testing.T) {
 	if len(candidates) != maxSampleAlertCandidates {
 		t.Fatalf("candidate count = %d, want %d", len(candidates), maxSampleAlertCandidates)
 	}
+}
+
+func TestGenerateSampleAlertsProducesFallbackForNegativeEqualityMatcher(t *testing.T) {
+	config := &Config{Route: &Route{
+		Receiver: "default",
+		Routes: []*Route{{
+			Receiver: "alert",
+			Matchers: []string{`foo!="bar"`},
+		}},
+	}}
+
+	for _, sample := range GenerateSampleAlerts(config) {
+		if sample.Name == "Default receiver" {
+			if sample.Labels["foo"] != "bar" {
+				t.Fatalf("fallback labels = %v, want foo=bar to disprove foo!=bar", sample.Labels)
+			}
+			return
+		}
+	}
+	t.Fatalf("no root-fallback example for negative equality matcher: %#v", GenerateSampleAlerts(config))
+}
+
+func TestGenerateSampleAlertsProducesFallbackForNegativeRegexMatcher(t *testing.T) {
+	config := &Config{Route: &Route{
+		Receiver: "default",
+		Routes: []*Route{{
+			Receiver: "alert",
+			Matchers: []string{`instance!~"^prod-[0-9]+$"`},
+		}},
+	}}
+
+	for _, sample := range GenerateSampleAlerts(config) {
+		if sample.Name == "Default receiver" {
+			if !strings.HasPrefix(sample.Labels["instance"], "prod-") {
+				t.Fatalf("fallback labels = %v, want instance matching the excluded regex", sample.Labels)
+			}
+			return
+		}
+	}
+	t.Fatalf("no root-fallback example for negative regex matcher: %#v", GenerateSampleAlerts(config))
 }
 
 func TestGenerateSampleAlertsIncludesMultipleReceiverContinueExample(t *testing.T) {

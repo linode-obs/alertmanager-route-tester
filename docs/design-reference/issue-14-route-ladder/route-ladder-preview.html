@@ -385,12 +385,12 @@
   <section class="controls" aria-label="Preview controls">
     <div class="control-row">
       <span class="control-label">Bauhaus and modernist layout variations</span>
-      <div class="layout-tabs" role="tablist" aria-label="Layout variations">
-        <button type="button" role="tab" data-layout-choice="control-board" aria-pressed="false">1 · Control board</button>
-        <button type="button" role="tab" data-layout-choice="poster-board" aria-pressed="false">2 · Poster panel</button>
-        <button type="button" role="tab" data-layout-choice="route-ladder" aria-pressed="true">3 · Route ladder</button>
-        <button type="button" role="tab" data-layout-choice="offset-result" aria-pressed="false">4 · Offset result</button>
-        <button type="button" role="tab" data-layout-choice="field-report" aria-pressed="false">5 · Field report</button>
+      <div class="layout-tabs" role="group" aria-label="Layout variations">
+        <button type="button" data-layout-choice="control-board" aria-pressed="false">1 · Control board</button>
+        <button type="button" data-layout-choice="poster-board" aria-pressed="false">2 · Poster panel</button>
+        <button type="button" data-layout-choice="route-ladder" aria-pressed="true">3 · Route ladder</button>
+        <button type="button" data-layout-choice="offset-result" aria-pressed="false">4 · Offset result</button>
+        <button type="button" data-layout-choice="field-report" aria-pressed="false">5 · Field report</button>
       </div>
     </div>
     <div class="control-row">
@@ -532,8 +532,8 @@
         const layout = button.dataset.layoutChoice;
         document.documentElement.dataset.layout = layout;
         document.getElementById("layout-caption").textContent = layoutNames[layout];
-        for (const tab of document.querySelectorAll("[data-layout-choice]")) {
-          tab.setAttribute("aria-pressed", String(tab === button));
+        for (const layoutButton of document.querySelectorAll("[data-layout-choice]")) {
+          layoutButton.setAttribute("aria-pressed", String(layoutButton === button));
         }
         updateLabelCount();
       });

@@ -909,7 +909,7 @@ func TestResultTemplateShowsRouteRulesLeadingToSelectedReceivers(t *testing.T) {
 				Receiver: "team-platform",
 				RouteSteps: []RouteStep{
 					{Index: 1, Receiver: "region-router", Match: map[string]string{"cluster": "prod-west"}},
-					{Index: 2, Receiver: "team-platform", Match: map[string]string{"team": "platform"}, IsFinal: true},
+					{Index: 2, Receiver: "team-platform", Match: map[string]string{"team": "platform"}, IsFinal: true, IsEffective: true},
 				},
 				MatchedReceiverSummaries: []ReceiverSummary{{Name: "team-platform", IsFinal: true}},
 			},
@@ -1429,7 +1429,7 @@ func TestResultTemplateHighlightsReceiverAndCollapsesRouteExplanation(t *testing
 		Receiver: "pagerduty-platform",
 		RouteSteps: []RouteStep{
 			{Index: 1, Receiver: "region-router", Match: map[string]string{"cluster": "prod-west"}},
-			{Index: 2, Receiver: "pagerduty-platform", Match: map[string]string{"severity": "critical"}, IsFinal: true},
+			{Index: 2, Receiver: "pagerduty-platform", Match: map[string]string{"severity": "critical"}, IsFinal: true, IsEffective: true},
 		},
 		MatchedReceivers:         []string{"pagerduty-platform"},
 		MatchedReceiverSummaries: []ReceiverSummary{{Name: "pagerduty-platform", IsFinal: true}},
@@ -1486,7 +1486,7 @@ func TestResultTemplateUsesInfoIconsForRouteDetails(t *testing.T) {
 		},
 		RouteSteps: []RouteStep{
 			{Index: 1, Receiver: "team-platform"},
-			{Index: 2, Receiver: "pagerduty-platform", Depth: 1, IsSubroute: true, IsFinal: true},
+			{Index: 2, Receiver: "pagerduty-platform", Depth: 1, IsSubroute: true, IsFinal: true, IsEffective: true},
 		},
 		MatchedReceivers: []string{"pagerduty-platform"},
 	}

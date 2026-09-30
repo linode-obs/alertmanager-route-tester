@@ -50,10 +50,11 @@ type ServerConfig struct {
 }
 
 type AlertmanagerConfig struct {
-	URL   string      `yaml:"url"`
-	HTTP  HTTPConfig  `yaml:"http"`
-	Retry RetryConfig `yaml:"retry"`
-	Pool  PoolConfig  `yaml:"pool"`
+	URL         string      `yaml:"url"`
+	MatcherMode string      `yaml:"matcher_mode"`
+	HTTP        HTTPConfig  `yaml:"http"`
+	Retry       RetryConfig `yaml:"retry"`
+	Pool        PoolConfig  `yaml:"pool"`
 }
 
 type HTTPConfig struct {
@@ -152,6 +153,9 @@ func applyDefaults(cfg *Config) {
 }
 
 func applyAlertmanagerDefaults(cfg *AlertmanagerConfig) {
+	if cfg.MatcherMode == "" {
+		cfg.MatcherMode = "fallback"
+	}
 	if cfg.HTTP.Timeouts.Request.Duration == 0 {
 		cfg.HTTP.Timeouts.Request = Duration{Duration: 15 * time.Second}
 	}
@@ -222,35 +226,8 @@ func validateWithOptions(cfg *Config, allowEmptyCLILabels bool) error {
 		return errors.New("alertmanagers is required and must contain at least one named instance")
 	}
 	for name, alertmanager := range cfg.Alertmanagers {
-		if name == "" {
-			return errors.New("alertmanagers contains an empty instance name")
-		}
-		if alertmanager.URL == "" {
-			return fmt.Errorf("alertmanagers.%s.url is required", name)
-		}
-		for field, value := range map[string]time.Duration{
-			"request":         alertmanager.HTTP.Timeouts.Request.Duration,
-			"dial":            alertmanager.HTTP.Timeouts.Dial.Duration,
-			"tls_handshake":   alertmanager.HTTP.Timeouts.TLSHandshake.Duration,
-			"response_header": alertmanager.HTTP.Timeouts.ResponseHeader.Duration,
-			"idle_conn":       alertmanager.HTTP.Timeouts.IdleConn.Duration,
-			"expect_continue": alertmanager.HTTP.Timeouts.ExpectContinue.Duration,
-		} {
-			if value < 0 {
-				return fmt.Errorf("alertmanagers.%s.http.timeouts.%s must be >= 0", name, field)
-			}
-		}
-		if alertmanager.HTTP.TLS.CertFile != "" && alertmanager.HTTP.TLS.KeyFile == "" {
-			return fmt.Errorf("alertmanagers.%s.http.tls.key_file is required when cert_file is set", name)
-		}
-		if alertmanager.HTTP.TLS.KeyFile != "" && alertmanager.HTTP.TLS.CertFile == "" {
-			return fmt.Errorf("alertmanagers.%s.http.tls.cert_file is required when key_file is set", name)
-		}
-		if alertmanager.Retry.MaxAttempts < 1 {
-			return fmt.Errorf("alertmanagers.%s.retry.max_attempts must be >= 1", name)
-		}
-		if alertmanager.Retry.Backoff.Duration < 0 {
-			return fmt.Errorf("alertmanagers.%s.retry.backoff must be >= 0", name)
+		if err := validateAlertmanager(name, alertmanager); err != nil {
+			return err
 		}
 	}
 
@@ -298,6 +275,45 @@ func validateWithOptions(cfg *Config, allowEmptyCLILabels bool) error {
 		}
 	} else if cfg.App.CLITestMode.Enabled && !allowEmptyCLILabels && len(cfg.App.CLITestMode.Labels) == 0 {
 		return errors.New("alertmanager-route-tester.cli-test-mode.labels or suite is required when cli-test-mode.enabled is true")
+	}
+	return nil
+}
+
+func validateAlertmanager(name string, alertmanager AlertmanagerConfig) error {
+	if name == "" {
+		return errors.New("alertmanagers contains an empty instance name")
+	}
+	if alertmanager.URL == "" {
+		return fmt.Errorf("alertmanagers.%s.url is required", name)
+	}
+	switch alertmanager.MatcherMode {
+	case "fallback", "classic", "utf8-strict":
+	default:
+		return fmt.Errorf("alertmanagers.%s.matcher_mode must be fallback, classic, or utf8-strict", name)
+	}
+	for field, value := range map[string]time.Duration{
+		"request":         alertmanager.HTTP.Timeouts.Request.Duration,
+		"dial":            alertmanager.HTTP.Timeouts.Dial.Duration,
+		"tls_handshake":   alertmanager.HTTP.Timeouts.TLSHandshake.Duration,
+		"response_header": alertmanager.HTTP.Timeouts.ResponseHeader.Duration,
+		"idle_conn":       alertmanager.HTTP.Timeouts.IdleConn.Duration,
+		"expect_continue": alertmanager.HTTP.Timeouts.ExpectContinue.Duration,
+	} {
+		if value < 0 {
+			return fmt.Errorf("alertmanagers.%s.http.timeouts.%s must be >= 0", name, field)
+		}
+	}
+	if alertmanager.HTTP.TLS.CertFile != "" && alertmanager.HTTP.TLS.KeyFile == "" {
+		return fmt.Errorf("alertmanagers.%s.http.tls.key_file is required when cert_file is set", name)
+	}
+	if alertmanager.HTTP.TLS.KeyFile != "" && alertmanager.HTTP.TLS.CertFile == "" {
+		return fmt.Errorf("alertmanagers.%s.http.tls.cert_file is required when key_file is set", name)
+	}
+	if alertmanager.Retry.MaxAttempts < 1 {
+		return fmt.Errorf("alertmanagers.%s.retry.max_attempts must be >= 1", name)
+	}
+	if alertmanager.Retry.Backoff.Duration < 0 {
+		return fmt.Errorf("alertmanagers.%s.retry.backoff must be >= 0", name)
 	}
 	return nil
 }

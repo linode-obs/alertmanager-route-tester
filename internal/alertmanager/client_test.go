@@ -236,6 +236,41 @@ func TestAlertmanagerMatcherSemantics(t *testing.T) {
 	}
 }
 
+func TestClientsParseMatchersUsingTheirConfiguredMode(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"config":{"original":"route:\n  receiver: default\n  routes:\n  - receiver: api\n    matchers:\n    - 'message=\"a\\qb\"'\nreceivers:\n- name: default\n- name: api\n"}}`))
+	}))
+	defer server.Close()
+
+	classic, err := NewClientWithOptions(ClientOptions{BaseURL: server.URL, MatcherMode: MatcherModeClassic})
+	if err != nil {
+		t.Fatalf("create classic-mode client: %v", err)
+	}
+	strict, err := NewClientWithOptions(ClientOptions{BaseURL: server.URL, MatcherMode: MatcherModeUTF8Strict})
+	if err != nil {
+		t.Fatalf("create UTF-8 strict-mode client: %v", err)
+	}
+
+	for _, test := range []struct {
+		name      string
+		client    *Client
+		wantError bool
+	}{
+		{name: "classic", client: classic},
+		{name: "strict", client: strict, wantError: true},
+		{name: "classic after strict", client: classic},
+		{name: "strict after classic", client: strict, wantError: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			_, err := test.client.GetConfig()
+			if (err != nil) != test.wantError {
+				t.Fatalf("GetConfig() error = %v, want error %v", err, test.wantError)
+			}
+		})
+	}
+}
+
 func TestExtractRawReceiverConfigsMatchesExactNames(t *testing.T) {
 	config := &Config{
 		Receivers: []Receiver{

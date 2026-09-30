@@ -47,6 +47,7 @@ func TestLoadNamedAlertmanagers(t *testing.T) {
 	contents := []byte(`alertmanagers:
   production:
     url: http://production.example.test
+    matcher_mode: classic
   staging:
     url: http://staging.example.test
 `)
@@ -63,6 +64,29 @@ func TestLoadNamedAlertmanagers(t *testing.T) {
 	}
 	if got := cfg.Alertmanagers["production"].URL; got != "http://production.example.test" {
 		t.Fatalf("production URL = %q, want production URL", got)
+	}
+	if got := cfg.Alertmanagers["production"].MatcherMode; got != "classic" {
+		t.Fatalf("production matcher mode = %q, want classic", got)
+	}
+	if got := cfg.Alertmanagers["staging"].MatcherMode; got != "fallback" {
+		t.Fatalf("staging matcher mode = %q, want fallback default", got)
+	}
+}
+
+func TestLoadRejectsUnknownMatcherMode(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.yaml")
+	contents := []byte(`alertmanagers:
+  production:
+    url: http://production.example.test
+    matcher_mode: invalid
+`)
+	if err := os.WriteFile(path, contents, 0600); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := Load(path); err == nil {
+		t.Fatal("Load() error = nil, want invalid matcher mode error")
 	}
 }
 

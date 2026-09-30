@@ -15,7 +15,7 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-var nativeMatcherParserOnce sync.Once
+var nativeMatcherParserMu sync.Mutex
 
 type nativeRouteTree struct {
 	root        *dispatch.Route
@@ -95,20 +95,42 @@ func nativeRouteTreeForConfig(config *Config) (*nativeRouteTree, error) {
 	if err != nil {
 		return nil, fmt.Errorf("marshal route configuration: %w", err)
 	}
-	nativeConfig, err := loadNativeConfig(string(encoded))
+	nativeConfig, err := loadNativeConfig(string(encoded), MatcherModeFallback)
 	if err != nil {
 		return nil, fmt.Errorf("parse route configuration with Alertmanager: %w", err)
 	}
 	return newNativeRouteTree(nativeConfig.Route, config.Route)
 }
 
-func loadNativeConfig(contents string) (*amconfig.Config, error) {
-	nativeMatcherParserOnce.Do(func() {
-		// Noop flags select Alertmanager's default matcher parser.
-		logger := slog.New(slog.NewTextHandler(io.Discard, nil))
-		compat.InitFromFlags(logger, featurecontrol.NoopFlags{})
-	})
+func loadNativeConfig(contents string, mode MatcherMode) (*amconfig.Config, error) {
+	feature, err := matcherModeFeature(mode)
+	if err != nil {
+		return nil, err
+	}
+
+	nativeMatcherParserMu.Lock()
+	defer nativeMatcherParserMu.Unlock()
+
+	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
+	flags, err := featurecontrol.NewFlags(logger, feature)
+	if err != nil {
+		return nil, err
+	}
+	compat.InitFromFlags(logger, flags)
 	return amconfig.Load(contents)
+}
+
+func matcherModeFeature(mode MatcherMode) (string, error) {
+	switch mode {
+	case "", MatcherModeFallback:
+		return "", nil
+	case MatcherModeClassic:
+		return featurecontrol.FeatureClassicMode, nil
+	case MatcherModeUTF8Strict:
+		return featurecontrol.FeatureUTF8StrictMode, nil
+	default:
+		return "", fmt.Errorf("unsupported matcher mode %q", mode)
+	}
 }
 
 func collectRouteReceiverNames(route *Route, names map[string]bool) {

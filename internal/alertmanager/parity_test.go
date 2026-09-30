@@ -19,8 +19,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/wbollock/alertmanager-route-tester/internal/alertmanager"
 	"gopkg.in/yaml.v3"
+
+	"github.com/wbollock/alertmanager-route-tester/internal/alertmanager"
 )
 
 func TestRoutingMatchesAlertmanagerDeliveries(t *testing.T) {
@@ -204,6 +205,7 @@ func alertmanagerBinary(t *testing.T) string {
 	t.Helper()
 	binary := os.Getenv("ALERTMANAGER_BINARY")
 	if binary != "" {
+		// #nosec G703 -- The test runner explicitly selects this Alertmanager fixture.
 		if _, err := os.Stat(binary); err != nil {
 			t.Fatalf("Alertmanager binary from ALERTMANAGER_BINARY is unavailable at %s: %v", binary, err)
 		}
@@ -226,6 +228,7 @@ func alertmanagerBinary(t *testing.T) string {
 			t.Skipf("Alertmanager binary unavailable under %s", root)
 		}
 	}
+	// #nosec G204 G702 -- The selected test fixture is verified as Alertmanager 0.33.0 below.
 	output, err := exec.Command(binary, "--version").CombinedOutput()
 	if err != nil {
 		t.Fatalf("read Alertmanager version: %v: %s", err, output)
@@ -253,6 +256,7 @@ func startAlertmanager(t *testing.T, binary string, config []byte) string {
 	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	// #nosec G204 -- The selected test fixture is verified as Alertmanager 0.33.0.
 	command := exec.CommandContext(ctx, binary,
 		"--config.file="+configPath,
 		"--web.listen-address="+address,
@@ -260,6 +264,7 @@ func startAlertmanager(t *testing.T, binary string, config []byte) string {
 		"--cluster.listen-address=",
 	)
 	logPath := filepath.Join(workDir, "alertmanager.log")
+	// #nosec G304 -- logPath is inside the directory created by t.TempDir.
 	logFile, err := os.Create(logPath)
 	if err != nil {
 		cancel()
@@ -277,6 +282,7 @@ func startAlertmanager(t *testing.T, binary string, config []byte) string {
 		_ = command.Wait()
 		_ = logFile.Close()
 		if t.Failed() {
+			// #nosec G304 -- logPath is inside the directory created by t.TempDir.
 			logs, _ := os.ReadFile(logPath)
 			t.Logf("Alertmanager output:\\n%s", logs)
 		}

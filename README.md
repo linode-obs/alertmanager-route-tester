@@ -37,6 +37,7 @@ alertmanager-route-tester:
 alertmanagers:
   production:
     url: "https://alerts.example.com"
+    matcher_mode: "fallback"
     http:
       tls:
         skip_verify: false
@@ -61,7 +62,7 @@ alertmanagers:
     url: "https://alerts-staging.example.com"
 ```
 
-Each entry under `alertmanagers` has a name and URL. HTTP, TLS, retry, and connection-pool settings can be configured per instance. When more than one instance is configured, the web UI shows an Alertmanager selector above the connection status. Changing the selection reloads the route suggestions and uses that instance for route tests and config reloads. It is recommended to use multiple Alertmanagers only when configuring ATR for multiple clusters, not for multiple Alertmanagers within the same cluster.
+Each entry under `alertmanagers` has a name and URL. HTTP, TLS, retry, connection-pool, and matcher parsing settings can be configured per instance. Set `matcher_mode` to `fallback` (the default), `classic`, or `utf8-strict` to match the connected Alertmanager's `--enable-feature` mode. When more than one instance is configured, the web UI shows an Alertmanager selector above the connection status. Changing the selection reloads the route suggestions and uses that instance for route tests and config reloads. It is recommended to use multiple Alertmanagers only when configuring ATR for multiple clusters, not for multiple Alertmanagers within the same cluster.
 
 ATR caches Alertmanager configuration with an option to reload the configuration.
 

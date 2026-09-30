@@ -240,7 +240,8 @@ func newClients(cfg *appconfig.Config) (map[string]*alertmanager.Client, []strin
 	for _, name := range names {
 		am := cfg.Alertmanagers[name]
 		client, err := alertmanager.NewClientWithOptions(alertmanager.ClientOptions{
-			BaseURL: am.URL,
+			BaseURL:     am.URL,
+			MatcherMode: alertmanager.MatcherMode(am.MatcherMode),
 			TLS: alertmanager.TLSOptions{
 				SkipVerify: am.HTTP.TLS.SkipVerify,
 				CAFile:     am.HTTP.TLS.CAFile,

@@ -4,11 +4,14 @@ import (
 	"encoding/json"
 	"net"
 	"net/http"
+	"net/http/httptest"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"testing"
 	"time"
+
+	appconfig "github.com/wbollock/alertmanager-route-tester/internal/config"
 )
 
 func TestAlertmanagerRequestOnlyAppliesInCLIMode(t *testing.T) {
@@ -31,6 +34,24 @@ func TestSelectAlertmanager(t *testing.T) {
 
 	if _, err := selectAlertmanager([]string{"production"}, "missing"); err == nil {
 		t.Fatal("selectAlertmanager() error = nil, want unknown instance error")
+	}
+}
+
+func TestNewClientsApplyPerInstanceMatcherMode(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"config":{"original":"route:\n  receiver: default\n  routes:\n  - receiver: api\n    matchers:\n    - 'message=\"a\\qb\"'\nreceivers:\n- name: default\n- name: api\n"}}`))
+	}))
+	defer server.Close()
+
+	clients, _, err := newClients(&appconfig.Config{Alertmanagers: map[string]appconfig.AlertmanagerConfig{
+		"strict": {URL: server.URL, MatcherMode: "utf8-strict"},
+	}})
+	if err != nil {
+		t.Fatalf("newClients() error = %v", err)
+	}
+	if _, err := clients["strict"].GetConfig(); err == nil {
+		t.Fatal("strict-mode GetConfig() error = nil, want classic-only matcher rejection")
 	}
 }
 
@@ -134,6 +155,7 @@ func TestCleanAlertmanagerDataRemovesVersionBackups(t *testing.T) {
 		}
 	}
 
+	// #nosec G204 -- The test invokes the repository's cleanup script on a temporary fixture tree.
 	command := exec.Command("bash", filepath.Join(repoRoot, "scripts", "clean-alertmanager-data.sh"))
 	command.Dir = tempRoot
 	if output, err := command.CombinedOutput(); err != nil {

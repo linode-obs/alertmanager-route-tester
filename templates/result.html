@@ -20,7 +20,7 @@
                 {{end}}
                 {{else if .MatchedReceivers}}
                 {{range .MatchedReceivers}}
-                <span class="result-primary-receiver">{{.}}{{if eq . $.Receiver}}<span class="result-primary-final">final</span>{{end}}</span>
+                <span class="result-primary-receiver">{{.}}{{if and (eq (len $.MatchedReceivers) 1) (eq . $.Receiver)}}<span class="result-primary-final">final</span>{{end}}</span>
                 {{end}}
                 {{else}}
                 <span class="result-primary-receiver">{{.Receiver}}<span class="result-primary-final">final</span></span>
@@ -62,6 +62,9 @@
                             {{if not (or .Match .MatchRE .Matchers)}}
                             <span class="route-flow-no-conditions">No explicit conditions</span>
                             {{end}}
+                            {{range .MatcherResults}}
+                            <span class="route-flow-actual">{{.Label}} {{.Operator}} {{printf "%q" .Expected}} matched actual value <code>{{if .Missing}}missing{{else}}{{printf "%q" .Actual}}{{end}}</code></span>
+                            {{end}}
                         </div>
                     </div>
                     {{end}}
@@ -102,9 +105,9 @@
                     {{end}}
                     {{else if .MatchedReceivers}}
                     {{range .MatchedReceivers}}
-                    <div class="route-flow-receiver {{if eq . $.Receiver}}route-flow-receiver-final{{end}}">
+                    <div class="route-flow-receiver {{if and (eq (len $.MatchedReceivers) 1) (eq . $.Receiver)}}route-flow-receiver-final{{end}}">
                         <span class="route-flow-receiver-name">{{.}}</span>
-                        {{if eq . $.Receiver}}<span class="route-flow-final">final</span>{{end}}
+                        {{if and (eq (len $.MatchedReceivers) 1) (eq . $.Receiver)}}<span class="route-flow-final">final</span>{{end}}
                     </div>
                     {{end}}
                     {{else}}
@@ -125,9 +128,11 @@
         {{if .DefaultRoot}}
         <div class="route-info">
             <p class="default-route-notice">ℹ️ No child route matched. This alert uses the root receiver, <strong>{{.Receiver}}</strong>.</p>
-            {{if .RouteMismatches}}
+        </div>
+        {{end}}
+        {{if .RouteMismatches}}
             <div class="route-mismatch-list">
-                <h3>Why no child route matched</h3>
+                <h3>{{if .DefaultRoot}}Why no child route matched{{else}}Why other routes did not match{{end}}</h3>
                 <p class="route-explanation">These route matchers failed. Every matcher on a route must match.</p>
                 <div class="route-list">
                     {{range .RouteMismatches}}
@@ -148,8 +153,6 @@
                     {{end}}
                 </div>
             </div>
-            {{end}}
-        </div>
         {{end}}
 
         {{if .ReceiverConfig}}
@@ -223,6 +226,7 @@ repeat_interval: {{.Route.RepeatInterval}}{{end}}</pre>
         </div>
     </div>
 
+    {{if le (len .MatchedReceivers) 1}}
     <div class="receiver-why result-section">
         <h3>Why this receiver</h3>
         {{if .DefaultRoot}}
@@ -265,17 +269,18 @@ repeat_interval: {{.Route.RepeatInterval}}{{end}}</pre>
         <p class="route-explanation">No match rules are shown for this receiver.</p>
         {{end}}
     </div>
+    {{end}}
 
     <div class="receiver-summary result-section">
         <h3>Receiver path</h3>
         {{if gt (len .MatchedReceivers) 1}}
-        <p class="route-explanation">Several receivers match. The final receiver is marked.</p>
+        <p class="route-explanation">Each receiver gets a copy.</p>
         {{else}}
         <p class="route-explanation">One receiver matches.</p>
         {{end}}
         <div class="receiver-chips">
             {{range .MatchedReceivers}}
-            <span class="receiver-chip {{if eq . $.Receiver}}receiver-chip-final{{end}}">{{.}}</span>
+            <span class="receiver-chip {{if and (eq (len $.MatchedReceivers) 1) (eq . $.Receiver)}}receiver-chip-final{{end}}">{{.}}</span>
             {{end}}
         </div>
         {{if gt .ContinueCount 0}}
@@ -348,6 +353,16 @@ repeat_interval: {{.Route.RepeatInterval}}{{end}}</pre>
                         <div class="trace-content">
                             {{range .Matchers}}
                             <span class="trace-kv">{{.}}</span>
+                            {{end}}
+                        </div>
+                    </div>
+                    {{end}}
+                    {{if .MatcherResults}}
+                    <div class="trace-block">
+                        <div class="trace-title">Matched label values</div>
+                        <div class="trace-content">
+                            {{range .MatcherResults}}
+                            <span class="trace-kv">{{.Label}} {{.Operator}} {{printf "%q" .Expected}} matched actual value {{if .Missing}}missing{{else}}{{printf "%q" .Actual}}{{end}}</span>
                             {{end}}
                         </div>
                     </div>

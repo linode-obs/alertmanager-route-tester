@@ -27,6 +27,7 @@ var errResponseBodyTooLarge = errors.New("response body exceeds limit")
 
 type Client struct {
 	baseURL          string
+	matcherMode      MatcherMode
 	httpClient       *http.Client
 	retryMaxAttempts int
 	retryBackoff     time.Duration
@@ -113,12 +114,22 @@ type OpsGenieConfig struct {
 }
 
 type ClientOptions struct {
-	BaseURL  string
-	TLS      TLSOptions
-	Timeouts TimeoutOptions
-	Retry    RetryOptions
-	Pool     PoolOptions
+	BaseURL     string
+	MatcherMode MatcherMode
+	TLS         TLSOptions
+	Timeouts    TimeoutOptions
+	Retry       RetryOptions
+	Pool        PoolOptions
 }
+
+// MatcherMode selects Alertmanager's parser for route matcher expressions.
+type MatcherMode string
+
+const (
+	MatcherModeFallback   MatcherMode = "fallback"
+	MatcherModeClassic    MatcherMode = "classic"
+	MatcherModeUTF8Strict MatcherMode = "utf8-strict"
+)
 
 type TLSOptions struct {
 	SkipVerify bool
@@ -156,6 +167,7 @@ func NewClient(baseURL string, skipTLSVerify bool) *Client {
 
 	return &Client{
 		baseURL:          strings.TrimSuffix(baseURL, "/"),
+		matcherMode:      MatcherModeFallback,
 		httpClient:       &http.Client{Transport: transport},
 		retryMaxAttempts: 1,
 		retryBackoff:     0,
@@ -165,6 +177,13 @@ func NewClient(baseURL string, skipTLSVerify bool) *Client {
 func NewClientWithOptions(opts ClientOptions) (*Client, error) {
 	if opts.BaseURL == "" {
 		return nil, fmt.Errorf("base URL is required")
+	}
+
+	if opts.MatcherMode == "" {
+		opts.MatcherMode = MatcherModeFallback
+	}
+	if _, err := matcherModeFeature(opts.MatcherMode); err != nil {
+		return nil, err
 	}
 
 	tlsConfig, err := buildTLSConfig(opts.TLS)
@@ -193,7 +212,8 @@ func NewClientWithOptions(opts ClientOptions) (*Client, error) {
 	}
 
 	return &Client{
-		baseURL: strings.TrimSuffix(opts.BaseURL, "/"),
+		baseURL:     strings.TrimSuffix(opts.BaseURL, "/"),
+		matcherMode: opts.MatcherMode,
 		httpClient: &http.Client{
 			Transport: transport,
 			Timeout:   opts.Timeouts.Request,
@@ -353,7 +373,7 @@ func (c *Client) fetchConfig(ctx context.Context) (*Config, error) {
 		return &config, nil
 	}
 
-	nativeConfig, err := loadNativeConfig(status.ConfigYAML.Original)
+	nativeConfig, err := loadNativeConfig(status.ConfigYAML.Original, c.matcherMode)
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse Alertmanager routing config: %w", err)
 	}
@@ -540,6 +560,15 @@ func buildTLSConfig(opts TLSOptions) (*tls.Config, error) {
 	return tlsConfig, nil
 }
 
+// MatcherResult records an alert label value that satisfies one route matcher.
+type MatcherResult struct {
+	Label    string `json:"-"`
+	Operator string `json:"-"`
+	Expected string `json:"-"`
+	Actual   string `json:"-"`
+	Missing  bool   `json:"-"`
+}
+
 // MatchedRoute represents a route that matched an alert, along with its position
 // in the route tree expressed as a parent→child ancestry path.
 type MatchedRoute struct {
@@ -556,7 +585,8 @@ type MatchedRoute struct {
 	// IsEffective is true when this route supplies a receiver for its matched branch.
 	IsEffective bool `json:"is_effective"`
 	// ResolvedReceiver is the receiver after applying parent inheritance.
-	ResolvedReceiver string `json:"resolved_receiver,omitempty"`
+	ResolvedReceiver string          `json:"resolved_receiver,omitempty"`
+	MatcherResults   []MatcherResult `json:"-"`
 }
 
 // FindMatchingRoute determines which receiver an alert would match.
@@ -597,6 +627,17 @@ func (c *Client) FindMatchingRoute(labels map[string]string, config *Config) (st
 				}
 			}
 			depth := index - 1
+			matcherResults := make([]MatcherResult, 0, len(nativeRoute.Matchers))
+			for _, matcher := range nativeRoute.Matchers {
+				actual, found := labels[matcher.Name]
+				matcherResults = append(matcherResults, MatcherResult{
+					Label:    matcher.Name,
+					Operator: matcher.Type.String(),
+					Expected: matcher.Value,
+					Actual:   actual,
+					Missing:  !found,
+				})
+			}
 			matched = append(matched, MatchedRoute{
 				Route:            localRoute,
 				Depth:            depth,
@@ -604,6 +645,7 @@ func (c *Client) FindMatchingRoute(labels map[string]string, config *Config) (st
 				IsSubroute:       depth > 0,
 				IsEffective:      nativeRoute == terminal,
 				ResolvedReceiver: nativeRoute.RouteOpts.Receiver,
+				MatcherResults:   matcherResults,
 			})
 			seen[localRoute] = len(matched) - 1
 		}

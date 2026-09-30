@@ -40,16 +40,17 @@ type TestResponse struct {
 }
 
 type RouteStep struct {
-	Index       int
-	Receiver    string
-	Match       map[string]string
-	MatchRE     map[string]string
-	Matchers    []string
-	Continue    bool
-	IsFinal     bool
-	IsEffective bool
-	TypeLabel   string
-	TypeIcon    string
+	Index          int
+	Receiver       string
+	Match          map[string]string
+	MatchRE        map[string]string
+	Matchers       []string
+	MatcherResults []alertmanager.MatcherResult
+	Continue       bool
+	IsFinal        bool
+	IsEffective    bool
+	TypeLabel      string
+	TypeIcon       string
 	// Subroute context
 	Depth           int
 	ParentReceivers []string
@@ -333,10 +334,7 @@ func (h *Handler) HandleTest(w http.ResponseWriter, r *http.Request) {
 		routeSteps, matchedReceivers, continueCount, finalMatch := buildRouteSummary(matchedRoutes, receiver, config)
 		matchedReceiverSummaries := buildReceiverSummaries(matchedRoutes, receiver, config)
 		defaultRoot := isDefaultRoot(receiver, matchedRoutes, config)
-		var routeMismatches []alertmanager.RouteMismatch
-		if defaultRoot {
-			routeMismatches = alertmanager.FindRouteMismatches(labels, config)
-		}
+		routeMismatches := alertmanager.FindRouteMismatches(labels, config)
 		data := struct {
 			Receiver                 string
 			ReceiverConfig           *alertmanager.Receiver
@@ -446,6 +444,7 @@ func buildRouteSummary(matchedRoutes []alertmanager.MatchedRoute, finalReceiver 
 			Match:           route.Match,
 			MatchRE:         route.MatchRE,
 			Matchers:        route.Matchers,
+			MatcherResults:  mr.MatcherResults,
 			Continue:        route.Continue,
 			IsEffective:     mr.IsEffective,
 			TypeLabel:       typeLabel,
@@ -463,18 +462,20 @@ func buildRouteSummary(matchedRoutes []alertmanager.MatchedRoute, finalReceiver 
 	}
 
 	if finalReceiver != "" {
-		for i := len(steps) - 1; i >= 0; i-- {
-			if isEffectiveMatch(matchedRoutes, i) && steps[i].Receiver == finalReceiver {
-				steps[i].IsFinal = true
-				route := matchedRoutes[i].Route
-				finalMatch.Match = route.Match
-				finalMatch.MatchRE = route.MatchRE
-				finalMatch.Matchers = route.Matchers
-				break
-			}
-		}
 		if len(receivers) == 0 {
 			receivers = append(receivers, finalReceiver)
+		}
+		if len(receivers) == 1 {
+			for i := len(steps) - 1; i >= 0; i-- {
+				if isEffectiveMatch(matchedRoutes, i) && steps[i].Receiver == finalReceiver {
+					steps[i].IsFinal = true
+					route := matchedRoutes[i].Route
+					finalMatch.Match = route.Match
+					finalMatch.MatchRE = route.MatchRE
+					finalMatch.Matchers = route.Matchers
+					break
+				}
+			}
 		}
 	}
 
@@ -526,7 +527,6 @@ func buildReceiverSummaries(matchedRoutes []alertmanager.MatchedRoute, finalRece
 			Name:       resolvedReceiver,
 			Config:     receiver,
 			TypeLabels: receiverTypeLabels(receiver),
-			IsFinal:    resolvedReceiver == finalReceiver,
 		})
 		seen[resolvedReceiver] = true
 	}
@@ -537,8 +537,10 @@ func buildReceiverSummaries(matchedRoutes []alertmanager.MatchedRoute, finalRece
 			Name:       finalReceiver,
 			Config:     receiver,
 			TypeLabels: receiverTypeLabels(receiver),
-			IsFinal:    true,
 		})
+	}
+	if len(summaries) == 1 && summaries[0].Name == finalReceiver {
+		summaries[0].IsFinal = true
 	}
 
 	return summaries

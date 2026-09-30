@@ -328,6 +328,42 @@ func TestBuildRouteSummaryTreatsNestedParentAsTraceOnly(t *testing.T) {
 	}
 }
 
+func TestContinuedReceiversHaveNoFinalDistinction(t *testing.T) {
+	matched := []alertmanager.MatchedRoute{
+		{Route: &alertmanager.Route{Receiver: "slack-warnings", Continue: true}, IsEffective: true, ResolvedReceiver: "slack-warnings"},
+		{Route: &alertmanager.Route{Receiver: "monitoring-team", Continue: true}, IsEffective: true, ResolvedReceiver: "monitoring-team"},
+	}
+	config := &alertmanager.Config{Receivers: []alertmanager.Receiver{{Name: "slack-warnings"}, {Name: "monitoring-team"}}}
+
+	steps, _, _, _ := buildRouteSummary(matched, "monitoring-team", config)
+	summaries := buildReceiverSummaries(matched, "monitoring-team", config)
+	for _, step := range steps {
+		if step.IsFinal {
+			t.Errorf("route step %q is marked final", step.Receiver)
+		}
+	}
+	for _, summary := range summaries {
+		if summary.IsFinal {
+			t.Errorf("receiver %q is marked final", summary.Name)
+		}
+	}
+
+	data := resultData{
+		Receiver:                 "monitoring-team",
+		MatchedRoutes:            matched,
+		MatchedReceivers:         []string{"slack-warnings", "monitoring-team"},
+		RouteSteps:               steps,
+		MatchedReceiverSummaries: summaries,
+	}
+	var buf bytes.Buffer
+	if err := loadTemplates(t).ExecuteTemplate(&buf, "result.html", data); err != nil {
+		t.Fatalf("result.html failed to render: %v", err)
+	}
+	if strings.Contains(buf.String(), "final") {
+		t.Fatalf("continued receiver output marks a receiver final: %s", buf.String())
+	}
+}
+
 func TestIsDefaultRootRejectsEffectiveTopLevelMatch(t *testing.T) {
 	config := &alertmanager.Config{Route: &alertmanager.Route{Receiver: "default"}}
 	matched := []alertmanager.MatchedRoute{{Route: &alertmanager.Route{Match: map[string]string{"component": "infrastructure"}}, IsEffective: true, ResolvedReceiver: "default"}}
@@ -662,6 +698,54 @@ func TestResultTemplateRendersRootFallbackWithMatchedParent(t *testing.T) {
 	}
 }
 
+func TestHandleTestRendersNestedRouteMismatchForMatchedParent(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"config":{"original":"route:\n  receiver: default\n  routes:\n  - match:\n      team: platform\n    receiver: platform\n    routes:\n    - match:\n        severity: critical\n      receiver: pagerduty\nreceivers:\n- name: default\n- name: platform\n- name: pagerduty\n"}}`))
+	}))
+	defer server.Close()
+
+	h := &Handler{client: alertmanager.NewClient(server.URL, false), tmpl: loadTemplates(t)}
+	request := httptest.NewRequest(http.MethodPost, "/test", bytes.NewBufferString(`{"labels":{"team":"platform","severity":"warning"}}`))
+	request.Header.Set("Content-Type", "application/json")
+	request.Header.Set("HX-Request", "true")
+	response := httptest.NewRecorder()
+
+	h.HandleTest(response, request)
+
+	if response.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d: %s", response.Code, http.StatusOK, response.Body.String())
+	}
+	if !strings.Contains(response.Body.String(), "Why other routes did not match") || !strings.Contains(response.Body.String(), "pagerduty") || !strings.Contains(response.Body.String(), "critical") {
+		t.Fatalf("response = %q, want nested route mismatch diagnostics", response.Body.String())
+	}
+}
+
+func TestHandleTestRendersMatchedLabelValues(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"config":{"original":"route:\n  receiver: default\n  routes:\n  - receiver: api\n    match_re:\n      service: api|web\n    matchers:\n    - region=~\"us-.*\"\nreceivers:\n- name: default\n- name: api\n"}}`))
+	}))
+	defer server.Close()
+
+	h := &Handler{client: alertmanager.NewClient(server.URL, false), tmpl: loadTemplates(t)}
+	request := httptest.NewRequest(http.MethodPost, "/test", bytes.NewBufferString(`{"labels":{"service":"api","region":"us-east"}}`))
+	request.Header.Set("Content-Type", "application/json")
+	request.Header.Set("HX-Request", "true")
+	response := httptest.NewRecorder()
+
+	h.HandleTest(response, request)
+
+	if response.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d: %s", response.Code, http.StatusOK, response.Body.String())
+	}
+	for _, want := range []string{`service =~ &#34;^(?:api|web)$&#34; matched actual value <code>&#34;api&#34;</code>`, `region =~ &#34;us-.*&#34; matched actual value <code>&#34;us-east&#34;</code>`} {
+		if !strings.Contains(response.Body.String(), want) {
+			t.Errorf("response = %q, want %q", response.Body.String(), want)
+		}
+	}
+}
+
 func TestHandleTestReturnsNestedRouteJSON(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
@@ -757,11 +841,11 @@ func TestResultTemplateShowsRouteRulesLeadingToSelectedReceivers(t *testing.T) {
 				Receiver: "monitoring-team",
 				RouteSteps: []RouteStep{
 					{Index: 1, Receiver: "slack-warnings", Matchers: []string{`severity="warning"`}, Continue: true, IsEffective: true},
-					{Index: 2, Receiver: "monitoring-team", Matchers: []string{`team="monitoring"`}, Continue: true, IsEffective: true, IsFinal: true},
+					{Index: 2, Receiver: "monitoring-team", Matchers: []string{`team="monitoring"`}, Continue: true, IsEffective: true},
 				},
 				MatchedReceiverSummaries: []ReceiverSummary{
 					{Name: "slack-warnings"},
-					{Name: "monitoring-team", IsFinal: true},
+					{Name: "monitoring-team"},
 				},
 			},
 			wantCounts:               []string{"2 matched route rules", "2 selected receivers"},
@@ -770,7 +854,7 @@ func TestResultTemplateShowsRouteRulesLeadingToSelectedReceivers(t *testing.T) {
 			wantPrimaryHeading:       "Selected receivers",
 			wantPrimaryCount:         "2 selected receivers",
 			wantPrimaryReceivers:     []string{"slack-warnings", "monitoring-team"},
-			wantPrimaryFinalReceiver: "monitoring-team",
+			wantPrimaryFinalReceiver: "",
 		},
 	}
 
@@ -815,7 +899,11 @@ func TestResultTemplateShowsRouteRulesLeadingToSelectedReceivers(t *testing.T) {
 				}
 				position += relativePosition + len(marker)
 			}
-			if !strings.Contains(primaryReceivers, `class="result-primary-receiver">`+tt.wantPrimaryFinalReceiver+`<span class="result-primary-final">final</span>`) {
+			if tt.wantPrimaryFinalReceiver == "" {
+				if strings.Contains(primaryReceivers, `class="result-primary-final"`) {
+					t.Error("primary summary marks a continued receiver as final")
+				}
+			} else if !strings.Contains(primaryReceivers, `class="result-primary-receiver">`+tt.wantPrimaryFinalReceiver+`<span class="result-primary-final">final</span>`) {
 				t.Errorf("primary summary does not mark %q as final", tt.wantPrimaryFinalReceiver)
 			}
 			for _, want := range tt.wantCounts {

@@ -1,0 +1,14 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "alertmanager-route-tester.fullname" . }}
+  labels:
+    {{- include "alertmanager-route-tester.labels" . | nindent 4 }}
+data:
+  config.yaml: |
+    alertmanager-route-tester:
+      server:
+        enabled: true
+        listen: "0.0.0.0:8080"
+    alertmanagers:
+      {{- toYaml (required "alertmanagers must contain at least one named instance" .Values.alertmanagers) | nindent 6 }}

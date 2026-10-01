@@ -1,0 +1,11 @@
+.git
+.worktrees
+.ralph
+.superpowers
+bin
+data
+docs
+images
+testdata
+*.md
+*.test

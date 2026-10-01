@@ -1,0 +1,30 @@
+---
+replicaCount: 1
+
+image:
+  repository: ghcr.io/wbollock/alertmanager-route-tester
+  tag: latest
+  pullPolicy: IfNotPresent
+
+imagePullSecrets: []
+
+alertmanagers:
+  default:
+    url: http://alertmanager:9093
+
+service:
+  port: 8080
+
+networkPolicy:
+  enabled: true
+  ingress: []
+
+resources:
+  requests:
+    cpu: 10m
+    memory: 64Mi
+
+extraVolumes: []
+extraVolumeMounts: []
+deploymentAnnotations: {}
+extraObjects: []

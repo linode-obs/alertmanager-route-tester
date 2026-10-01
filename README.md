@@ -1,3 +1,5 @@
+AI-generated content prepared on Will's behalf.
+
 # Alertmanager Route Tester
 
 Alertmanager Route Tester (ART) is a web app and CLI designed to help figure out where your Prometheus alerts will actually wind up in complex Alertmanager routes. It pulls Alertmanager's sanitized configuration directly from the Alertmanager API and allows the user to see exactly what receiver(s) their alerts will route to.
@@ -65,6 +67,20 @@ ART caches Alertmanager configuration with an option to reload the configuration
 Deploy ART behind the same authentication, network protection, and access controls as the Alertmanager it connects to. In general, its deployment boundary and public URL should match the protected boundary used for that Alertmanager rather than exposing ART directly. ART displays routing metadata and raw receiver configuration, which may contain sensitive endpoints or fields that Alertmanager does not redact.
 
 The selected instance is not included in shareable label links. Shared links contain alert labels only, so opening one cannot change the configured Alertmanager connection.
+
+### Container and Helm Deployment
+
+Build the container locally with `docker build -t alertmanager-route-tester:local .`. The release workflow publishes version-tagged images to `ghcr.io/wbollock/alertmanager-route-tester` on `v*` tags and publishes `latest` for stable tags. The GHCR package may require an `imagePullSecrets` entry unless its visibility is changed.
+
+The reusable chart is in [`helm/alertmanager-route-tester`](helm/alertmanager-route-tester). It creates a ClusterIP Service and a default-deny ingress NetworkPolicy. Configure trusted ingress sources and an Alertmanager endpoint in a values file before installing. The chart runs as non-root, uses CPU and memory requests, and sets no resource limits. See the chart README for TLS Secret mounts and install values.
+
+```bash
+helm upgrade --install alertmanager-route-tester \
+  ./helm/alertmanager-route-tester \
+  --namespace alertmanager-route-tester \
+  --create-namespace \
+  -f values.yaml
+```
 
 ### Local Alertmanager
 

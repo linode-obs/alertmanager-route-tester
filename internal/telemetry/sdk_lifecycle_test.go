@@ -21,12 +21,21 @@ func TestRuntimeEnvironmentDefaultsAndSDKRestore(t *testing.T) {
 		if err != nil {
 			t.Fatalf("Setup() error = %v", err)
 		}
-		defer providers.Shutdown(context.Background())
+		t.Cleanup(func() {
+			if err := providers.Shutdown(context.Background()); err != nil {
+				t.Errorf("provider shutdown error = %v", err)
+			}
+		})
 
 		if got := os.Getenv("OTEL_SDK_DISABLED"); got != "false" {
 			t.Fatalf("OTEL_SDK_DISABLED after Setup() = %q, want original false", got)
 		}
 		return
+	}
+
+	testExecutable, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
 	}
 
 	for _, test := range []struct {
@@ -38,7 +47,7 @@ func TestRuntimeEnvironmentDefaultsAndSDKRestore(t *testing.T) {
 		{name: "explicit selection", selection: "grpc", wantEnabled: "grpc"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			command := exec.Command(os.Args[0], "-test.run=^TestRuntimeEnvironmentDefaultsAndSDKRestore$")
+			command := exec.Command(testExecutable, "-test.run=^TestRuntimeEnvironmentDefaultsAndSDKRestore$")
 			for _, entry := range os.Environ() {
 				if strings.HasPrefix(entry, "ATR_TELEMETRY_SDK_CHILD=") ||
 					strings.HasPrefix(entry, "ATR_EXPECTED_INSTRUMENTATIONS=") ||

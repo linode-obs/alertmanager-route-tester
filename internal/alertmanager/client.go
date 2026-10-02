@@ -21,9 +21,10 @@ import (
 
 	"github.com/prometheus/alertmanager/dispatch"
 	amlabels "github.com/prometheus/alertmanager/pkg/labels"
-	"github.com/wbollock/alertmanager-route-tester/internal/telemetry"
 	"go.opentelemetry.io/otel/codes"
 	"gopkg.in/yaml.v3"
+
+	"github.com/wbollock/alertmanager-route-tester/internal/telemetry"
 )
 
 const maxAlertmanagerResponseBodyBytes int64 = 10 << 20
@@ -411,7 +412,7 @@ func (c *Client) fetchConfig(ctx context.Context) (result *Config, resultErr err
 }
 
 func waitForRetrySpan(ctx context.Context, delay time.Duration) error {
-	retryCtx, span := telemetry.StartSpan(ctx, "alertmanager.config.retry")
+	retryCtx, span := telemetry.StartSpan(ctx, "alertmanager.retry")
 	defer span.End()
 	telemetry.RecordRetry(retryCtx)
 	return waitForRetry(retryCtx, delay)

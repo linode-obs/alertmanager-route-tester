@@ -8,9 +8,10 @@ import (
 	"sort"
 	"strings"
 
+	"go.opentelemetry.io/otel/codes"
+
 	"github.com/wbollock/alertmanager-route-tester/internal/alertmanager"
 	"github.com/wbollock/alertmanager-route-tester/internal/telemetry"
-	"go.opentelemetry.io/otel/codes"
 )
 
 // TestResult represents the output of a route test

@@ -15,7 +15,11 @@ func TestHTTPAndApplicationMetricsUseBoundedOutcomes(t *testing.T) {
 	reader := sdkmetric.NewManualReader()
 	provider := sdkmetric.NewMeterProvider(sdkmetric.WithReader(reader))
 	otel.SetMeterProvider(provider)
-	defer provider.Shutdown(context.Background())
+	t.Cleanup(func() {
+		if err := provider.Shutdown(context.Background()); err != nil {
+			t.Errorf("meter provider shutdown error = %v", err)
+		}
+	})
 
 	handler := MetricsHandler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/missing" {

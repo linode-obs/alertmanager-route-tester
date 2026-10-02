@@ -3,7 +3,7 @@
 ## Key Points
 
 - Use `mise run start` to test locally
-- Use the standard library for application code; `gopkg.in/yaml.v3` is approved for YAML parsing, and `github.com/prometheus/alertmanager v0.33.0` is approved for native route matching. Keep the Alertmanager version aligned with `.mise.toml` and CI.
+- Use the standard library for application code, except OpenTelemetry Go modules and their transitive dependencies required for telemetry. `otelc` is approved as a build tool. `gopkg.in/yaml.v3` is approved for YAML parsing, and `github.com/prometheus/alertmanager v0.33.0` is approved for native route matching. Keep the Alertmanager version aligned with `.mise.toml` and CI.
 - Route matching logic is in `internal/alertmanager/client.go`
 - All tests must pass before committing
 - Follow TDD when adding features

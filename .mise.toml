@@ -150,8 +150,6 @@ set -e
 
 ALERTMANAGER_URL="http://localhost:19093"
 export ALERTMANAGER_URL
-ATR_OTEL_TEST_BINARY="$PWD/bin/alertmanager-route-tester"
-export ATR_OTEL_TEST_BINARY
 ALERTMANAGER_PID=""
 cleanup() {
   if [ -n "$ALERTMANAGER_PID" ]; then

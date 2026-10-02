@@ -231,7 +231,16 @@ func parseLabelsJSON(input string) (map[string]string, error) {
 	return labels, nil
 }
 
+const (
+	gracefulShutdownTimeout  = 10 * time.Second
+	telemetryShutdownReserve = 2 * time.Second
+)
+
 func serve(server *http.Server, listener net.Listener, signals <-chan os.Signal, shutdown func(context.Context) error) error {
+	return serveWithShutdownBudget(server, listener, signals, shutdown, gracefulShutdownTimeout, telemetryShutdownReserve)
+}
+
+func serveWithShutdownBudget(server *http.Server, listener net.Listener, signals <-chan os.Signal, shutdown func(context.Context) error, budget, telemetryReserve time.Duration) error {
 	serverContext, cancelServerContext := context.WithCancel(context.Background())
 	defer cancelServerContext()
 	server.BaseContext = func(net.Listener) context.Context {
@@ -250,12 +259,21 @@ func serve(server *http.Server, listener net.Listener, signals <-chan os.Signal,
 		}
 		return err
 	case <-signals:
+		deadline := time.Now().Add(budget)
 		cancelServerContext()
-		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-		defer cancel()
-		shutdownErr := server.Shutdown(ctx)
+
+		serverDeadline := deadline
+		if shutdown != nil && telemetryReserve > 0 {
+			serverDeadline = deadline.Add(-telemetryReserve)
+		}
+		serverShutdownContext, cancel := context.WithDeadline(context.Background(), serverDeadline)
+		shutdownErr := server.Shutdown(serverShutdownContext)
+		cancel()
+
 		if shutdown != nil {
-			shutdownErr = errors.Join(shutdownErr, shutdown(ctx))
+			telemetryContext, cancel := context.WithDeadline(context.Background(), deadline)
+			shutdownErr = errors.Join(shutdownErr, shutdown(telemetryContext))
+			cancel()
 		}
 		return shutdownErr
 	}

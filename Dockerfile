@@ -8,7 +8,7 @@ RUN apk add --no-cache ca-certificates
 COPY go.mod go.sum ./
 RUN go mod download
 COPY . .
-RUN CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH go tool otelc go build -trimpath -ldflags="-s -w" -o /out/alertmanager-route-tester .
+RUN CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH ./scripts/otelc-go build -trimpath -ldflags="-s -w" -o /out/alertmanager-route-tester .
 
 FROM scratch
 COPY --from=builder /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/

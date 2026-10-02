@@ -96,6 +96,8 @@ func RecordRoute(ctx context.Context, result RouteResult) {
 		outcome = "matched"
 	case RouteUnmatched:
 		outcome = "unmatched"
+	case RouteFailed:
+		outcome = "failed"
 	}
 	routeEvaluations.Add(ctx, 1, metric.WithAttributes(attribute.String("outcome", outcome)))
 }

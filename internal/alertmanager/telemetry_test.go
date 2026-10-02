@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"go.opentelemetry.io/otel"
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
@@ -22,12 +23,21 @@ func TestZZConfigFetchRecordsFailureRetryAndCacheOutcomes(t *testing.T) {
 	tracerProvider := sdktrace.NewTracerProvider(sdktrace.WithSpanProcessor(spanRecorder))
 	otel.SetMeterProvider(provider)
 	otel.SetTracerProvider(tracerProvider)
-	defer provider.Shutdown(context.Background())
-	defer tracerProvider.Shutdown(context.Background())
+	t.Cleanup(func() {
+		if err := provider.Shutdown(context.Background()); err != nil {
+			t.Errorf("meter provider shutdown error = %v", err)
+		}
+	})
+	t.Cleanup(func() {
+		if err := tracerProvider.Shutdown(context.Background()); err != nil {
+			t.Errorf("tracer provider shutdown error = %v", err)
+		}
+	})
 
 	var requests atomic.Int32
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		if requests.Add(1) == 1 {
+		request := requests.Add(1)
+		if request == 1 || request == 4 {
 			http.Error(w, "temporarily unavailable", http.StatusServiceUnavailable)
 			return
 		}
@@ -37,7 +47,7 @@ func TestZZConfigFetchRecordsFailureRetryAndCacheOutcomes(t *testing.T) {
 
 	client, err := NewClientWithOptions(ClientOptions{
 		BaseURL: server.URL,
-		Retry:   RetryOptions{MaxAttempts: 2},
+		Retry:   RetryOptions{MaxAttempts: 2, Backoff: time.Millisecond},
 	})
 	if err != nil {
 		t.Fatalf("NewClientWithOptions() error = %v", err)
@@ -52,8 +62,11 @@ func TestZZConfigFetchRecordsFailureRetryAndCacheOutcomes(t *testing.T) {
 	if _, err := client.RefreshConfigContext(context.Background()); err != nil {
 		t.Fatalf("RefreshConfigContext() error = %v", err)
 	}
-	if got := requests.Load(); got != 3 {
-		t.Fatalf("HTTP requests = %d, want one failed request, one retry, and one refresh", got)
+	if err := client.CheckConnectionContext(context.Background()); err != nil {
+		t.Fatalf("CheckConnectionContext() error = %v", err)
+	}
+	if got := requests.Load(); got != 5 {
+		t.Fatalf("HTTP requests = %d, want one failed fetch, one retry, one refresh, one failed connection check, and one retry", got)
 	}
 
 	var data metricdata.ResourceMetrics
@@ -61,8 +74,8 @@ func TestZZConfigFetchRecordsFailureRetryAndCacheOutcomes(t *testing.T) {
 		t.Fatalf("Collect() error = %v", err)
 	}
 	values := map[string]map[string]int64{
-		"alertmanager.failures":       {"": 1},
-		"alertmanager.retries":        {"": 1},
+		"alertmanager.failures":       {"": 2},
+		"alertmanager.retries":        {"": 2},
 		"alertmanager.cache.accesses": {"miss": 1, "hit": 1},
 	}
 	for _, scope := range data.ScopeMetrics {
@@ -98,17 +111,24 @@ func TestZZConfigFetchRecordsFailureRetryAndCacheOutcomes(t *testing.T) {
 
 	wantSpans := map[string]bool{
 		"alertmanager.config.fetch":   false,
-		"alertmanager.config.retry":   false,
+		"alertmanager.retry":          false,
 		"alertmanager.config.refresh": false,
 	}
+	retrySpans := 0
 	for _, span := range spanRecorder.Ended() {
 		if _, ok := wantSpans[span.Name()]; ok {
 			wantSpans[span.Name()] = true
+		}
+		if span.Name() == "alertmanager.retry" {
+			retrySpans++
 		}
 	}
 	for name, found := range wantSpans {
 		if !found {
 			t.Errorf("span %q is missing", name)
 		}
+	}
+	if retrySpans != 2 {
+		t.Errorf("alertmanager.retry spans = %d, want 2", retrySpans)
 	}
 }

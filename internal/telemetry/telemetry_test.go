@@ -38,7 +38,11 @@ func TestSetupUsesStandardServiceResource(t *testing.T) {
 			if err != nil {
 				t.Fatalf("Setup() error = %v", err)
 			}
-			defer providers.Shutdown(context.Background())
+			t.Cleanup(func() {
+				if err := providers.Shutdown(context.Background()); err != nil {
+					t.Errorf("provider shutdown error = %v", err)
+				}
+			})
 
 			attributes := make(map[string]string)
 			for _, attribute := range providers.resource.Attributes() {

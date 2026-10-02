@@ -9,12 +9,13 @@ import (
 	"testing"
 	"testing/fstest"
 
-	"github.com/wbollock/alertmanager-route-tester/internal/alertmanager"
 	"go.opentelemetry.io/otel"
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
 	"go.opentelemetry.io/otel/sdk/metric/metricdata"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	"go.opentelemetry.io/otel/sdk/trace/tracetest"
+
+	"github.com/wbollock/alertmanager-route-tester/internal/alertmanager"
 )
 
 func TestZZHandleTestRecordsRouteOutcomeWithoutSensitiveData(t *testing.T) {
@@ -24,8 +25,16 @@ func TestZZHandleTestRecordsRouteOutcomeWithoutSensitiveData(t *testing.T) {
 	tracerProvider := sdktrace.NewTracerProvider(sdktrace.WithSpanProcessor(spanRecorder))
 	otel.SetMeterProvider(meterProvider)
 	otel.SetTracerProvider(tracerProvider)
-	defer meterProvider.Shutdown(context.Background())
-	defer tracerProvider.Shutdown(context.Background())
+	t.Cleanup(func() {
+		if err := meterProvider.Shutdown(context.Background()); err != nil {
+			t.Errorf("meter provider shutdown error = %v", err)
+		}
+	})
+	t.Cleanup(func() {
+		if err := tracerProvider.Shutdown(context.Background()); err != nil {
+			t.Errorf("tracer provider shutdown error = %v", err)
+		}
+	})
 
 	const sensitiveValue = "private-label-value"
 	const sensitiveReceiver = "private-receiver-name"

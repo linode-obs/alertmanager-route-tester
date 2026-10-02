@@ -7,12 +7,13 @@ import (
 	"net/http/httptest"
 	"testing"
 
-	"github.com/wbollock/alertmanager-route-tester/internal/alertmanager"
 	"go.opentelemetry.io/otel"
 	sdkmetric "go.opentelemetry.io/otel/sdk/metric"
 	"go.opentelemetry.io/otel/sdk/metric/metricdata"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	"go.opentelemetry.io/otel/sdk/trace/tracetest"
+
+	"github.com/wbollock/alertmanager-route-tester/internal/alertmanager"
 )
 
 func TestZZTestRoutingRecordsRouteOutcome(t *testing.T) {
@@ -22,8 +23,16 @@ func TestZZTestRoutingRecordsRouteOutcome(t *testing.T) {
 	tracerProvider := sdktrace.NewTracerProvider(sdktrace.WithSpanProcessor(spanRecorder))
 	otel.SetMeterProvider(meterProvider)
 	otel.SetTracerProvider(tracerProvider)
-	defer meterProvider.Shutdown(context.Background())
-	defer tracerProvider.Shutdown(context.Background())
+	t.Cleanup(func() {
+		if err := meterProvider.Shutdown(context.Background()); err != nil {
+			t.Errorf("meter provider shutdown error = %v", err)
+		}
+	})
+	t.Cleanup(func() {
+		if err := tracerProvider.Shutdown(context.Background()); err != nil {
+			t.Errorf("tracer provider shutdown error = %v", err)
+		}
+	})
 
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		_, _ = fmt.Fprint(w, `{"config":{"original":"route:\n  receiver: default\n  routes:\n  - receiver: production\n    match:\n      severity: critical\nreceivers:\n- name: default\n- name: production\n"}}`)

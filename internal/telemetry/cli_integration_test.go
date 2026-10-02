@@ -13,17 +13,7 @@ import (
 )
 
 func TestCLIRoutingSucceedsWithoutCollector(t *testing.T) {
-	binary := os.Getenv("ATR_OTEL_TEST_BINARY")
-	if binary == "" {
-		t.Skip("ATR_OTEL_TEST_BINARY is not set")
-	}
-	binaryPath, err := filepath.Abs(binary)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := os.Stat(binaryPath); err != nil {
-		t.Fatalf("instrumented app binary is unavailable: %v", err)
-	}
+	requireInstrumentedApp(t)
 
 	alertmanagerServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		_, _ = fmt.Fprint(w, `{"config":{"original":"route:\n  receiver: default\n  routes:\n  - receiver: production\n    match:\n      severity: critical\nreceivers:\n- name: default\n- name: production\n"}}`)
@@ -58,7 +48,7 @@ alertmanagers:
 		t.Fatal(err)
 	}
 
-	command := exec.Command(binaryPath, "-config", configPath)
+	command := exec.Command("../../bin/alertmanager-route-tester", "-config", configPath) // #nosec G204 -- configPath is created in t.TempDir.
 	command.Env = cleanOpenTelemetryEnvironment(os.Environ())
 	command.Env = append(command.Env,
 		"OTEL_EXPORTER_OTLP_ENDPOINT=http://"+unavailableCollector,

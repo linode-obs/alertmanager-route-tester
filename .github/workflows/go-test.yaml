@@ -32,7 +32,6 @@ jobs:
       run: |
         mkdir -p bin
         go tool otelc go build -o bin/alertmanager-route-tester .
-        echo "ATR_OTEL_TEST_BINARY=$GITHUB_WORKSPACE/bin/alertmanager-route-tester" >> "$GITHUB_ENV"
 
     - name: Start Alertmanager
       run: |

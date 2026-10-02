@@ -16,7 +16,11 @@ func TestSetupUsesStandardPropagatorSetting(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Setup() error = %v", err)
 	}
-	defer providers.Shutdown(context.Background())
+	t.Cleanup(func() {
+		if err := providers.Shutdown(context.Background()); err != nil {
+			t.Errorf("provider shutdown error = %v", err)
+		}
+	})
 
 	if fields := otel.GetTextMapPropagator().Fields(); len(fields) != 0 {
 		t.Fatalf("propagator fields = %v, want no propagation fields", fields)

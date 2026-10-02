@@ -5,7 +5,7 @@ before:
   hooks:
     - go mod tidy
     - go tool otelc go build -o bin/alertmanager-route-tester .
-    - sh -c 'ATR_OTEL_TEST_BINARY="$PWD/bin/alertmanager-route-tester" go test -v ./...'
+    - go test -v ./...
 builds:
   - command: ./scripts/otelc-go
     env:

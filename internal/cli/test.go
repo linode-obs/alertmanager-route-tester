@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"os"
@@ -8,6 +9,8 @@ import (
 	"strings"
 
 	"github.com/wbollock/alertmanager-route-tester/internal/alertmanager"
+	"github.com/wbollock/alertmanager-route-tester/internal/telemetry"
+	"go.opentelemetry.io/otel/codes"
 )
 
 // TestResult represents the output of a route test
@@ -126,12 +129,22 @@ func TestRouting(client *alertmanager.Client, labels map[string]string) (*TestRe
 		}, err
 	}
 
+	routeContext, span := telemetry.StartSpan(context.Background(), "alertmanager.route.evaluate")
+	defer span.End()
+
 	receiver, matchedRoutes, err := client.FindMatchingRoute(labels, config)
 	if err != nil {
+		span.SetStatus(codes.Error, "route evaluation failed")
+		telemetry.RecordRoute(routeContext, telemetry.RouteFailed)
 		return &TestResult{
 			Labels: labels,
 			Error:  fmt.Sprintf("Error finding route: %v", err),
 		}, err
+	}
+	if receiver == "" {
+		telemetry.RecordRoute(routeContext, telemetry.RouteUnmatched)
+	} else {
+		telemetry.RecordRoute(routeContext, telemetry.RouteMatched)
 	}
 
 	var receiverConfig *alertmanager.Receiver

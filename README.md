@@ -15,7 +15,7 @@ ART has a two-pane browser UI. Blue marks alert input, and green marks selected 
 Point it at any Alertmanager instance with `config.yaml`. ART supports multiple Alertmanager instances/clusters.
 
 ```bash
-go run .
+go tool otelc go run .
 ```
 
 Build your alert using the UI or paste simple YAML `key: value` label lines. Hit "Test Route" to see which receiver it matches and the full route path.
@@ -72,7 +72,7 @@ The selected instance is not included in shareable label links. Shared links con
 
 Build the container locally with `docker build -t alertmanager-route-tester:local .`. The release workflow publishes version-tagged images to `ghcr.io/wbollock/alertmanager-route-tester` on `v*` tags and publishes `latest` for stable tags. The GHCR package may require an `imagePullSecrets` entry unless its visibility is changed.
 
-The reusable chart is in [`helm/alertmanager-route-tester`](helm/alertmanager-route-tester). It creates a ClusterIP Service and a default-deny ingress NetworkPolicy. Configure trusted ingress sources and an Alertmanager endpoint in a values file before installing. The chart runs as non-root, uses CPU and memory requests, and sets no resource limits. See the chart README for TLS Secret mounts and install values.
+The reusable chart is in [`helm/alertmanager-route-tester`](helm/alertmanager-route-tester). It creates a ClusterIP Service and a default-deny ingress NetworkPolicy. Configure trusted ingress sources and an Alertmanager endpoint in a values file before installing. The chart runs as non-root, uses CPU and memory requests, and sets no resource limits. See the chart README for TLS Secret mounts and install values. See [`docs/opentelemetry.md`](docs/opentelemetry.md) for Collector and OTLP configuration.
 
 ```bash
 helm upgrade --install alertmanager-route-tester \
@@ -97,7 +97,7 @@ alertmanagers:
 For machine-specific settings, use a local config file (gitignored):
 
 ```bash
-go run . -config config.local.yaml
+go tool otelc go run . -config config.local.yaml
 ```
 
 ## CLI Test Mode
@@ -119,7 +119,7 @@ alertmanager-route-tester:
 For one-off tests, pass labels as JSON without editing the configuration file:
 
 ```bash
-go run . -config config.yaml \
+go tool otelc go run . -config config.yaml \
   -alertmanager production \
   -labels-json '{"alertname":"HighCPU","severity":"critical"}'
 ```
@@ -174,7 +174,7 @@ Run only unit tests without starting Alertmanager:
 go test -short ./...
 ```
 
-The CI workflow starts an isolated Alertmanager on port `19093` before running the full suite. `mise run test` uses the same isolated port locally, so it does not reuse an unrelated Alertmanager process on port `9093`.
+The CI workflow starts an isolated Alertmanager on port `19093` before running the full suite. `mise run test` uses the same isolated port locally, so it does not reuse an unrelated Alertmanager process on port `9093`. It also runs an `otelc` test that checks incoming-to-outgoing trace propagation.
 
 Skip integration tests explicitly:
 

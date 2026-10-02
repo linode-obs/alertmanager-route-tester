@@ -6,6 +6,25 @@ The chart deploys the web UI as a ClusterIP Service. It does not create an Ingre
 
 The chart creates a default-deny ingress NetworkPolicy. Set `networkPolicy.ingress` to allow access from trusted workloads. NetworkPolicy enforcement depends on the cluster's CNI. Probes check that the app port is open; they do not fail when Alertmanager is unreachable.
 
+## OpenTelemetry
+
+Use `extraEnv` to set standard OTLP variables. Use `valueFrom.secretKeyRef` for headers stored in a Kubernetes Secret.
+
+```yaml
+extraEnv:
+  - name: OTEL_EXPORTER_OTLP_ENDPOINT
+    value: http://otel-collector.observability.svc.cluster.local:4317
+  - name: OTEL_EXPORTER_OTLP_PROTOCOL
+    value: grpc
+  - name: OTEL_EXPORTER_OTLP_HEADERS
+    valueFrom:
+      secretKeyRef:
+        name: otel-credentials
+        key: headers
+```
+
+The chart does not install a Collector. See [OpenTelemetry setup](../../docs/opentelemetry.md) for common OTEL variables and a Collector example.
+
 Use `extraObjects` to render additional Kubernetes objects with this release. Each entry is templated, so object names can use the release name and chart helpers. Helm replaces lists when a later values file defines `extraObjects`, so overlays must supply the complete list. Use external secret controllers or encrypted Secret resources instead of storing plaintext credentials in values.
 
 ```yaml

@@ -13,6 +13,9 @@ alertmanager-route-tester
 # CI tools and build artifacts
 bin/
 data/
+.otelc-build/
+.otelc-build.lock
+otelc.runtime.go
 
 # Test binary, built with `go test -c`
 *.test
@@ -51,6 +54,7 @@ Thumbs.db
 
 # Local developer config
 config.local.yaml
+config.prod.local.yaml
 
 # Local development worktrees
 .worktrees/

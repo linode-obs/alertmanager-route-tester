@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"net"
 	"net/http"
@@ -9,10 +10,13 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	appconfig "github.com/wbollock/alertmanager-route-tester/internal/config"
+	"github.com/wbollock/alertmanager-route-tester/internal/telemetry"
+	"go.opentelemetry.io/otel"
 )
 
 func TestAlertmanagerRequestOnlyAppliesInCLIMode(t *testing.T) {
@@ -113,7 +117,7 @@ func TestServeCancelsHandlerContextsOnSignal(t *testing.T) {
 	signals := make(chan os.Signal, 1)
 	serveResult := make(chan error, 1)
 	go func() {
-		serveResult <- serve(server, listener, signals)
+		serveResult <- serve(server, listener, signals, nil)
 	}()
 
 	requestResult := make(chan error, 1)
@@ -206,7 +210,7 @@ func TestServeShutsDownOnSignal(t *testing.T) {
 	signals := make(chan os.Signal, 1)
 	result := make(chan error, 1)
 	go func() {
-		result <- serve(server, listener, signals)
+		result <- serve(server, listener, signals, nil)
 	}()
 
 	signals <- os.Interrupt
@@ -218,5 +222,52 @@ func TestServeShutsDownOnSignal(t *testing.T) {
 		}
 	case <-time.After(time.Second):
 		t.Fatal("serve() did not shut down after signal")
+	}
+}
+
+func TestServeFlushesTelemetryWithinShutdownBudget(t *testing.T) {
+	var exports atomic.Int32
+	collector := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/v1/traces" {
+			t.Errorf("OTLP path = %q, want /v1/traces", r.URL.Path)
+		}
+		exports.Add(1)
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer collector.Close()
+
+	t.Setenv("OTEL_TRACES_EXPORTER", "otlp")
+	t.Setenv("OTEL_METRICS_EXPORTER", "none")
+	t.Setenv("OTEL_EXPORTER_OTLP_PROTOCOL", "http/protobuf")
+	t.Setenv("OTEL_EXPORTER_OTLP_ENDPOINT", collector.URL)
+	providers, err := telemetry.Setup(context.Background(), "1.2.3")
+	if err != nil {
+		t.Fatalf("telemetry.Setup() error = %v", err)
+	}
+	_, span := otel.Tracer("server-test").Start(context.Background(), "server lifetime")
+	span.End()
+
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	server := &http.Server{Handler: http.HandlerFunc(func(http.ResponseWriter, *http.Request) {})}
+	signals := make(chan os.Signal, 1)
+	result := make(chan error, 1)
+	go func() {
+		result <- serve(server, listener, signals, providers.Shutdown)
+	}()
+	signals <- os.Interrupt
+
+	select {
+	case err := <-result:
+		if err != nil {
+			t.Fatalf("serve() error = %v, want nil", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("serve() did not stop and flush telemetry")
+	}
+	if got := exports.Load(); got != 1 {
+		t.Fatalf("OTLP trace exports = %d, want one", got)
 	}
 }

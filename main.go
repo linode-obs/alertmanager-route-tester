@@ -23,12 +23,17 @@ import (
 	"github.com/wbollock/alertmanager-route-tester/internal/cli"
 	appconfig "github.com/wbollock/alertmanager-route-tester/internal/config"
 	"github.com/wbollock/alertmanager-route-tester/internal/handler"
+	"github.com/wbollock/alertmanager-route-tester/internal/telemetry"
 )
 
 //go:embed templates/*.html static/*
 var assets embed.FS
 
 func main() {
+	os.Exit(run())
+}
+
+func run() int {
 	configPath := flag.String("config", "config.yaml", "Path to configuration file")
 	alertmanagerName := flag.String("alertmanager", "", "Alertmanager instance name for CLI test mode")
 	labelsJSON := flag.String("labels-json", "", "Alert labels as a JSON object for CLI test mode")
@@ -41,24 +46,46 @@ func main() {
 	cfg, err := loadConfig(*configPath)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err.Error())
-		os.Exit(1)
+		return 1
 	}
 
 	clients, names, err := newClients(cfg)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err.Error())
-		os.Exit(1)
+		return 1
 	}
 	cliMode := cfg.App.CLITestMode.Enabled || *labelsJSON != ""
 	requestedAlertmanager := alertmanagerRequest(cliMode, *alertmanagerName)
 	defaultName, err := selectAlertmanager(names, requestedAlertmanager)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err.Error())
-		os.Exit(1)
+		return 1
 	}
 	client := clients[defaultName]
 
 	version, revision, modified, goVersion := buildInfo()
+	providers, err := telemetry.Setup(context.Background(), version)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err.Error())
+		return 1
+	}
+	telemetryShutdown := false
+	shutdownTelemetry := func(ctx context.Context) error {
+		if telemetryShutdown {
+			return nil
+		}
+		telemetryShutdown = true
+		if err := providers.Shutdown(ctx); err != nil {
+			slog.Warn("telemetry shutdown failed", "error", err)
+		}
+		return nil
+	}
+	defer func() {
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+		defer cancel()
+		_ = shutdownTelemetry(ctx)
+	}()
+
 	slog.Info("startup",
 		"listen", cfg.App.Server.Listen,
 		"alertmanagers", names,
@@ -76,7 +103,7 @@ func main() {
 		if len(cfg.App.CLITestMode.Suite) > 0 {
 			if *labelsJSON != "" {
 				fmt.Fprintln(os.Stderr, "--labels-json cannot be used with cli-test-mode.suite")
-				os.Exit(1)
+				return 1
 			}
 			suite := make([]cli.SuiteCase, 0, len(cfg.App.CLITestMode.Suite))
 			for _, testCase := range cfg.App.CLITestMode.Suite {
@@ -90,14 +117,14 @@ func main() {
 			format := cli.OutputFormat(strings.ToLower(cfg.App.CLITestMode.Format))
 			if err := cli.PrintSuiteResults(results, format); err != nil {
 				fmt.Fprintln(os.Stderr, err.Error())
-				os.Exit(1)
+				return 1
 			}
 			for _, result := range results {
 				if !result.Passed {
-					os.Exit(1)
+					return 1
 				}
 			}
-			return
+			return 0
 		}
 
 		labels := cfg.App.CLITestMode.Labels
@@ -105,45 +132,45 @@ func main() {
 			labels, err = parseLabelsJSON(*labelsJSON)
 			if err != nil {
 				fmt.Fprintln(os.Stderr, err.Error())
-				os.Exit(1)
+				return 1
 			}
 		}
 		if len(labels) == 0 {
 			fmt.Fprintln(os.Stderr, "at least one CLI label is required in CLI test mode")
-			os.Exit(1)
+			return 1
 		}
 		result, _ := cli.TestRouting(client, labels)
 
 		format := cli.OutputFormat(strings.ToLower(cfg.App.CLITestMode.Format))
 		if err := cli.PrintResult(result, format); err != nil {
-			os.Exit(1)
+			return 1
 		}
 
 		if result.Error != "" {
-			os.Exit(1)
+			return 1
 		}
-		return
+		return 0
 	}
 	if !cfg.ServerEnabled() {
 		fmt.Fprintln(os.Stderr, "Error: alertmanager-route-tester.server.enabled is false and cli-test-mode.enabled is false")
-		os.Exit(1)
+		return 1
 	}
 
 	// Web server mode
 	h := handler.NewWithClientsFromFS(clients, names, defaultName, assets)
-
-	http.Handle("/static/", http.FileServer(http.FS(assets)))
-	http.HandleFunc("/", h.HandleIndex)
-	http.HandleFunc("/test", h.HandleTest)
-	http.HandleFunc("/config/labels", h.HandleConfigLabels)
-	http.HandleFunc("/config/reload", h.HandleReloadConfig)
-	http.HandleFunc("/config/samples", h.HandleGenerateSampleAlerts)
+	mux := http.NewServeMux()
+	mux.Handle("/static/", http.FileServer(http.FS(assets)))
+	mux.HandleFunc("/", h.HandleIndex)
+	mux.HandleFunc("/test", h.HandleTest)
+	mux.HandleFunc("/config/labels", h.HandleConfigLabels)
+	mux.HandleFunc("/config/reload", h.HandleReloadConfig)
+	mux.HandleFunc("/config/samples", h.HandleGenerateSampleAlerts)
 
 	slog.Info("starting server", "listen", cfg.App.Server.Listen)
 	slog.Info("using alertmanager", "name", defaultName, "url", clients[defaultName].BaseURL())
 	server := &http.Server{
 		Addr:              cfg.App.Server.Listen,
-		Handler:           nil,
+		Handler:           telemetry.MetricsHandler(mux),
 		ReadHeaderTimeout: cfg.App.Server.ReadHeaderTimeout.Duration,
 		ReadTimeout:       cfg.App.Server.ReadTimeout.Duration,
 		WriteTimeout:      cfg.App.Server.WriteTimeout.Duration,
@@ -157,12 +184,13 @@ func main() {
 	listener, err := listenerConfig.Listen(context.Background(), "tcp", server.Addr)
 	if err != nil {
 		slog.Error("server failed to start", "error", err)
-		os.Exit(1)
+		return 1
 	}
-	if err := serve(server, listener, signals); err != nil {
+	if err := serve(server, listener, signals, shutdownTelemetry); err != nil {
 		slog.Error("server stopped", "error", err)
-		os.Exit(1)
+		return 1
 	}
+	return 0
 }
 
 func alertmanagerRequest(cliMode bool, requested string) string {
@@ -203,7 +231,7 @@ func parseLabelsJSON(input string) (map[string]string, error) {
 	return labels, nil
 }
 
-func serve(server *http.Server, listener net.Listener, signals <-chan os.Signal) error {
+func serve(server *http.Server, listener net.Listener, signals <-chan os.Signal, shutdown func(context.Context) error) error {
 	serverContext, cancelServerContext := context.WithCancel(context.Background())
 	defer cancelServerContext()
 	server.BaseContext = func(net.Listener) context.Context {
@@ -225,7 +253,11 @@ func serve(server *http.Server, listener net.Listener, signals <-chan os.Signal)
 		cancelServerContext()
 		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 		defer cancel()
-		return server.Shutdown(ctx)
+		shutdownErr := server.Shutdown(ctx)
+		if shutdown != nil {
+			shutdownErr = errors.Join(shutdownErr, shutdown(ctx))
+		}
+		return shutdownErr
 	}
 }
 

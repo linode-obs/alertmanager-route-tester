@@ -16,6 +16,8 @@ import (
 	"time"
 
 	"github.com/wbollock/alertmanager-route-tester/internal/alertmanager"
+	"github.com/wbollock/alertmanager-route-tester/internal/telemetry"
+	"go.opentelemetry.io/otel/codes"
 )
 
 const maxTestRequestBodyBytes int64 = 1 << 20
@@ -347,13 +349,20 @@ func (h *Handler) HandleTest(w http.ResponseWriter, r *http.Request) {
 		slog.Error("alertmanager config route is nil", "config", config)
 		errorMsg = "Alertmanager config has no route defined. Check your alertmanager.yml"
 	} else {
+		routeContext, span := telemetry.StartSpan(r.Context(), "alertmanager.route.evaluate")
 		receiver, matchedRoutes, err = client.FindMatchingRoute(labels, config)
 		if err != nil {
+			span.SetStatus(codes.Error, "route evaluation failed")
+			telemetry.RecordRoute(routeContext, telemetry.RouteFailed)
 			slog.Error("error finding route", "error", err)
 			errorMsg = "Error finding matching route: " + err.Error()
 		} else if receiver != "" {
+			telemetry.RecordRoute(routeContext, telemetry.RouteMatched)
 			receiverConfig = client.FindReceiverByName(receiver, config)
+		} else {
+			telemetry.RecordRoute(routeContext, telemetry.RouteUnmatched)
 		}
+		span.End()
 	}
 
 	if r.Header.Get("HX-Request") == "true" {

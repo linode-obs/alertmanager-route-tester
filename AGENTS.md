@@ -63,7 +63,7 @@ mise run test
 Update `config.yaml` with your Alertmanager URL and TLS settings, then run:
 
 ```bash
-go run .
+go tool otelc go run .
 ```
 
 ## CLI Test Mode

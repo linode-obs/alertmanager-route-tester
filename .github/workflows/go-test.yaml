@@ -57,6 +57,17 @@ jobs:
       run: |
         go test -v ./... -coverprofile=coverage.out -covermode=count
 
+    - name: Build container image
+      run: docker build --tag alertmanager-route-tester:test .
+
+    - name: Set up Helm
+      uses: azure/setup-helm@v4
+      with:
+        version: v3.17.3
+
+    - name: Test deployment configuration
+      run: bash scripts/test-helm-chart.sh
+
     - name: Stop Alertmanager
       if: always()
       run: |

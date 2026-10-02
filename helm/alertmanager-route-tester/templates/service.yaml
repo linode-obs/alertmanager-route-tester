@@ -1,0 +1,15 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "alertmanager-route-tester.fullname" . }}
+  labels:
+    {{- include "alertmanager-route-tester.labels" . | nindent 4 }}
+spec:
+  type: ClusterIP
+  ports:
+    - name: http
+      port: {{ .Values.service.port }}
+      targetPort: http
+      protocol: TCP
+  selector:
+    {{- include "alertmanager-route-tester.selectorLabels" . | nindent 4 }}

@@ -7,6 +7,8 @@
 
 # alertmanager-route-tester binary
 alertmanager-route-tester
+!helm/alertmanager-route-tester/
+!helm/alertmanager-route-tester/**
 
 # CI tools and build artifacts
 bin/

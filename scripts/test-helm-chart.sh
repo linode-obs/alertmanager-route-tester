@@ -9,6 +9,11 @@ if ! grep -Fq 'needs: goreleaser' "$root/.github/workflows/release.yaml"; then
   exit 1
 fi
 
+if ! grep -Fq 'platforms: linux/amd64,linux/arm64' "$root/.github/workflows/release.yaml"; then
+  echo "container publishing must build for linux/amd64 and linux/arm64" >&2
+  exit 1
+fi
+
 helm lint "$chart"
 rendered=$(helm template alertmanager-route-tester "$chart")
 

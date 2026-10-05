@@ -70,6 +70,14 @@ with_pull_secret=$(helm template alertmanager-route-tester "$chart" \
   --set imagePullSecrets[0].name=ghcr-pull)
 grep -Fq 'name: ghcr-pull' <<<"$with_pull_secret"
 
+with_otel_env=$(helm template alertmanager-route-tester "$chart" \
+  --set-json 'extraEnv=[{"name":"OTEL_EXPORTER_OTLP_ENDPOINT","value":"http://otel-collector.observability.svc.cluster.local:4317"},{"name":"OTEL_EXPORTER_OTLP_HEADERS","valueFrom":{"secretKeyRef":{"name":"otel-credentials","key":"headers"}}}]')
+grep -Fq 'name: OTEL_EXPORTER_OTLP_ENDPOINT' <<<"$with_otel_env"
+grep -Fq 'http://otel-collector.observability.svc.cluster.local:4317' <<<"$with_otel_env"
+grep -Fq 'name: OTEL_EXPORTER_OTLP_HEADERS' <<<"$with_otel_env"
+grep -Fq 'secretKeyRef:' <<<"$with_otel_env"
+grep -Fq 'name: otel-credentials' <<<"$with_otel_env"
+
 with_tls_secret=$(helm template alertmanager-route-tester "$chart" \
   --set extraVolumes[0].name=alertmanager-tls \
   --set extraVolumes[0].secret.secretName=alertmanager-tls \

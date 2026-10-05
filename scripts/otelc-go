@@ -1,0 +1,10 @@
+#!/bin/sh
+set -eu
+
+host_os=$(go env GOHOSTOS)
+host_arch=$(go env GOHOSTARCH)
+tool_dir=$(mktemp -d)
+trap 'rm -rf "$tool_dir"' EXIT
+
+env GOOS="$host_os" GOARCH="$host_arch" go build -o "$tool_dir/otelc" go.opentelemetry.io/otelc/tool/cmd/otelc
+"$tool_dir/otelc" go "$@"

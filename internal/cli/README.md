@@ -1,3 +1,5 @@
+AI-generated content prepared on Will's behalf.
+
 # CLI Test Mode Examples
 
 This directory contains examples of using the CLI test mode in Go tests.
@@ -62,7 +64,7 @@ alertmanager-route-tester:
           - slack-warnings
 ```
 
-Run the suite with `go run . -config config.yaml`. The command prints each case result and exits nonzero if a case fails. Receiver order does not affect comparisons.
+Run the suite with `go tool otelc go run . -config config.yaml`. The command prints each case result and exits nonzero if a case fails. Receiver order does not affect comparisons.
 
 ## Key Features
 

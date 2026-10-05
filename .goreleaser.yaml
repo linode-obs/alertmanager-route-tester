@@ -1,10 +1,14 @@
+version: 2
+
 # Make sure to check the documentation at https://goreleaser.com
 before:
   hooks:
     - go mod tidy
+    - go tool otelc go build -o bin/alertmanager-route-tester .
     - go test -v ./...
 builds:
-  - env:
+  - tool: ./scripts/otelc-go
+    env:
       - CGO_ENABLED=0
     goos:
       - linux

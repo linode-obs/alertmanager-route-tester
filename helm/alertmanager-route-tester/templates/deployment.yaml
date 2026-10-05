@@ -33,6 +33,10 @@ spec:
         - name: alertmanager-route-tester
           image: "{{ .Values.image.repository }}:{{ .Values.image.tag }}"
           imagePullPolicy: {{ .Values.image.pullPolicy }}
+          {{- with .Values.extraEnv }}
+          env:
+            {{- toYaml . | nindent 12 }}
+          {{- end }}
           args:
             - -config
             - /etc/alertmanager-route-tester/config.yaml

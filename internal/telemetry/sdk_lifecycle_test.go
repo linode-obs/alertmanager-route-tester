@@ -1,0 +1,85 @@
+package telemetry
+
+import (
+	"context"
+	"os"
+	"os/exec"
+	"strings"
+	"testing"
+)
+
+func TestRuntimeEnvironmentDefaultsAndSDKRestore(t *testing.T) {
+	if os.Getenv("ATR_TELEMETRY_SDK_CHILD") != "" {
+		if got := os.Getenv("OTEL_SDK_DISABLED"); got != "true" {
+			t.Fatalf("OTEL_SDK_DISABLED before Setup() = %q, want true", got)
+		}
+		if got := os.Getenv("OTEL_LOG_LEVEL"); got != "error" {
+			t.Fatalf("OTEL_LOG_LEVEL before Setup() = %q, want error", got)
+		}
+		if got, want := os.Getenv("OTEL_GO_ENABLED_INSTRUMENTATIONS"), os.Getenv("ATR_EXPECTED_INSTRUMENTATIONS"); got != want {
+			t.Fatalf("OTEL_GO_ENABLED_INSTRUMENTATIONS before Setup() = %q, want %q", got, want)
+		}
+
+		providers, err := Setup(context.Background(), "1.2.3")
+		if err != nil {
+			t.Fatalf("Setup() error = %v", err)
+		}
+		t.Cleanup(func() {
+			if err := providers.Shutdown(context.Background()); err != nil {
+				t.Errorf("provider shutdown error = %v", err)
+			}
+		})
+
+		if got := os.Getenv("OTEL_SDK_DISABLED"); got != "false" {
+			t.Fatalf("OTEL_SDK_DISABLED after Setup() = %q, want original false", got)
+		}
+		if got := os.Getenv("OTEL_LOG_LEVEL"); got != "debug" {
+			t.Fatalf("OTEL_LOG_LEVEL after Setup() = %q, want original debug", got)
+		}
+		return
+	}
+
+	testExecutable, err := os.Executable()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	for _, test := range []struct {
+		name        string
+		selection   string
+		wantEnabled string
+	}{
+		{name: "default selection", wantEnabled: "nethttp"},
+		{name: "explicit selection", selection: "grpc", wantEnabled: "grpc"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			command := exec.Command(testExecutable, "-test.run=^TestRuntimeEnvironmentDefaultsAndSDKRestore$")
+			for _, entry := range os.Environ() {
+				if strings.HasPrefix(entry, "ATR_TELEMETRY_SDK_CHILD=") ||
+					strings.HasPrefix(entry, "ATR_EXPECTED_INSTRUMENTATIONS=") ||
+					strings.HasPrefix(entry, "OTEL_SDK_DISABLED=") ||
+					strings.HasPrefix(entry, "OTEL_GO_ENABLED_INSTRUMENTATIONS=") ||
+					strings.HasPrefix(entry, "OTEL_TRACES_EXPORTER=") ||
+					strings.HasPrefix(entry, "OTEL_METRICS_EXPORTER=") ||
+					strings.HasPrefix(entry, "OTEL_LOG_LEVEL=") {
+					continue
+				}
+				command.Env = append(command.Env, entry)
+			}
+			command.Env = append(command.Env,
+				"ATR_TELEMETRY_SDK_CHILD=1",
+				"ATR_EXPECTED_INSTRUMENTATIONS="+test.wantEnabled,
+				"OTEL_SDK_DISABLED=false",
+				"OTEL_TRACES_EXPORTER=none",
+				"OTEL_METRICS_EXPORTER=none",
+				"OTEL_LOG_LEVEL=debug",
+			)
+			if test.selection != "" {
+				command.Env = append(command.Env, "OTEL_GO_ENABLED_INSTRUMENTATIONS="+test.selection)
+			}
+			if output, err := command.CombinedOutput(); err != nil {
+				t.Fatalf("child test failed: %v\n%s", err, output)
+			}
+		})
+	}
+}

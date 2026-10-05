@@ -138,12 +138,12 @@ run = """
 description = "Run the route tester application in development mode"
 run = """
 #!/bin/bash
-go run . -config config.yaml
+go tool otelc go run . -config config.yaml
 """
 
 [tasks.test]
 description = "Run unit and Alertmanager integration tests"
-depends = ["setup"]
+depends = ["setup", "build"]
 run = """
 #!/bin/bash
 set -e
@@ -191,7 +191,7 @@ go test -v ./... -coverprofile=coverage.out -covermode=count
 
 [tasks.build]
 description = "Build the application"
-run = "go build -o bin/alertmanager-route-tester ."
+run = "go tool otelc go build -o bin/alertmanager-route-tester ."
 
 [tasks.clean]
 description = "Remove local Alertmanager install and data to force re-setup"

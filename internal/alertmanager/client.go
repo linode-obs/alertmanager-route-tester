@@ -21,7 +21,10 @@ import (
 
 	"github.com/prometheus/alertmanager/dispatch"
 	amlabels "github.com/prometheus/alertmanager/pkg/labels"
+	"go.opentelemetry.io/otel/codes"
 	"gopkg.in/yaml.v3"
+
+	"github.com/wbollock/alertmanager-route-tester/internal/telemetry"
 )
 
 const maxAlertmanagerResponseBodyBytes int64 = 10 << 20
@@ -251,7 +254,7 @@ func (c *Client) CheckConnectionContext(ctx context.Context) error {
 		if !retryable || attempt == c.retryMaxAttempts {
 			break
 		}
-		if err := waitForRetry(ctx, c.retryBackoff); err != nil {
+		if err := waitForRetrySpan(ctx, c.retryBackoff); err != nil {
 			return err
 		}
 	}
@@ -277,6 +280,7 @@ func (c *Client) GetConfigWithStatusContext(ctx context.Context) (*Config, bool,
 	if c.cachedConfig != nil {
 		config := c.cachedConfig
 		c.cacheMu.RUnlock()
+		telemetry.RecordCache(ctx, true)
 		return config, true, nil
 	}
 	c.cacheMu.RUnlock()
@@ -291,11 +295,13 @@ func (c *Client) GetConfigWithStatusContext(ctx context.Context) (*Config, bool,
 	if c.cachedConfig != nil {
 		config := c.cachedConfig
 		c.cacheMu.RUnlock()
+		telemetry.RecordCache(ctx, true)
 		return config, true, nil
 	}
 	generation := c.cacheGeneration
 	c.cacheMu.RUnlock()
 
+	telemetry.RecordCache(ctx, false)
 	config, err := c.fetchConfig(ctx)
 	if err != nil {
 		return nil, false, err
@@ -311,7 +317,11 @@ func (c *Client) RefreshConfig() (*Config, error) {
 }
 
 func (c *Client) RefreshConfigContext(ctx context.Context) (*Config, error) {
+	ctx, span := telemetry.StartSpan(ctx, "alertmanager.config.refresh")
+	defer span.End()
+
 	if err := c.acquireConfigFetch(ctx); err != nil {
+		span.SetStatus(codes.Error, "config refresh failed")
 		return nil, err
 	}
 	defer c.releaseConfigFetch()
@@ -322,6 +332,7 @@ func (c *Client) RefreshConfigContext(ctx context.Context) (*Config, error) {
 
 	config, err := c.fetchConfig(ctx)
 	if err != nil {
+		span.SetStatus(codes.Error, "config refresh failed")
 		return nil, err
 	}
 	c.publishConfig(config, generation)
@@ -345,7 +356,16 @@ func (c *Client) releaseConfigFetch() {
 	<-c.configFetchSemaphore
 }
 
-func (c *Client) fetchConfig(ctx context.Context) (*Config, error) {
+func (c *Client) fetchConfig(ctx context.Context) (result *Config, resultErr error) {
+	ctx, span := telemetry.StartSpan(ctx, "alertmanager.config.fetch")
+	defer func() {
+		telemetry.RecordConfigFetch(ctx, resultErr != nil)
+		if resultErr != nil {
+			span.SetStatus(codes.Error, "config fetch failed")
+		}
+		span.End()
+	}()
+
 	var status StatusResponse
 	var lastErr error
 
@@ -359,7 +379,7 @@ func (c *Client) fetchConfig(ctx context.Context) (*Config, error) {
 		if !retryable || attempt == c.retryMaxAttempts {
 			break
 		}
-		if err := waitForRetry(ctx, c.retryBackoff); err != nil {
+		if err := waitForRetrySpan(ctx, c.retryBackoff); err != nil {
 			return nil, err
 		}
 	}
@@ -389,6 +409,13 @@ func (c *Client) fetchConfig(ctx context.Context) (*Config, error) {
 	}
 
 	return &config, nil
+}
+
+func waitForRetrySpan(ctx context.Context, delay time.Duration) error {
+	retryCtx, span := telemetry.StartSpan(ctx, "alertmanager.retry")
+	defer span.End()
+	telemetry.RecordRetry(retryCtx)
+	return waitForRetry(retryCtx, delay)
 }
 
 func waitForRetry(ctx context.Context, delay time.Duration) error {
@@ -439,7 +466,13 @@ func (c *Client) ConfigCachedAt() time.Time {
 	return c.cacheTimestamp
 }
 
-func (c *Client) fetchStatus(ctx context.Context, status *StatusResponse) (bool, error) {
+func (c *Client) fetchStatus(ctx context.Context, status *StatusResponse) (retryable bool, resultErr error) {
+	defer func() {
+		if resultErr != nil {
+			telemetry.RecordAlertmanagerFailure(ctx)
+		}
+	}()
+
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.baseURL+"/api/v2/status", nil)
 	if err != nil {
 		return true, fmt.Errorf("failed to create status request: %w", err)

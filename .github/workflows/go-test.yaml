@@ -28,6 +28,11 @@ jobs:
     - name: Install dependencies
       run: go mod download
 
+    - name: Build instrumented app for telemetry test
+      run: |
+        mkdir -p bin
+        go tool otelc go build -o bin/alertmanager-route-tester .
+
     - name: Start Alertmanager
       run: |
         if ss -ltnH 'sport = :19093' | grep -q .; then

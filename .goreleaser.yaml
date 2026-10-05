@@ -7,7 +7,7 @@ before:
     - go tool otelc go build -o bin/alertmanager-route-tester .
     - go test -v ./...
 builds:
-  - command: ./scripts/otelc-go
+  - tool: ./scripts/otelc-go
     env:
       - CGO_ENABLED=0
     goos:

@@ -1,6 +1,8 @@
 package telemetry_test
 
 import (
+	"bytes"
+	"encoding/json"
 	"fmt"
 	"net"
 	"net/http"
@@ -8,7 +10,6 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"strings"
 	"testing"
 )
 
@@ -34,7 +35,7 @@ func TestCLIRoutingSucceedsWithoutCollector(t *testing.T) {
     enabled: false
   cli-test-mode:
     enabled: true
-    format: simple
+    format: json
     labels:
       severity: critical
 alertmanagers:
@@ -57,11 +58,19 @@ alertmanagers:
 		"OTEL_TRACES_EXPORTER=otlp",
 		"OTEL_METRICS_EXPORTER=otlp",
 	)
-	output, err := command.CombinedOutput()
-	if err != nil {
-		t.Fatalf("CLI returned an error without a Collector: %v\n%s", err, output)
+	var stdout, stderr bytes.Buffer
+	command.Stdout = &stdout
+	command.Stderr = &stderr
+	if err := command.Run(); err != nil {
+		t.Fatalf("CLI returned an error without a Collector: %v\nstdout: %s\nstderr: %s", err, stdout.String(), stderr.String())
 	}
-	if !strings.Contains(string(output), "Receiver: production") {
-		t.Fatalf("CLI output = %q, want production receiver", output)
+	var result struct {
+		Receiver string `json:"receiver"`
+	}
+	if err := json.Unmarshal(stdout.Bytes(), &result); err != nil {
+		t.Fatalf("CLI stdout is not valid JSON: %v\nstdout: %s\nstderr: %s", err, stdout.String(), stderr.String())
+	}
+	if result.Receiver != "production" {
+		t.Fatalf("CLI receiver = %q, want production", result.Receiver)
 	}
 }

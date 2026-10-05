@@ -19,8 +19,12 @@ import (
 // The app owns its SDK providers, so suppress otelc's injected initializer before main starts.
 var (
 	originalSDKDisabled, originalSDKDisabledSet = os.LookupEnv("OTEL_SDK_DISABLED")
-	sdkInitSuppressionError                     = os.Setenv("OTEL_SDK_DISABLED", "true")
-	instrumentationDefaultError                 error
+	originalLogLevel, originalLogLevelSet       = os.LookupEnv("OTEL_LOG_LEVEL")
+	sdkInitSuppressionError                     = errors.Join(
+		os.Setenv("OTEL_SDK_DISABLED", "true"),
+		os.Setenv("OTEL_LOG_LEVEL", "error"),
+	)
+	instrumentationDefaultError error
 )
 
 func init() {
@@ -44,11 +48,7 @@ func Setup(ctx context.Context, version string) (*Providers, error) {
 	if instrumentationDefaultError != nil {
 		return nil, instrumentationDefaultError
 	}
-	if originalSDKDisabledSet {
-		if err := os.Setenv("OTEL_SDK_DISABLED", originalSDKDisabled); err != nil {
-			return nil, err
-		}
-	} else if err := os.Unsetenv("OTEL_SDK_DISABLED"); err != nil {
+	if err := restoreOtelcEnvironment(); err != nil {
 		return nil, err
 	}
 	if strings.EqualFold(strings.TrimSpace(originalSDKDisabled), "true") {
@@ -95,6 +95,20 @@ func Setup(ctx context.Context, version string) (*Providers, error) {
 		meterProvider:  meterProvider,
 		resource:       serviceResource,
 	}, nil
+}
+
+func restoreOtelcEnvironment() error {
+	if originalSDKDisabledSet {
+		if err := os.Setenv("OTEL_SDK_DISABLED", originalSDKDisabled); err != nil {
+			return err
+		}
+	} else if err := os.Unsetenv("OTEL_SDK_DISABLED"); err != nil {
+		return err
+	}
+	if originalLogLevelSet {
+		return os.Setenv("OTEL_LOG_LEVEL", originalLogLevel)
+	}
+	return os.Unsetenv("OTEL_LOG_LEVEL")
 }
 
 func (p *Providers) Shutdown(ctx context.Context) error {

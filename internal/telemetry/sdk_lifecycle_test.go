@@ -13,6 +13,9 @@ func TestRuntimeEnvironmentDefaultsAndSDKRestore(t *testing.T) {
 		if got := os.Getenv("OTEL_SDK_DISABLED"); got != "true" {
 			t.Fatalf("OTEL_SDK_DISABLED before Setup() = %q, want true", got)
 		}
+		if got := os.Getenv("OTEL_LOG_LEVEL"); got != "error" {
+			t.Fatalf("OTEL_LOG_LEVEL before Setup() = %q, want error", got)
+		}
 		if got, want := os.Getenv("OTEL_GO_ENABLED_INSTRUMENTATIONS"), os.Getenv("ATR_EXPECTED_INSTRUMENTATIONS"); got != want {
 			t.Fatalf("OTEL_GO_ENABLED_INSTRUMENTATIONS before Setup() = %q, want %q", got, want)
 		}
@@ -29,6 +32,9 @@ func TestRuntimeEnvironmentDefaultsAndSDKRestore(t *testing.T) {
 
 		if got := os.Getenv("OTEL_SDK_DISABLED"); got != "false" {
 			t.Fatalf("OTEL_SDK_DISABLED after Setup() = %q, want original false", got)
+		}
+		if got := os.Getenv("OTEL_LOG_LEVEL"); got != "debug" {
+			t.Fatalf("OTEL_LOG_LEVEL after Setup() = %q, want original debug", got)
 		}
 		return
 	}
@@ -54,7 +60,8 @@ func TestRuntimeEnvironmentDefaultsAndSDKRestore(t *testing.T) {
 					strings.HasPrefix(entry, "OTEL_SDK_DISABLED=") ||
 					strings.HasPrefix(entry, "OTEL_GO_ENABLED_INSTRUMENTATIONS=") ||
 					strings.HasPrefix(entry, "OTEL_TRACES_EXPORTER=") ||
-					strings.HasPrefix(entry, "OTEL_METRICS_EXPORTER=") {
+					strings.HasPrefix(entry, "OTEL_METRICS_EXPORTER=") ||
+					strings.HasPrefix(entry, "OTEL_LOG_LEVEL=") {
 					continue
 				}
 				command.Env = append(command.Env, entry)
@@ -65,6 +72,7 @@ func TestRuntimeEnvironmentDefaultsAndSDKRestore(t *testing.T) {
 				"OTEL_SDK_DISABLED=false",
 				"OTEL_TRACES_EXPORTER=none",
 				"OTEL_METRICS_EXPORTER=none",
+				"OTEL_LOG_LEVEL=debug",
 			)
 			if test.selection != "" {
 				command.Env = append(command.Env, "OTEL_GO_ENABLED_INSTRUMENTATIONS="+test.selection)

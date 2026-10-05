@@ -19,10 +19,15 @@ type statusWriter struct {
 }
 
 func (w *statusWriter) WriteHeader(statusCode int) {
-	if !w.wroteHeader {
-		w.statusCode = statusCode
-		w.wroteHeader = true
+	if w.wroteHeader {
+		return
 	}
+	if statusCode >= 100 && statusCode < 200 && statusCode != http.StatusSwitchingProtocols {
+		w.ResponseWriter.WriteHeader(statusCode)
+		return
+	}
+	w.statusCode = statusCode
+	w.wroteHeader = true
 	w.ResponseWriter.WriteHeader(statusCode)
 }
 

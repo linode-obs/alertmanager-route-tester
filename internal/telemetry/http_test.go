@@ -1,9 +1,12 @@
 package telemetry
 
 import (
+	"bytes"
 	"context"
+	"log"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 
 	"go.opentelemetry.io/otel"
@@ -21,18 +24,48 @@ func TestHTTPAndApplicationMetricsUseBoundedOutcomes(t *testing.T) {
 		}
 	})
 
-	handler := MetricsHandler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path == "/missing" {
+	var serverOutput bytes.Buffer
+	server := httptest.NewUnstartedServer(MetricsHandler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/missing":
 			http.Error(w, "not found", http.StatusNotFound)
-			return
+		case "/informational":
+			w.WriteHeader(http.StatusEarlyHints)
+			w.WriteHeader(http.StatusNotFound)
+			w.WriteHeader(http.StatusInternalServerError)
+		default:
+			w.WriteHeader(http.StatusNoContent)
 		}
-		w.WriteHeader(http.StatusNoContent)
-	}))
-	for _, request := range []*http.Request{
-		httptest.NewRequest(http.MethodGet, "/ok", nil),
-		httptest.NewRequest("PURGE", "/missing", nil),
+	})))
+	server.Config.ErrorLog = log.New(&serverOutput, "", 0)
+	server.Start()
+	defer server.Close()
+
+	for _, request := range []struct {
+		method string
+		path   string
+	}{
+		{method: http.MethodGet, path: "/ok"},
+		{method: "PURGE", path: "/missing"},
+		{method: http.MethodPost, path: "/informational"},
 	} {
-		handler.ServeHTTP(httptest.NewRecorder(), request)
+		req, err := http.NewRequest(request.method, server.URL+request.path, nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		response, err := server.Client().Do(req)
+		if err != nil {
+			t.Fatalf("request %s %s error = %v", request.method, request.path, err)
+		}
+		if request.path == "/informational" && response.StatusCode != http.StatusNotFound {
+			t.Errorf("informational response final status = %d, want %d", response.StatusCode, http.StatusNotFound)
+		}
+		if err := response.Body.Close(); err != nil {
+			t.Errorf("close %s response: %v", request.path, err)
+		}
+	}
+	if strings.Contains(serverOutput.String(), "superfluous response.WriteHeader") {
+		t.Errorf("HTTP server logged a repeated final status: %s", serverOutput.String())
 	}
 
 	ctx := context.Background()
@@ -51,7 +84,7 @@ func TestHTTPAndApplicationMetricsUseBoundedOutcomes(t *testing.T) {
 	}
 
 	want := map[string]map[string]int64{
-		"http.server.requests":        {"GET/2xx": 1, "OTHER/4xx": 1},
+		"http.server.requests":        {"GET/2xx": 1, "OTHER/4xx": 1, "POST/4xx": 1},
 		"alertmanager.config.fetches": {"failure": 1},
 		"alertmanager.failures":       {"": 1},
 		"alertmanager.cache.accesses": {"hit": 1, "miss": 1},

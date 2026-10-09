@@ -30,6 +30,12 @@ If your Collector listens for OTLP/gRPC on port 4317, set `OTEL_EXPORTER_OTLP_PR
 
 The app does not add alert labels, receiver names, request IDs, or URL credentials to telemetry attributes. Provider shutdown exports pending data when the process exits. Export errors do not change a successful CLI result.
 
+## Prometheus `/metrics`
+
+The same HTTP listener serves Prometheus text format on `/metrics`. The series correspond to the existing counters: `http_server_requests_total`, `alertmanager_config_fetches_total`, `alertmanager_failures_total`, `alertmanager_cache_accesses_total`, `alertmanager_retries_total`, and `route_evaluations_total`.
+
+The Helm chart ServiceMonitor is optional and off by default, so clusters without the Prometheus Operator CRD still install. Enable `serviceMonitor` and set its labels to the cluster Prometheus selector, for example `prometheus: o11y-apps`.
+
 ## Kubernetes Helm values
 
 The ATR chart accepts standard environment variables through `extraEnv`. A parent chart such as `o11y-helm-charts` can set the Collector endpoint in its values overlay.

@@ -2,9 +2,64 @@ AI-generated content prepared on Will's behalf.
 
 # Alertmanager Route Tester Helm chart
 
-The chart deploys the web UI as a ClusterIP Service. It does not create an Ingress. Configure an authenticated ingress or another access control layer before exposing the UI. The UI has no built-in authentication and can display receiver configuration returned by Alertmanager.
+The chart deploys the web UI as a ClusterIP Service. Ingress is off unless `ingress.enabled` is true. Configure an authenticated ingress or another access control layer before exposing the UI. The UI has no built-in authentication and can display receiver configuration returned by Alertmanager.
 
-The chart creates a default-deny ingress NetworkPolicy. Set `networkPolicy.ingress` to allow access from trusted workloads. NetworkPolicy enforcement depends on the cluster's CNI. Probes GET `/healthz`, which does not call Alertmanager.
+The chart creates a default-deny ingress NetworkPolicy. `networkPolicy.enabled` defaults to true and `networkPolicy.ingress` defaults to an empty list, which denies all ingress. Set `networkPolicy.ingress` to allow access from trusted workloads. NetworkPolicy enforcement depends on the cluster's CNI. Probes GET `/healthz`, which does not call Alertmanager.
+
+Allow Traefik by copying this rule. The policy port is the chart Service port (`service.port`, default 8080). The container listens on that same port. Do not set a second port, such as the Ingress entrypoint port.
+
+```yaml
+service:
+  port: 8080
+
+networkPolicy:
+  enabled: true
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: traefik
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: traefik
+      ports:
+        - protocol: TCP
+          port: 8080
+```
+
+When `ingress.enabled` and `networkPolicy.enabled` are both true, set `ingress.networkPolicy.namespace` or `ingress.networkPolicy.podLabels` (or both). The chart appends an allow rule for that peer on `service.port`, in addition to any `networkPolicy.ingress` entries. It does not guess a controller namespace. The render fails when both are empty so the default-deny policy cannot silently block the ingress controller.
+
+## Ingress
+
+The chart can render a Traefik `IngressRoute`, a cert-manager `Certificate`, and an optional Traefik `TLSOption`. Nothing is rendered until `ingress.enabled` is true. `extraObjects` remains available for other manifests.
+
+```yaml
+ingress:
+  enabled: true
+  hostname: route-tester.example.com
+  entryPoints:
+    - websecure
+  tls:
+    enabled: true
+    # secretName defaults to <release fullname>-tls when empty
+    issuer:
+      name: letsencrypt-prod
+      kind: ClusterIssuer
+  mtls:
+    enabled: true
+    clientAuthType: RequireAndVerifyClientCert
+    caSecretName: route-tester-client-ca
+  networkPolicy:
+    namespace: traefik
+    podLabels:
+      app.kubernetes.io/name: traefik
+```
+
+`ingress.hostname` is required when ingress is enabled. The route matches `Host(hostname)` and forwards to the Service on `service.port`. `ingress.entryPoints` defaults to `websecure`.
+
+`ingress.tls.enabled` defaults to true. A Certificate is rendered only when ingress is enabled, so the default is unused while ingress is off. The chart requires `ingress.tls.issuer.name` when TLS is enabled. `ingress.tls.issuer.kind` defaults to `ClusterIssuer`. `ingress.tls.secretName` defaults to the release fullname plus `-tls`.
+
+`ingress.mtls.enabled` defaults to false. When it is true, the chart requires `ingress.mtls.caSecretName`, renders a `TLSOption` with `clientAuthType` (default `RequireAndVerifyClientCert`), and references that option from the IngressRoute. Create the client CA Secret in the release namespace outside the chart. The Secret must contain the CA under `tls.ca` or `ca.crt`.
 
 ## OpenTelemetry
 
@@ -55,9 +110,14 @@ deploymentAnnotations:
 
 The chart does not install Reloader. Without a Secret-reloader controller, restart the Deployment after rotating TLS Secret data.
 
+`alertmanagers` is a list. Helm replaces the whole list when you override it. The map form is no longer merged; replace the whole list.
+
 ```yaml
+service:
+  port: 8080
+
 alertmanagers:
-  production:
+  - name: production
     url: https://alerts.example.com
     http:
       tls:
@@ -81,10 +141,10 @@ networkPolicy:
     - from:
         - namespaceSelector:
             matchLabels:
-              kubernetes.io/metadata.name: trusted-tools
+              kubernetes.io/metadata.name: traefik
           podSelector:
             matchLabels:
-              app.kubernetes.io/name: approved-proxy
+              app.kubernetes.io/name: traefik
       ports:
         - protocol: TCP
           port: 8080
@@ -97,6 +157,8 @@ Create the referenced TLS Secret and image-pull Secret outside the chart. Keep p
 
 An empty `image.tag` uses `Chart.appVersion`. Set `image.tag` to override that tag. `image.pullPolicy` defaults to `IfNotPresent`. The next release must bump `Chart.yaml` `version` and `appVersion` to the git tag without the `v` prefix. The GHCR package may still require the `imagePullSecrets` entry above unless its visibility is public.
 
+`Chart.appVersion` `0.1.1` matches the published image. That image does not serve `/healthz` or `/metrics`. Build an image from this commit, or set `image.tag` to the next release, before upgrading a deployment that still runs `0.1.1`.
+
 Install with a values file containing the Alertmanager endpoint and permitted NetworkPolicy sources:
 
 ```bash
@@ -107,4 +169,6 @@ helm upgrade --install alertmanager-route-tester \
   -f values.yaml
 ```
 
-The app listens on port 8080 in the container. `service.port` controls the ClusterIP Service port. Configuration changes update a pod-template checksum and restart the Deployment. The chart sets CPU and memory requests and does not set resource limits.
+The app listens on `0.0.0.0` and `service.port` (default 8080). That value sets both the process listen address and the container port. The Service `targetPort` stays the named port `http`. Configuration changes update a pod-template checksum and restart the Deployment.
+
+Requests are set so the scheduler can place the pod. Limits are omitted so a namespace LimitRange can apply its own and so the chart does not throttle CPU.

@@ -1,0 +1,71 @@
+{{- if .Values.ingress.enabled }}
+{{- $hostname := required "ingress.hostname is required when ingress.enabled is true" .Values.ingress.hostname }}
+{{- $fullname := include "alertmanager-route-tester.fullname" . }}
+{{- $tls := .Values.ingress.tls | default dict }}
+{{- $mtls := .Values.ingress.mtls | default dict }}
+{{- $tlsEnabled := $tls.enabled }}
+{{- $mtlsEnabled := $mtls.enabled }}
+{{- $tlsSecretName := $tls.secretName | default (printf "%s-tls" $fullname) }}
+{{- $issuer := $tls.issuer | default dict }}
+{{- $issuerKind := $issuer.kind | default "ClusterIssuer" }}
+{{- $entryPoints := .Values.ingress.entryPoints | default (list "websecure") }}
+{{- $clientAuthType := $mtls.clientAuthType | default "RequireAndVerifyClientCert" }}
+{{- if $tlsEnabled }}
+{{- $issuerName := required "ingress.tls.issuer.name is required when ingress.enabled and ingress.tls.enabled are true" $issuer.name }}
+apiVersion: cert-manager.io/v1
+kind: Certificate
+metadata:
+  name: {{ $fullname }}-tls
+  labels:
+    {{- include "alertmanager-route-tester.labels" . | nindent 4 }}
+spec:
+  secretName: {{ $tlsSecretName }}
+  dnsNames:
+    - {{ $hostname | quote }}
+  issuerRef:
+    name: {{ $issuerName }}
+    kind: {{ $issuerKind }}
+---
+{{- end }}
+{{- if $mtlsEnabled }}
+{{- $caSecretName := required "ingress.mtls.caSecretName is required when ingress.mtls.enabled is true" $mtls.caSecretName }}
+apiVersion: traefik.io/v1alpha1
+kind: TLSOption
+metadata:
+  name: {{ $fullname }}-mtls
+  labels:
+    {{- include "alertmanager-route-tester.labels" . | nindent 4 }}
+spec:
+  clientAuth:
+    secretNames:
+      - {{ $caSecretName }}
+    clientAuthType: {{ $clientAuthType }}
+---
+{{- end }}
+apiVersion: traefik.io/v1alpha1
+kind: IngressRoute
+metadata:
+  name: {{ $fullname }}
+  labels:
+    {{- include "alertmanager-route-tester.labels" . | nindent 4 }}
+spec:
+  entryPoints:
+    {{- toYaml $entryPoints | nindent 4 }}
+  routes:
+    - match: {{ printf "Host(`%s`)" $hostname | quote }}
+      kind: Rule
+      services:
+        - name: {{ $fullname }}
+          port: {{ .Values.service.port }}
+  {{- if or $tlsEnabled $mtlsEnabled }}
+  tls:
+    {{- if $tlsEnabled }}
+    secretName: {{ $tlsSecretName }}
+    {{- end }}
+    {{- if $mtlsEnabled }}
+    options:
+      name: {{ $fullname }}-mtls
+      namespace: {{ .Release.Namespace }}
+    {{- end }}
+  {{- end }}
+{{- end }}

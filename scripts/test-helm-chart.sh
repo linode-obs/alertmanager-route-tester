@@ -18,7 +18,21 @@ helm lint "$chart"
 rendered=$(helm template alertmanager-route-tester "$chart")
 
 grep -Fq 'listen: "0.0.0.0:8080"' <<<"$rendered"
+grep -Fq 'containerPort: 8080' <<<"$rendered"
 grep -Fq 'url: http://alertmanager:9093' <<<"$rendered"
+if grep -Fq 'kind: IngressRoute' <<<"$rendered"; then
+  echo "default render must not create an IngressRoute" >&2
+  exit 1
+fi
+if grep -Fq 'kind: Certificate' <<<"$rendered"; then
+  echo "default render must not create a Certificate" >&2
+  exit 1
+fi
+
+port_override=$(helm template alertmanager-route-tester "$chart" --set service.port=9090)
+grep -Fq 'listen: "0.0.0.0:9090"' <<<"$port_override"
+grep -Fq 'containerPort: 9090' <<<"$port_override"
+grep -Fq 'targetPort: http' <<<"$port_override"
 grep -Fq '/etc/alertmanager-route-tester/config.yaml' <<<"$rendered"
 grep -Fq 'ghcr.io/linode-obs/alertmanager-route-tester:0.1.1' <<<"$rendered"
 with_image_tag=$(helm template alertmanager-route-tester "$chart" --set image.tag=custom)
@@ -63,7 +77,8 @@ fi
 
 checksum() {
   helm template alertmanager-route-tester "$chart" \
-    --set-string "alertmanagers.default.url=$1" |
+    --set-string "alertmanagers[0].name=default" \
+    --set-string "alertmanagers[0].url=$1" |
     awk -F': ' '/checksum\/config:/ {gsub(/"/, "", $2); print $2; exit}'
 }
 
@@ -101,6 +116,77 @@ with_tls_secret=$(helm template alertmanager-route-tester "$chart" \
   --set extraVolumeMounts[0].readOnly=true)
 grep -Fq 'secretName: alertmanager-tls' <<<"$with_tls_secret"
 grep -Fq 'mountPath: /etc/alertmanager/tls' <<<"$with_tls_secret"
+
+production_only=$(helm template alertmanager-route-tester "$chart" \
+  --set-json 'alertmanagers=[{"name":"production","url":"https://alerts.example.com","matcher_mode":"utf8-strict","http":{"tls":{"ca_file":"/etc/alertmanager/tls/ca.crt","cert_file":"/etc/alertmanager/tls/tls.crt","key_file":"/etc/alertmanager/tls/tls.key"}},"retry":{"max_attempts":5},"pool":{"max_idle_conns":20}}]')
+grep -Fq 'url: https://alerts.example.com' <<<"$production_only"
+grep -Fq 'matcher_mode: utf8-strict' <<<"$production_only"
+grep -Fq 'ca_file: /etc/alertmanager/tls/ca.crt' <<<"$production_only"
+grep -Fq 'max_attempts: 5' <<<"$production_only"
+grep -Fq 'max_idle_conns: 20' <<<"$production_only"
+if grep -Fq 'url: http://alertmanager:9093' <<<"$production_only"; then
+  echo "user alertmanagers list must replace the chart default" >&2
+  exit 1
+fi
+if grep -Eq '^[[:space:]]+default:' <<<"$production_only"; then
+  echo "default alertmanager must not remain when the user list omits it" >&2
+  exit 1
+fi
+
+if helm template alertmanager-route-tester "$chart" --set-json 'alertmanagers=[]' >/dev/null 2>&1; then
+  echo "empty alertmanagers list must fail" >&2
+  exit 1
+fi
+if helm template alertmanager-route-tester "$chart" --set-json 'alertmanagers=[{"url":"http://alertmanager:9093"}]' >/dev/null 2>&1; then
+  echo "alertmanagers entry without a name must fail" >&2
+  exit 1
+fi
+if helm template alertmanager-route-tester "$chart" --set-json 'alertmanagers=[{"name":"default"}]' >/dev/null 2>&1; then
+  echo "alertmanagers entry without a url must fail" >&2
+  exit 1
+fi
+
+with_ingress=$(helm template alertmanager-route-tester "$chart" \
+  --set ingress.enabled=true \
+  --set ingress.hostname=route-tester.example.com \
+  --set ingress.tls.issuer.name=letsencrypt-prod \
+  --set ingress.networkPolicy.namespace=traefik)
+grep -Fq 'kind: IngressRoute' <<<"$with_ingress"
+grep -Fq 'kind: Certificate' <<<"$with_ingress"
+grep -Fq 'kind: NetworkPolicy' <<<"$with_ingress"
+grep -Fq 'route-tester.example.com' <<<"$with_ingress"
+grep -Fq 'letsencrypt-prod' <<<"$with_ingress"
+grep -Fq 'kind: ClusterIssuer' <<<"$with_ingress"
+grep -Fq 'secretName: alertmanager-route-tester-tls' <<<"$with_ingress"
+grep -Fq 'kubernetes.io/metadata.name: traefik' <<<"$with_ingress" || grep -Fq 'kubernetes.io/metadata.name: "traefik"' <<<"$with_ingress"
+
+with_mtls=$(helm template alertmanager-route-tester "$chart" \
+  --set ingress.enabled=true \
+  --set ingress.hostname=route-tester.example.com \
+  --set ingress.tls.issuer.name=letsencrypt-prod \
+  --set ingress.networkPolicy.namespace=traefik \
+  --set ingress.mtls.enabled=true \
+  --set ingress.mtls.caSecretName=route-tester-client-ca)
+grep -Fq 'kind: TLSOption' <<<"$with_mtls"
+grep -Fq 'route-tester-client-ca' <<<"$with_mtls"
+grep -Fq 'RequireAndVerifyClientCert' <<<"$with_mtls"
+
+with_ingress_rules=$(helm template alertmanager-route-tester "$chart" \
+  --set ingress.enabled=true \
+  --set ingress.hostname=route-tester.example.com \
+  --set ingress.tls.issuer.name=letsencrypt-prod \
+  --set ingress.networkPolicy.namespace=traefik \
+  --set-json 'networkPolicy.ingress=[{"from":[{"podSelector":{"matchLabels":{"app":"approved-proxy"}}}],"ports":[{"protocol":"TCP","port":8080}]}]')
+grep -Fq 'approved-proxy' <<<"$with_ingress_rules"
+grep -Fq 'kubernetes.io/metadata.name: traefik' <<<"$with_ingress_rules" || grep -Fq 'kubernetes.io/metadata.name: "traefik"' <<<"$with_ingress_rules"
+
+if helm template alertmanager-route-tester "$chart" \
+  --set ingress.enabled=true \
+  --set ingress.tls.issuer.name=letsencrypt-prod \
+  --set ingress.networkPolicy.namespace=traefik >/dev/null 2>&1; then
+  echo "ingress without a hostname must fail helm template" >&2
+  exit 1
+fi
 
 if grep -Fq 'source: extra-object-test' <<<"$rendered"; then
   echo "empty extraObjects must not render resources" >&2

@@ -1,4 +1,4 @@
-module github.com/wbollock/alertmanager-route-tester
+module github.com/linode-obs/alertmanager_route_tester
 
 go 1.27
 

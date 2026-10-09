@@ -70,7 +70,7 @@ The selected instance is not included in shareable label links. Shared links con
 
 ### Container and Helm Deployment
 
-Build the container locally with `docker build -t alertmanager-route-tester:local .`. The release workflow publishes version-tagged images to `ghcr.io/wbollock/alertmanager-route-tester` on `v*` tags and publishes `latest` for stable tags. The GHCR package may require an `imagePullSecrets` entry unless its visibility is changed.
+Build the container locally with `docker build -t alertmanager-route-tester:local .`. The release workflow publishes version-tagged images to `ghcr.io/linode-obs/alertmanager-route-tester` on `v*` tags and publishes `latest` for stable tags. The GHCR package may require an `imagePullSecrets` entry unless its visibility is changed.
 
 The reusable chart is in [`helm/alertmanager-route-tester`](helm/alertmanager-route-tester). It creates a ClusterIP Service and a default-deny ingress NetworkPolicy. Configure trusted ingress sources and an Alertmanager endpoint in a values file before installing. The chart runs as non-root, uses CPU and memory requests, and sets no resource limits. See the chart README for TLS Secret mounts and install values. See [`docs/opentelemetry.md`](docs/opentelemetry.md) for Collector and OTLP configuration.
 
@@ -201,6 +201,31 @@ This command:
 - Starts Alertmanager on http://localhost:9093
 - Starts Route Tester on http://localhost:8080
 - In the future can optional Docker compose setup would be nice
+
+## Releasing
+
+Pushing a `v*` tag runs `.github/workflows/release.yaml`. GoReleaser builds the binaries and creates the GitHub Release, then the workflow publishes the multi-arch image to `ghcr.io/linode-obs/alertmanager-route-tester`.
+
+1. Merge the changes to `main` and confirm CI passes.
+2. Choose the next version with [svu](https://github.com/caarlos0/svu), which reads the conventional commits since the last tag:
+
+   ```bash
+   git checkout main && git pull --ff-only
+   svu next                      # preview the version
+   git tag "$(svu next)"
+   git push origin "$(svu next)"
+   ```
+
+3. Watch the Release workflow. A stable tag like `v0.1.0` publishes `0.1.0` and `latest`. A prerelease tag containing `-` publishes only its version.
+4. Set the GHCR package visibility to public after the first publish, or deployments need an `imagePullSecrets` entry.
+
+Run these checks before tagging:
+
+```bash
+goreleaser check
+goreleaser release --snapshot --clean --skip=publish
+docker build -t alertmanager-route-tester:local .
+```
 
 ## How It Works
 

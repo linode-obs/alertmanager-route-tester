@@ -43,5 +43,5 @@ changelog:
       - Merge branch
 release:
   github:
-    owner: wbollock
+    owner: linode-obs
     name: alertmanager-route-tester

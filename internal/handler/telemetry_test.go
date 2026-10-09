@@ -15,7 +15,7 @@ import (
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	"go.opentelemetry.io/otel/sdk/trace/tracetest"
 
-	"github.com/wbollock/alertmanager-route-tester/internal/alertmanager"
+	"github.com/linode-obs/alertmanager_route_tester/internal/alertmanager"
 )
 
 func TestZZHandleTestRecordsRouteOutcomeWithoutSensitiveData(t *testing.T) {

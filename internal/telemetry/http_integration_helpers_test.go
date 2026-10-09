@@ -24,7 +24,7 @@ import (
 	tracepb "go.opentelemetry.io/proto/otlp/trace/v1"
 	"google.golang.org/protobuf/proto"
 
-	"github.com/wbollock/alertmanager-route-tester/internal/handler"
+	"github.com/linode-obs/alertmanager_route_tester/internal/handler"
 )
 
 const instrumentedAppPath = "../../bin/alertmanager-route-tester"

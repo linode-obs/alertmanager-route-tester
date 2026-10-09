@@ -10,8 +10,8 @@ import (
 
 	"go.opentelemetry.io/otel/codes"
 
-	"github.com/wbollock/alertmanager-route-tester/internal/alertmanager"
-	"github.com/wbollock/alertmanager-route-tester/internal/telemetry"
+	"github.com/linode-obs/alertmanager_route_tester/internal/alertmanager"
+	"github.com/linode-obs/alertmanager_route_tester/internal/telemetry"
 )
 
 // TestResult represents the output of a route test

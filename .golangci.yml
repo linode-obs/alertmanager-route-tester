@@ -37,4 +37,4 @@ formatters:
   settings:
     goimports:
       local-prefixes:
-        - github.com/wbollock/alertmanager-route-tester
+        - github.com/linode-obs/alertmanager_route_tester

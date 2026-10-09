@@ -2,7 +2,7 @@
 replicaCount: 1
 
 image:
-  repository: ghcr.io/wbollock/alertmanager-route-tester
+  repository: ghcr.io/linode-obs/alertmanager-route-tester
   tag: latest
   pullPolicy: Always
 

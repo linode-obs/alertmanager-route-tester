@@ -20,7 +20,7 @@ rendered=$(helm template alertmanager-route-tester "$chart")
 grep -Fq 'listen: "0.0.0.0:8080"' <<<"$rendered"
 grep -Fq 'url: http://alertmanager:9093' <<<"$rendered"
 grep -Fq '/etc/alertmanager-route-tester/config.yaml' <<<"$rendered"
-grep -Fq 'ghcr.io/wbollock/alertmanager-route-tester:latest' <<<"$rendered"
+grep -Fq 'ghcr.io/linode-obs/alertmanager-route-tester:latest' <<<"$rendered"
 grep -Fq 'kind: NetworkPolicy' <<<"$rendered"
 grep -Fq 'policyTypes:' <<<"$rendered"
 grep -Fq '    []' <<<"$rendered"

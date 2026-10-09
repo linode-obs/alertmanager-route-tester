@@ -35,9 +35,18 @@ grep -Fq 'runAsNonRoot: true' <<<"$rendered"
 grep -Fq 'readOnlyRootFilesystem: true' <<<"$rendered"
 grep -Fq 'allowPrivilegeEscalation: false' <<<"$rendered"
 grep -Fq 'type: RuntimeDefault' <<<"$rendered"
-grep -Fq 'tcpSocket:' <<<"$rendered"
-if grep -Fq 'httpGet:' <<<"$rendered"; then
-  echo "probes must not depend on Alertmanager HTTP responses" >&2
+grep -Fq 'httpGet:' <<<"$rendered"
+grep -Fq 'path: /healthz' <<<"$rendered"
+if grep -Eq 'path: /($|[[:space:]])' <<<"$rendered"; then
+  echo "probes must not use path /" >&2
+  exit 1
+fi
+if grep -Fq 'path: /test' <<<"$rendered"; then
+  echo "probes must not use path /test" >&2
+  exit 1
+fi
+if grep -Fq 'tcpSocket:' <<<"$rendered"; then
+  echo "probes must use httpGet /healthz, not tcpSocket" >&2
   exit 1
 fi
 

@@ -4,7 +4,7 @@ AI-generated content prepared on Will's behalf.
 
 The chart deploys the web UI as a ClusterIP Service. It does not create an Ingress. Configure an authenticated ingress or another access control layer before exposing the UI. The UI has no built-in authentication and can display receiver configuration returned by Alertmanager.
 
-The chart creates a default-deny ingress NetworkPolicy. Set `networkPolicy.ingress` to allow access from trusted workloads. NetworkPolicy enforcement depends on the cluster's CNI. Probes check that the app port is open; they do not fail when Alertmanager is unreachable.
+The chart creates a default-deny ingress NetworkPolicy. Set `networkPolicy.ingress` to allow access from trusted workloads. NetworkPolicy enforcement depends on the cluster's CNI. Probes GET `/healthz`, which does not call Alertmanager. The published image does not serve `/healthz` until the next release, so build an image from this commit before upgrading a running deployment.
 
 ## OpenTelemetry
 

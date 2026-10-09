@@ -11,5 +11,27 @@ spec:
       {{- include "alertmanager-route-tester.selectorLabels" . | nindent 6 }}
   policyTypes:
     - Ingress
-  ingress: {{ toYaml .Values.networkPolicy.ingress | nindent 4 }}
+  {{- $rules := list }}
+  {{- range .Values.networkPolicy.ingress }}
+  {{- $rules = append $rules . }}
+  {{- end }}
+  {{- if .Values.ingress.enabled }}
+  {{- $peer := .Values.ingress.networkPolicy | default dict }}
+  {{- $namespace := $peer.namespace | default "" }}
+  {{- $podLabels := $peer.podLabels | default dict }}
+  {{- if and (not $namespace) (empty $podLabels) }}
+  {{- fail "ingress.networkPolicy.namespace or ingress.networkPolicy.podLabels is required when ingress.enabled and networkPolicy.enabled are true" }}
+  {{- end }}
+  {{- $from := dict }}
+  {{- if $namespace }}
+  {{- $_ := set $from "namespaceSelector" (dict "matchLabels" (dict "kubernetes.io/metadata.name" $namespace)) }}
+  {{- end }}
+  {{- if not (empty $podLabels) }}
+  {{- $_ := set $from "podSelector" (dict "matchLabels" $podLabels) }}
+  {{- end }}
+  {{- $rule := dict "from" (list $from) "ports" (list (dict "port" (.Values.service.port | int) "protocol" "TCP")) }}
+  {{- $rules = append $rules $rule }}
+  {{- end }}
+  ingress:
+    {{- toYaml $rules | nindent 4 }}
 {{- end }}

@@ -166,6 +166,7 @@ func run() int {
 	mux.HandleFunc("/config/labels", h.HandleConfigLabels)
 	mux.HandleFunc("/config/reload", h.HandleReloadConfig)
 	mux.HandleFunc("/config/samples", h.HandleGenerateSampleAlerts)
+	mux.Handle("/metrics", providers.PrometheusHandler())
 
 	slog.Info("starting server", "listen", cfg.App.Server.Listen)
 	slog.Info("using alertmanager", "name", defaultName, "url", clients[defaultName].BaseURL())

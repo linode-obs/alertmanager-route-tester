@@ -9,7 +9,7 @@ import (
 	"go.opentelemetry.io/otel/trace"
 )
 
-const instrumentationName = "github.com/linode-obs/alertmanager_route_tester"
+const instrumentationName = "github.com/linode-obs/alertmanager-route-tester"
 
 type RouteResult uint8
 

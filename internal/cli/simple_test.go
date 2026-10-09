@@ -3,8 +3,8 @@ package cli_test
 import (
 	"testing"
 
-	"github.com/linode-obs/alertmanager_route_tester/internal/alertmanager"
-	"github.com/linode-obs/alertmanager_route_tester/internal/cli"
+	"github.com/linode-obs/alertmanager-route-tester/internal/alertmanager"
+	"github.com/linode-obs/alertmanager-route-tester/internal/cli"
 )
 
 // Simple tests that demonstrate the CLI mode uses exact same routing logic as web UI

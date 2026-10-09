@@ -1,4 +1,4 @@
-module github.com/linode-obs/alertmanager_route_tester
+module github.com/linode-obs/alertmanager-route-tester
 
 go 1.27
 

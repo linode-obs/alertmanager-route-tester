@@ -5,8 +5,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/linode-obs/alertmanager_route_tester/internal/alertmanager"
-	"github.com/linode-obs/alertmanager_route_tester/internal/cli"
+	"github.com/linode-obs/alertmanager-route-tester/internal/alertmanager"
+	"github.com/linode-obs/alertmanager-route-tester/internal/cli"
 )
 
 func TestMatchedRouteJSONUsesStableFieldNames(t *testing.T) {

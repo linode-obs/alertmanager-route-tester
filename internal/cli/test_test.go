@@ -3,8 +3,8 @@ package cli_test
 import (
 	"testing"
 
-	"github.com/linode-obs/alertmanager_route_tester/internal/alertmanager"
-	"github.com/linode-obs/alertmanager_route_tester/internal/cli"
+	"github.com/linode-obs/alertmanager-route-tester/internal/alertmanager"
+	"github.com/linode-obs/alertmanager-route-tester/internal/cli"
 )
 
 // These tests demonstrate how to use the CLI package to verify alert routing

@@ -86,6 +86,8 @@ imagePullSecrets:
 
 Create the referenced TLS Secret and image-pull Secret outside the chart. Keep private-key bytes out of chart values, and configure `cert_file` and `key_file` as paths to the mounted Secret files. Do not put credentials in Alertmanager URLs. The application logs the configured URL, which would expose URL credentials in logs.
 
+An empty `image.tag` uses `Chart.appVersion`. Set `image.tag` to override that tag. `image.pullPolicy` defaults to `IfNotPresent`. The next release must bump `Chart.yaml` `version` and `appVersion` to the git tag without the `v` prefix. The GHCR package may still require the `imagePullSecrets` entry above unless its visibility is public.
+
 Install with a values file containing the Alertmanager endpoint and permitted NetworkPolicy sources:
 
 ```bash

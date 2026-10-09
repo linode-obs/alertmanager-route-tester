@@ -20,7 +20,13 @@ rendered=$(helm template alertmanager-route-tester "$chart")
 grep -Fq 'listen: "0.0.0.0:8080"' <<<"$rendered"
 grep -Fq 'url: http://alertmanager:9093' <<<"$rendered"
 grep -Fq '/etc/alertmanager-route-tester/config.yaml' <<<"$rendered"
-grep -Fq 'ghcr.io/linode-obs/alertmanager-route-tester:latest' <<<"$rendered"
+grep -Fq 'ghcr.io/linode-obs/alertmanager-route-tester:0.1.1' <<<"$rendered"
+with_image_tag=$(helm template alertmanager-route-tester "$chart" --set image.tag=custom)
+grep -Fq 'ghcr.io/linode-obs/alertmanager-route-tester:custom' <<<"$with_image_tag"
+if grep -Fq 'ghcr.io/linode-obs/alertmanager-route-tester:0.1.1' <<<"$with_image_tag"; then
+  echo "image.tag must override Chart.appVersion" >&2
+  exit 1
+fi
 grep -Fq 'kind: NetworkPolicy' <<<"$rendered"
 grep -Fq 'policyTypes:' <<<"$rendered"
 grep -Fq '    []' <<<"$rendered"

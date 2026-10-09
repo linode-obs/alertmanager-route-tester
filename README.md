@@ -202,7 +202,7 @@ This command:
 
 ## Releasing
 
-Pushing a `v*` tag runs `.github/workflows/release.yaml`. GoReleaser builds the binaries and creates the GitHub Release, then the workflow publishes the multi-arch image to `ghcr.io/linode-obs/alertmanager-route-tester`.
+Pushing a `v*` tag runs `.github/workflows/release.yaml`. GoReleaser builds the binaries and creates the GitHub Release, then the workflow publishes the multi-arch image to `ghcr.io/linode-obs/alertmanager-route-tester`. Before tagging, bump `helm/alertmanager-route-tester/Chart.yaml` `version` and `appVersion` to the git tag without the `v` prefix.
 
 1. Merge the changes to `main` and confirm CI passes.
 2. Choose the next version with [svu](https://github.com/caarlos0/svu), which reads the conventional commits since the last tag:

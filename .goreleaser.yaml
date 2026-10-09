@@ -44,4 +44,4 @@ changelog:
 release:
   github:
     owner: linode-obs
-    name: alertmanager-route-tester
+    name: alertmanager_route_tester

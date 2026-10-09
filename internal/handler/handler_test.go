@@ -61,6 +61,23 @@ type resultData struct {
 	Error                    string
 }
 
+func TestHandleHealthReturnsOKWithoutAlertmanager(t *testing.T) {
+	request := httptest.NewRequest(http.MethodGet, "http://127.0.0.1:1/healthz", nil)
+	response := httptest.NewRecorder()
+
+	HandleHealth(response, request)
+
+	if response.Code != http.StatusOK {
+		t.Errorf("HandleHealth() status = %d, want %d", response.Code, http.StatusOK)
+	}
+	if got, want := response.Body.String(), "ok\n"; got != want {
+		t.Errorf("HandleHealth() body = %q, want %q", got, want)
+	}
+	if got, want := response.Header().Get("Content-Type"), "text/plain; charset=utf-8"; got != want {
+		t.Errorf("HandleHealth() Content-Type = %q, want %q", got, want)
+	}
+}
+
 func TestNewWithClientsFromFSLoadsTemplatesWithoutWorkingDirectory(t *testing.T) {
 	templateFS := fstest.MapFS{
 		"templates/index.html":  &fstest.MapFile{Data: []byte("{{define \"index.html\"}}index{{end}}")},

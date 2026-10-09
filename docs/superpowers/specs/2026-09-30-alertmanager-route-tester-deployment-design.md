@@ -8,7 +8,7 @@ Make Alertmanager Route Tester deployable as a container through a reusable Helm
 
 ## Image
 
-Add a multi-stage Docker build that compiles the Go application and runs it as a non-root user in a minimal runtime image with system CA roots. Extend the existing release workflow to publish version-tagged images to `ghcr.io/wbollock/alertmanager-route-tester` on `v*` tags, with `latest` updated for stable tags. Do not change GHCR package visibility. This work configures publishing but does not push an image.
+Add a multi-stage Docker build that compiles the Go application and runs it as a non-root user in a minimal runtime image with system CA roots. Extend the existing release workflow to publish version-tagged images to `ghcr.io/linode-obs/alertmanager-route-tester` on `v*` tags, with `latest` updated for stable tags. Do not change GHCR package visibility. This work configures publishing but does not push an image.
 
 ## Helm chart
 

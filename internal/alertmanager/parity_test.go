@@ -21,7 +21,7 @@ import (
 
 	"gopkg.in/yaml.v3"
 
-	"github.com/wbollock/alertmanager-route-tester/internal/alertmanager"
+	"github.com/linode-obs/alertmanager-route-tester/internal/alertmanager"
 )
 
 func TestRoutingMatchesAlertmanagerDeliveries(t *testing.T) {

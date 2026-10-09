@@ -134,8 +134,8 @@ package mytest
 
 import (
 	"testing"
-	"github.com/wbollock/alertmanager-route-tester/internal/alertmanager"
-	"github.com/wbollock/alertmanager-route-tester/internal/cli"
+	"github.com/linode-obs/alertmanager-route-tester/internal/alertmanager"
+	"github.com/linode-obs/alertmanager-route-tester/internal/cli"
 )
 
 func TestCriticalAlertsAlwaysRouteToPagerDuty(t *testing.T) {

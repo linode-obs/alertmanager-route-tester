@@ -14,7 +14,7 @@ import (
 	"testing/fstest"
 	"time"
 
-	"github.com/wbollock/alertmanager-route-tester/internal/alertmanager"
+	"github.com/linode-obs/alertmanager-route-tester/internal/alertmanager"
 )
 
 // loadTemplates parses the real templates relative to the package directory so

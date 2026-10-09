@@ -19,11 +19,11 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/wbollock/alertmanager-route-tester/internal/alertmanager"
-	"github.com/wbollock/alertmanager-route-tester/internal/cli"
-	appconfig "github.com/wbollock/alertmanager-route-tester/internal/config"
-	"github.com/wbollock/alertmanager-route-tester/internal/handler"
-	"github.com/wbollock/alertmanager-route-tester/internal/telemetry"
+	"github.com/linode-obs/alertmanager-route-tester/internal/alertmanager"
+	"github.com/linode-obs/alertmanager-route-tester/internal/cli"
+	appconfig "github.com/linode-obs/alertmanager-route-tester/internal/config"
+	"github.com/linode-obs/alertmanager-route-tester/internal/handler"
+	"github.com/linode-obs/alertmanager-route-tester/internal/telemetry"
 )
 
 //go:embed templates/*.html static/*

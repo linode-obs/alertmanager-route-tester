@@ -24,7 +24,7 @@ import (
 	"go.opentelemetry.io/otel/codes"
 	"gopkg.in/yaml.v3"
 
-	"github.com/wbollock/alertmanager-route-tester/internal/telemetry"
+	"github.com/linode-obs/alertmanager-route-tester/internal/telemetry"
 )
 
 const maxAlertmanagerResponseBodyBytes int64 = 10 << 20

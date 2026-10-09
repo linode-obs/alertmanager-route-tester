@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/wbollock/alertmanager-route-tester/internal/alertmanager"
+	"github.com/linode-obs/alertmanager-route-tester/internal/alertmanager"
 )
 
 func TestPrintSuiteResultsSimpleIncludesEachCase(t *testing.T) {

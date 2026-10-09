@@ -17,8 +17,8 @@ import (
 
 	"go.opentelemetry.io/otel"
 
-	appconfig "github.com/wbollock/alertmanager-route-tester/internal/config"
-	"github.com/wbollock/alertmanager-route-tester/internal/telemetry"
+	appconfig "github.com/linode-obs/alertmanager-route-tester/internal/config"
+	"github.com/linode-obs/alertmanager-route-tester/internal/telemetry"
 )
 
 func TestAlertmanagerRequestOnlyAppliesInCLIMode(t *testing.T) {

@@ -3,14 +3,19 @@ package telemetry
 import (
 	"context"
 	"errors"
+	"fmt"
+	"net/http"
 	"os"
 	"strings"
 	"sync"
 
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"go.opentelemetry.io/contrib/exporters/autoexport"
 	"go.opentelemetry.io/contrib/propagators/autoprop"
 	"go.opentelemetry.io/otel"
 	"go.opentelemetry.io/otel/attribute"
+	otelprom "go.opentelemetry.io/otel/exporters/prometheus"
 	"go.opentelemetry.io/otel/sdk/metric"
 	"go.opentelemetry.io/otel/sdk/resource"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
@@ -34,12 +39,17 @@ func init() {
 }
 
 type Providers struct {
-	tracerProvider *sdktrace.TracerProvider
-	meterProvider  *metric.MeterProvider
-	resource       *resource.Resource
-	shutdownOnce   sync.Once
-	shutdownErr    error
+	tracerProvider    *sdktrace.TracerProvider
+	meterProvider     *metric.MeterProvider
+	resource          *resource.Resource
+	prometheusHandler http.Handler
+	shutdownOnce      sync.Once
+	shutdownErr       error
 }
+
+// emptyMetricsHandler serves a valid Prometheus exposition with no series.
+// Disabled telemetry keeps this registry empty so scrapes do not panic.
+var emptyMetricsHandler = promhttp.HandlerFor(prometheus.NewRegistry(), promhttp.HandlerOpts{})
 
 func Setup(ctx context.Context, version string) (*Providers, error) {
 	if sdkInitSuppressionError != nil {
@@ -52,7 +62,7 @@ func Setup(ctx context.Context, version string) (*Providers, error) {
 		return nil, err
 	}
 	if strings.EqualFold(strings.TrimSpace(originalSDKDisabled), "true") {
-		return &Providers{}, nil
+		return &Providers{prometheusHandler: emptyMetricsHandler}, nil
 	}
 
 	serviceResource, err := resource.New(ctx,
@@ -76,6 +86,13 @@ func Setup(ctx context.Context, version string) (*Providers, error) {
 		_ = spanExporter.Shutdown(ctx)
 		return nil, err
 	}
+	registry := prometheus.NewRegistry()
+	promExporter, err := otelprom.New(otelprom.WithRegisterer(registry))
+	if err != nil {
+		_ = spanExporter.Shutdown(ctx)
+		_ = metricReader.Shutdown(ctx)
+		return nil, fmt.Errorf("create Prometheus exporter: %w", err)
+	}
 
 	tracerProvider := sdktrace.NewTracerProvider(
 		sdktrace.WithBatcher(spanExporter),
@@ -83,6 +100,7 @@ func Setup(ctx context.Context, version string) (*Providers, error) {
 	)
 	meterProvider := metric.NewMeterProvider(
 		metric.WithReader(metricReader),
+		metric.WithReader(promExporter),
 		metric.WithResource(serviceResource),
 	)
 
@@ -91,10 +109,21 @@ func Setup(ctx context.Context, version string) (*Providers, error) {
 	otel.SetTextMapPropagator(autoprop.NewTextMapPropagator())
 
 	return &Providers{
-		tracerProvider: tracerProvider,
-		meterProvider:  meterProvider,
-		resource:       serviceResource,
+		tracerProvider:    tracerProvider,
+		meterProvider:     meterProvider,
+		resource:          serviceResource,
+		prometheusHandler: promhttp.HandlerFor(registry, promhttp.HandlerOpts{}),
 	}, nil
+}
+
+// PrometheusHandler serves Prometheus text for the metrics recorded by this
+// process. A disabled or nil Providers value still returns a handler that
+// serves an empty exposition.
+func (p *Providers) PrometheusHandler() http.Handler {
+	if p == nil || p.prometheusHandler == nil {
+		return emptyMetricsHandler
+	}
+	return p.prometheusHandler
 }
 
 func restoreOtelcEnvironment() error {

@@ -123,4 +123,16 @@ deployment_metadata=$(awk '/^spec:$/ { exit } { print }' <<<"$deployment")
 grep -Eq '^  annotations:$' <<<"$deployment_metadata"
 grep -Fq '    secret.reloader.stakater.com/reload: alertmanager-tls' <<<"$deployment_metadata"
 
+if grep -Fq 'kind: ServiceMonitor' <<<"$rendered"; then
+  echo "default chart render must not include a ServiceMonitor" >&2
+  exit 1
+fi
+
+with_service_monitor=$(helm template alertmanager-route-tester "$chart" \
+  --set serviceMonitor.enabled=true \
+  --set serviceMonitor.labels.prometheus=o11y-apps)
+grep -Fq 'kind: ServiceMonitor' <<<"$with_service_monitor"
+grep -Fq '/metrics' <<<"$with_service_monitor"
+grep -Fq 'prometheus: o11y-apps' <<<"$with_service_monitor"
+
 echo "Helm chart tests passed"

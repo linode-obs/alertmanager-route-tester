@@ -45,15 +45,18 @@ spec:
               containerPort: 8080
               protocol: TCP
           startupProbe:
-            tcpSocket:
+            httpGet:
+              path: /healthz
               port: http
             periodSeconds: 5
             failureThreshold: 12
           readinessProbe:
-            tcpSocket:
+            httpGet:
+              path: /healthz
               port: http
           livenessProbe:
-            tcpSocket:
+            httpGet:
+              path: /healthz
               port: http
           resources:
             requests:

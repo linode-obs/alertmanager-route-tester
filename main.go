@@ -161,6 +161,7 @@ func run() int {
 	h := handler.NewWithClientsFromFS(clients, names, defaultName, assets)
 	mux := http.NewServeMux()
 	mux.Handle("/static/", http.FileServer(http.FS(assets)))
+	mux.HandleFunc("/healthz", handler.HandleHealth)
 	mux.HandleFunc("/", h.HandleIndex)
 	mux.HandleFunc("/test", h.HandleTest)
 	mux.HandleFunc("/config/labels", h.HandleConfigLabels)

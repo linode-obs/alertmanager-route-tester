@@ -130,6 +130,14 @@ func (h *Handler) clientForRequest(r *http.Request) (*alertmanager.Client, strin
 	return h.selectedClient(name)
 }
 
+// HandleHealth writes HTTP 200 and a short plain-text body.
+// It does not call Alertmanager or reload configuration.
+func HandleHealth(w http.ResponseWriter, _ *http.Request) {
+	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+	w.WriteHeader(http.StatusOK)
+	_, _ = io.WriteString(w, "ok\n")
+}
+
 func (h *Handler) HandleIndex(w http.ResponseWriter, r *http.Request) {
 	client, selectedName, err := h.clientForRequest(r)
 	if err != nil {

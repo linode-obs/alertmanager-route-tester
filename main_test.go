@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -350,5 +351,15 @@ func TestServeFlushesTelemetryWithinShutdownBudget(t *testing.T) {
 	}
 	if got := exports.Load(); got != 1 {
 		t.Fatalf("OTLP trace exports = %d, want one", got)
+	}
+}
+
+func TestBinaryEmbedsTimeZoneDatabase(t *testing.T) {
+	out, err := exec.Command("go", "list", "-deps", ".").CombinedOutput()
+	if err != nil {
+		t.Fatalf("go list -deps: %v\n%s", err, out)
+	}
+	if !slices.Contains(strings.Fields(string(out)), "time/tzdata") {
+		t.Fatalf("binary does not embed time/tzdata; scratch images cannot resolve IANA zones like America/New_York")
 	}
 }

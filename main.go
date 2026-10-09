@@ -18,6 +18,7 @@ import (
 	"strings"
 	"syscall"
 	"time"
+	_ "time/tzdata"
 
 	"github.com/linode-obs/alertmanager-route-tester/internal/alertmanager"
 	"github.com/linode-obs/alertmanager-route-tester/internal/cli"

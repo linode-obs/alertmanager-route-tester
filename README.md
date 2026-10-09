@@ -1,5 +1,3 @@
-AI-generated content prepared on Will's behalf.
-
 # Alertmanager Route Tester
 
 Alertmanager Route Tester (ART) is a web app and CLI designed to help figure out where your Prometheus alerts will actually wind up in complex Alertmanager routes. It pulls Alertmanager's sanitized configuration directly from the Alertmanager API and allows the user to see exactly what receiver(s) their alerts will route to.

@@ -9,21 +9,51 @@ image:
 imagePullSecrets: []
 extraEnv: []
 
+# Helm replaces this list on override. The map form is no longer merged;
+# replace the whole list. Each entry requires name and url. matcher_mode,
+# http, retry, and pool are copied through to the app config.
 alertmanagers:
-  default:
+  - name: default
     url: http://alertmanager:9093
 
 service:
   port: 8080
 
 networkPolicy:
+  # Empty ingress is intentional default-deny. Do not flip enabled off to open traffic.
   enabled: true
   ingress: []
 
+# Requests are set so the scheduler can place the pod. Limits are omitted so a
+# namespace LimitRange can apply its own and so the chart does not throttle CPU.
 resources:
   requests:
     cpu: 10m
     memory: 64Mi
+
+# Off by default. tls.enabled is true so a Certificate renders with ingress,
+# and nothing is rendered while ingress itself is disabled.
+ingress:
+  enabled: false
+  hostname: ""
+  entryPoints:
+    - websecure
+  tls:
+    enabled: true
+    # Empty secretName renders as <release fullname>-tls.
+    secretName: ""
+    issuer:
+      name: ""
+      kind: ClusterIssuer
+  mtls:
+    enabled: false
+    clientAuthType: RequireAndVerifyClientCert
+    caSecretName: ""
+  # Used only when ingress and the NetworkPolicy are both enabled.
+  # Set namespace, podLabels, or both. The chart does not guess a namespace.
+  networkPolicy:
+    namespace: ""
+    podLabels: {}
 
 extraVolumes: []
 extraVolumeMounts: []

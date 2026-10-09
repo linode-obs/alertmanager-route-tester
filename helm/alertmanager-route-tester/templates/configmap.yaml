@@ -9,6 +9,18 @@ data:
     alertmanager-route-tester:
       server:
         enabled: true
-        listen: "0.0.0.0:8080"
+        listen: "0.0.0.0:{{ required "service.port is required" .Values.service.port }}"
     alertmanagers:
-      {{- toYaml (required "alertmanagers must contain at least one named instance" .Values.alertmanagers) | nindent 6 }}
+      {{- $alertmanagers := required "alertmanagers must contain at least one named instance" .Values.alertmanagers }}
+      {{- if not (kindIs "slice" $alertmanagers) }}
+      {{- fail "alertmanagers must be a list of {name, url} entries; the map form is no longer merged and the whole list must be replaced" }}
+      {{- end }}
+      {{- if eq (len $alertmanagers) 0 }}
+      {{- fail "alertmanagers must contain at least one named instance" }}
+      {{- end }}
+      {{- range $alertmanagers }}
+      {{- $name := required "each alertmanagers entry requires a name" .name }}
+      {{- $_ := required (printf "alertmanagers.%s.url is required" $name) .url }}
+      {{- $name | nindent 6 }}:
+        {{- omit . "name" | toYaml | nindent 8 }}
+      {{- end }}

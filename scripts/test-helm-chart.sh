@@ -188,6 +188,15 @@ if helm template alertmanager-route-tester "$chart" \
   exit 1
 fi
 
+if helm template alertmanager-route-tester "$chart" \
+  --set ingress.enabled=true \
+  --set-string 'ingress.hostname=bad`host.example.com' \
+  --set ingress.tls.issuer.name=letsencrypt-prod \
+  --set ingress.networkPolicy.namespace=traefik >/dev/null 2>&1; then
+  echo "ingress hostname with a backtick must fail helm template" >&2
+  exit 1
+fi
+
 if grep -Fq 'source: extra-object-test' <<<"$rendered"; then
   echo "empty extraObjects must not render resources" >&2
   exit 1

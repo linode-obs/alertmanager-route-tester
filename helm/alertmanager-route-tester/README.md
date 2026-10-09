@@ -155,7 +155,7 @@ imagePullSecrets:
 
 Create the referenced TLS Secret and image-pull Secret outside the chart. Keep private-key bytes out of chart values, and configure `cert_file` and `key_file` as paths to the mounted Secret files. Do not put credentials in Alertmanager URLs. The application logs the configured URL, which would expose URL credentials in logs.
 
-An empty `image.tag` uses `Chart.appVersion`. Set `image.tag` to override that tag. `image.pullPolicy` defaults to `IfNotPresent`. The next release must bump `Chart.yaml` `version` and `appVersion` to the git tag without the `v` prefix. The GHCR package may still require the `imagePullSecrets` entry above unless its visibility is public.
+An empty `image.tag` uses `Chart.appVersion`. Set `image.tag` to override that tag. `image.pullPolicy` defaults to `IfNotPresent`. The next release must set `Chart.yaml` `appVersion` to the git tag without the `v` prefix. Bump chart `version` separately when the chart changes. The chart is `0.2.0` because `alertmanagers` is now a list instead of a merged map. The GHCR package may still require the `imagePullSecrets` entry above unless its visibility is public.
 
 `Chart.appVersion` `0.1.1` matches the published image. That image does not serve `/healthz` or `/metrics`. Build an image from this commit, or set `image.tag` to the next release, before upgrading a deployment that still runs `0.1.1`.
 

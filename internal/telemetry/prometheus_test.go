@@ -108,7 +108,11 @@ func scrapeMetrics(t *testing.T, providers *Providers) (body string, contentType
 	if err != nil {
 		t.Fatalf("GET /metrics error = %v", err)
 	}
-	defer response.Body.Close()
+	defer func() {
+		if err := response.Body.Close(); err != nil {
+			t.Errorf("close /metrics body: %v", err)
+		}
+	}()
 	payload, err := io.ReadAll(response.Body)
 	if err != nil {
 		t.Fatalf("read /metrics body: %v", err)
@@ -122,6 +126,7 @@ func runTelemetryChild(t *testing.T, testName string, extraEnv []string) {
 	if err != nil {
 		t.Fatalf("os.Executable() error = %v", err)
 	}
+	// #nosec G204 -- executable is this test binary and testName selects a test in this file.
 	command := exec.Command(executable, "-test.run=^"+testName+"$")
 	command.Env = telemetryChildEnv(extraEnv)
 	output, err := command.CombinedOutput()

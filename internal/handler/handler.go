@@ -135,7 +135,9 @@ func (h *Handler) clientForRequest(r *http.Request) (*alertmanager.Client, strin
 func HandleHealth(w http.ResponseWriter, _ *http.Request) {
 	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 	w.WriteHeader(http.StatusOK)
-	_, _ = io.WriteString(w, "ok\n")
+	if _, err := io.WriteString(w, "ok\n"); err != nil {
+		return
+	}
 }
 
 func (h *Handler) HandleIndex(w http.ResponseWriter, r *http.Request) {

@@ -65,14 +65,7 @@ func Setup(ctx context.Context, version string) (*Providers, error) {
 		return &Providers{prometheusHandler: emptyMetricsHandler}, nil
 	}
 
-	serviceResource, err := resource.New(ctx,
-		resource.WithAttributes(
-			attribute.String("service.name", "alertmanager-route-tester"),
-			attribute.String("service.version", version),
-		),
-		resource.WithFromEnv(),
-		resource.WithTelemetrySDK(),
-	)
+	serviceResource, err := newServiceResource(ctx, version)
 	if err != nil {
 		return nil, err
 	}
@@ -86,12 +79,11 @@ func Setup(ctx context.Context, version string) (*Providers, error) {
 		_ = spanExporter.Shutdown(ctx)
 		return nil, err
 	}
-	registry := prometheus.NewRegistry()
-	promExporter, err := otelprom.New(otelprom.WithRegisterer(registry))
+	promExporter, promHandler, err := newPrometheusExporter()
 	if err != nil {
 		_ = spanExporter.Shutdown(ctx)
 		_ = metricReader.Shutdown(ctx)
-		return nil, fmt.Errorf("create Prometheus exporter: %w", err)
+		return nil, err
 	}
 
 	tracerProvider := sdktrace.NewTracerProvider(
@@ -112,8 +104,28 @@ func Setup(ctx context.Context, version string) (*Providers, error) {
 		tracerProvider:    tracerProvider,
 		meterProvider:     meterProvider,
 		resource:          serviceResource,
-		prometheusHandler: promhttp.HandlerFor(registry, promhttp.HandlerOpts{}),
+		prometheusHandler: promHandler,
 	}, nil
+}
+
+func newServiceResource(ctx context.Context, version string) (*resource.Resource, error) {
+	return resource.New(ctx,
+		resource.WithAttributes(
+			attribute.String("service.name", "alertmanager-route-tester"),
+			attribute.String("service.version", version),
+		),
+		resource.WithFromEnv(),
+		resource.WithTelemetrySDK(),
+	)
+}
+
+func newPrometheusExporter() (metric.Reader, http.Handler, error) {
+	registry := prometheus.NewRegistry()
+	exporter, err := otelprom.New(otelprom.WithRegisterer(registry))
+	if err != nil {
+		return nil, nil, fmt.Errorf("create Prometheus exporter: %w", err)
+	}
+	return exporter, promhttp.HandlerFor(registry, promhttp.HandlerOpts{}), nil
 }
 
 // PrometheusHandler serves Prometheus text for the metrics recorded by this

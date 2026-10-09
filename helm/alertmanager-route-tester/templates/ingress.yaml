@@ -1,5 +1,8 @@
 {{- if .Values.ingress.enabled }}
 {{- $hostname := required "ingress.hostname is required when ingress.enabled is true" .Values.ingress.hostname }}
+{{- if or (contains "`" $hostname) (contains "\n" $hostname) }}
+{{- fail "ingress.hostname must be a single host and must not contain a backtick" }}
+{{- end }}
 {{- $fullname := include "alertmanager-route-tester.fullname" . }}
 {{- $tls := .Values.ingress.tls | default dict }}
 {{- $mtls := .Values.ingress.mtls | default dict }}

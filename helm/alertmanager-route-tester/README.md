@@ -25,13 +25,27 @@ extraEnv:
 
 The chart does not install a Collector. See [OpenTelemetry setup](../../docs/opentelemetry.md) for common OTEL variables and a Collector example.
 
-`/metrics` is served on the application port in Prometheus text format. The ServiceMonitor is off by default so clusters without the Prometheus Operator CRD still install. Set `serviceMonitor.labels` to the labels the cluster Prometheus selects. Because the chart's default NetworkPolicy denies all ingress, also configure `networkPolicy.ingress` to allow the Prometheus pods to reach the application port.
+`/metrics` is served on the application port in Prometheus text format. The ServiceMonitor is off by default so clusters without the Prometheus Operator CRD still install. Set `serviceMonitor.labels` to the labels the cluster Prometheus selects. Enabling the ServiceMonitor does not change the NetworkPolicy. The default policy denies all ingress, so scrapes fail until `networkPolicy.ingress` allows the Prometheus pods on `service.port`.
 
 ```yaml
 serviceMonitor:
   enabled: true
   labels:
     prometheus: o11y-apps
+
+networkPolicy:
+  enabled: true
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: monitoring
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: prometheus
+      ports:
+        - protocol: TCP
+          port: 8080
 ```
 
 Use `extraObjects` to render additional Kubernetes objects with this release. Each entry is templated, so object names can use the release name and chart helpers. Helm replaces lists when a later values file defines `extraObjects`, so overlays must supply the complete list. Use external secret controllers or encrypted Secret resources instead of storing plaintext credentials in values.

@@ -16,6 +16,8 @@ alertmanagers:
 service:
   port: 8080
 
+# Enabling this does not open the default-deny NetworkPolicy. Allow the
+# Prometheus pods in networkPolicy.ingress or scrapes are denied.
 serviceMonitor:
   enabled: false
   interval: 30s

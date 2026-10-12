@@ -34,7 +34,7 @@ The app does not add alert labels, receiver names, request IDs, or URL credentia
 
 The same HTTP listener serves Prometheus text format on `/metrics`. The series correspond to the existing counters: `http_server_requests_total`, `alertmanager_config_fetches_total`, `alertmanager_failures_total`, `alertmanager_cache_accesses_total`, `alertmanager_retries_total`, and `route_evaluations_total`.
 
-The Helm chart ServiceMonitor is optional and off by default, so clusters without the Prometheus Operator CRD still install. Enable `serviceMonitor` and set its labels to the cluster Prometheus selector, for example `prometheus: o11y-apps`.
+The Helm chart ServiceMonitor is optional and off by default, so clusters without the Prometheus Operator CRD still install. Enable `serviceMonitor` and set its labels to the cluster Prometheus selector, for example `prometheus: o11y-apps`. Enabling it does not open the chart's default-deny NetworkPolicy. Allow the Prometheus pods in `networkPolicy.ingress` or the scrape is denied.
 
 ## Kubernetes Helm values
 

@@ -119,5 +119,6 @@ with_service_monitor=$(helm template alertmanager-route-tester "$chart" \
 grep -Fq 'kind: ServiceMonitor' <<<"$with_service_monitor"
 grep -Fq '/metrics' <<<"$with_service_monitor"
 grep -Fq 'prometheus: o11y-apps' <<<"$with_service_monitor"
+grep -Fq '    []' <<<"$with_service_monitor"
 
 echo "Helm chart tests passed"

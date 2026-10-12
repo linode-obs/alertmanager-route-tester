@@ -25,7 +25,7 @@ extraEnv:
 
 The chart does not install a Collector. See [OpenTelemetry setup](../../docs/opentelemetry.md) for common OTEL variables and a Collector example.
 
-`/metrics` is served on the application port in Prometheus text format. The ServiceMonitor is off by default so clusters without the Prometheus Operator CRD still install. Set `serviceMonitor.labels` to the labels the cluster Prometheus selects.
+`/metrics` is served on the application port in Prometheus text format. The ServiceMonitor is off by default so clusters without the Prometheus Operator CRD still install. Set `serviceMonitor.labels` to the labels the cluster Prometheus selects. Because the chart's default NetworkPolicy denies all ingress, also configure `networkPolicy.ingress` to allow the Prometheus pods to reach the application port.
 
 ```yaml
 serviceMonitor:

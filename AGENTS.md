@@ -59,7 +59,7 @@ Tests use real Alertmanager routing logic without mocks. Run with:
 mise run test
 ```
 
-`mise run test` rebuilds `bin/alertmanager-route-tester` with `otelc` first. If you run `go test ./...` directly, rebuild the binary with `mise run build` beforehand, or the telemetry integration test fails.
+`mise run test` rebuilds `bin/alertmanager-route-tester` with `otelc` first. If you run `go test ./...` directly, run `mise run build` beforehand; otherwise the telemetry integration tests are skipped when the binary is absent or may exercise a stale or uninstrumented binary.
 
 ## Connecting to Real Alertmanager
 

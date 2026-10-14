@@ -131,7 +131,9 @@
         </div>
         {{end}}
         {{if .RouteMismatches}}
-            <div class="route-mismatch-list">
+        <details class="result-details route-mismatch-details">
+            <summary>Expand: {{if .DefaultRoot}}Why no child route matched{{else}}Why other routes did not match{{end}}</summary>
+            <div class="route-mismatch-list result-section">
                 <h3>{{if .DefaultRoot}}Why no child route matched{{else}}Why other routes did not match{{end}}</h3>
                 <p class="route-explanation">These route matchers failed. Every matcher on a route must match.</p>
                 {{if gt .RouteMismatchesOmitted 0}}
@@ -156,6 +158,7 @@
                     {{end}}
                 </div>
             </div>
+        </details>
         {{end}}
 
         {{if .ReceiverConfig}}

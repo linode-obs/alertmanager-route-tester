@@ -1166,6 +1166,39 @@ func TestResultTemplateRendersDefaultRoot(t *testing.T) {
 	}
 }
 
+func TestResultTemplateCollapsesRouteMismatchesByDefault(t *testing.T) {
+	tmpl := loadTemplates(t)
+	data := resultData{
+		Receiver:    "default",
+		DefaultRoot: true,
+		RouteMismatches: []alertmanager.RouteMismatch{{
+			Route: &alertmanager.Route{Receiver: "pagerduty-critical"},
+			FailedMatchers: []alertmanager.MatcherFailure{
+				{Label: "severity", Operator: "=", Expected: "critical", Missing: true},
+			},
+		}},
+	}
+
+	var buf bytes.Buffer
+	if err := tmpl.ExecuteTemplate(&buf, "result.html", data); err != nil {
+		t.Fatalf("result.html failed to render: %v", err)
+	}
+	output := buf.String()
+
+	detailsStart := strings.Index(output, `<details class="result-details route-mismatch-details">`)
+	if detailsStart < 0 {
+		t.Fatal("route mismatches are not inside a disclosure")
+	}
+	detailsTagEnd := strings.Index(output[detailsStart:], ">") + detailsStart
+	if strings.Contains(output[detailsStart:detailsTagEnd], " open") {
+		t.Fatal("route mismatch disclosure is open by default")
+	}
+	heading := strings.Index(output, "Why no child route matched")
+	if heading < detailsStart {
+		t.Fatal("mismatch heading must be inside the collapsed disclosure")
+	}
+}
+
 func TestResultTemplateExplainsFailedRouteMatchers(t *testing.T) {
 	tmpl := loadTemplates(t)
 	data := resultData{

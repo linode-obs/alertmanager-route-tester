@@ -4,4 +4,4 @@ name: alertmanager-route-tester
 description: Test Prometheus alerts against Alertmanager routing configuration
 type: application
 version: 0.1.2
-appVersion: "0.1.1"
+appVersion: "0.1.2"

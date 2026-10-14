@@ -8,7 +8,7 @@ spec:
   type: ClusterIP
   ports:
     - name: http
-      port: {{ .Values.service.port }}
+      port: {{ include "alertmanager-route-tester.listenPort" . }}
       targetPort: http
       protocol: TCP
   selector:

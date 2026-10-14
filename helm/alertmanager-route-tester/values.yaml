@@ -9,10 +9,15 @@ image:
 imagePullSecrets: []
 extraEnv: []
 
+# Helm replaces this list on override. The map form is no longer merged;
+# replace the whole list. Each entry requires name and url. matcher_mode,
+# http, retry, and pool are copied through to the app config.
 alertmanagers:
-  default:
+  - name: default
     url: http://alertmanager:9093
 
+# 1024-65535. The container runs as UID 65532 and drops all capabilities,
+# so a privileged port fails at render time.
 service:
   port: 8080
 
@@ -26,13 +31,48 @@ serviceMonitor:
   path: /metrics
 
 networkPolicy:
+  # Empty ingress is intentional default-deny. Do not flip enabled off to open traffic.
   enabled: true
   ingress: []
 
+# Requests are set so the scheduler can place the pod. Limits are omitted so a
+# namespace LimitRange can apply its own and so the chart does not throttle CPU.
 resources:
   requests:
     cpu: 10m
     memory: 64Mi
+
+# Renders a plain Kubernetes Ingress. Leave enabled false unless an Ingress
+# controller is installed. This chart does not generate any
+# controller-specific or cert-manager-specific annotations and does not
+# render a Certificate or any Traefik CRD object (e.g. TLSOption) itself:
+# add those entirely via ingress.annotations (and, for things that need a
+# separate object such as a Traefik TLSOption for mTLS, via the top-level
+# extraObjects list). See the README for worked examples of both.
+ingress:
+  enabled: false
+  className: traefik
+  hostname: ""
+  # Add any annotations your ingress controller and/or cert-manager need
+  # here, e.g. cert-manager.io/cluster-issuer, or Traefik's
+  # traefik.ingress.kubernetes.io/router.* annotations. These are rendered
+  # as-is; the chart does not add, infer, or merge any annotations of its
+  # own.
+  annotations: {}
+  tls:
+    enabled: true
+    # Empty secretName renders as <release fullname>-tls. Pairing this with
+    # a cert-manager annotation above makes cert-manager create the
+    # Certificate automatically; no Certificate object is rendered by this
+    # chart.
+    secretName: ""
+  # Used only when ingress and the NetworkPolicy are both enabled. Set
+  # namespace, podLabels, or both. podLabels alone match those labels in
+  # every namespace. Set namespace to limit the match. The chart does not
+  # guess a controller namespace.
+  networkPolicy:
+    namespace: ""
+    podLabels: {}
 
 extraVolumes: []
 extraVolumeMounts: []

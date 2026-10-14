@@ -1012,6 +1012,11 @@ func TestResultTemplateShowsRouteRulesLeadingToSelectedReceivers(t *testing.T) {
 			if strings.Contains(output[source:arrow], `class="route-flow-rule-conditions"`) {
 				t.Error("matched route rules repeat conditions that the route ladder already shows")
 			}
+			for _, step := range tt.data.RouteSteps {
+				if !strings.Contains(output[source:arrow], `<span class="route-flow-rule-receiver">`+step.Receiver+`</span>`) {
+					t.Errorf("matched route rule for receiver %q is not rendered in the rules column", step.Receiver)
+				}
+			}
 		})
 	}
 }

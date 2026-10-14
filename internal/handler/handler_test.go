@@ -825,7 +825,7 @@ func TestHandleTestRendersMatchedLabelValues(t *testing.T) {
 	if response.Code != http.StatusOK {
 		t.Fatalf("status = %d, want %d: %s", response.Code, http.StatusOK, response.Body.String())
 	}
-	for _, want := range []string{`service =~ &#34;^(?:api|web)$&#34; matched actual value <code>&#34;api&#34;</code>`, `region =~ &#34;us-.*&#34; matched actual value <code>&#34;us-east&#34;</code>`} {
+	for _, want := range []string{`<td><code>&#34;api&#34;</code></td>`, `<td><code>&#34;us-east&#34;</code></td>`} {
 		if !strings.Contains(response.Body.String(), want) {
 			t.Errorf("response = %q, want %q", response.Body.String(), want)
 		}
@@ -896,7 +896,6 @@ func TestResultTemplateShowsRouteRulesLeadingToSelectedReceivers(t *testing.T) {
 		name                     string
 		data                     resultData
 		wantCounts               []string
-		wantConditions           []string
 		wantReceivers            []string
 		wantPrimaryHeading       string
 		wantPrimaryCount         string
@@ -914,7 +913,6 @@ func TestResultTemplateShowsRouteRulesLeadingToSelectedReceivers(t *testing.T) {
 				MatchedReceiverSummaries: []ReceiverSummary{{Name: "team-platform", IsFinal: true}},
 			},
 			wantCounts:               []string{"2 matched route rules", "1 selected receiver"},
-			wantConditions:           []string{`cluster=&#34;prod-west&#34;`, `team=&#34;platform&#34;`},
 			wantReceivers:            []string{"team-platform"},
 			wantPrimaryHeading:       "Selected receiver",
 			wantPrimaryCount:         "1 selected receiver",
@@ -935,7 +933,6 @@ func TestResultTemplateShowsRouteRulesLeadingToSelectedReceivers(t *testing.T) {
 				},
 			},
 			wantCounts:               []string{"2 matched route rules", "2 selected receivers"},
-			wantConditions:           []string{`severity=&#34;warning&#34;`, `team=&#34;monitoring&#34;`},
 			wantReceivers:            []string{"slack-warnings", "monitoring-team"},
 			wantPrimaryHeading:       "Selected receivers",
 			wantPrimaryCount:         "2 selected receivers",
@@ -1012,10 +1009,8 @@ func TestResultTemplateShowsRouteRulesLeadingToSelectedReceivers(t *testing.T) {
 			if source < 0 || arrow <= source || destination <= arrow || ladder <= destination {
 				t.Fatalf("route flow positions = source %d, arrow %d, destination %d, ladder %d; want rules → receivers → ladder", source, arrow, destination, ladder)
 			}
-			for _, condition := range tt.wantConditions {
-				if !strings.Contains(output[source:arrow], condition) {
-					t.Errorf("matched route rules do not contain condition %q", condition)
-				}
+			if strings.Contains(output[source:arrow], `class="route-flow-rule-conditions"`) {
+				t.Error("matched route rules repeat conditions that the route ladder already shows")
 			}
 		})
 	}
@@ -1163,6 +1158,46 @@ func TestResultTemplateRendersDefaultRoot(t *testing.T) {
 	}
 	if strings.Contains(output, `class="route-outcome-flow"`) {
 		t.Error("default root repeats its selected receiver in the route flow")
+	}
+}
+
+func TestResultTemplateShowsMatchedLabelValuesAsTable(t *testing.T) {
+	tmpl := loadTemplates(t)
+	data := resultData{
+		Receiver: "pagerduty-critical",
+		RouteSteps: []RouteStep{{
+			Index:    1,
+			Receiver: "pagerduty-critical",
+			Match:    map[string]string{"severity": "critical"},
+			MatcherResults: []alertmanager.MatcherResult{
+				{Label: "severity", Operator: "=", Expected: "critical", Actual: "critical"},
+				{Label: "team", Operator: "=", Expected: "platform", Missing: true},
+			},
+			IsFinal:     true,
+			IsEffective: true,
+		}},
+		MatchedReceiverSummaries: []ReceiverSummary{{Name: "pagerduty-critical", IsFinal: true}},
+	}
+
+	var buf bytes.Buffer
+	if err := tmpl.ExecuteTemplate(&buf, "result.html", data); err != nil {
+		t.Fatalf("result.html failed to render: %v", err)
+	}
+	output := buf.String()
+	if strings.Contains(output, "matched actual value") {
+		t.Error("matched label values are still written as sentences")
+	}
+	if got := strings.Count(output, `<table class="matcher-table">`); got != 1 {
+		t.Fatalf("matcher tables = %d, want 1", got)
+	}
+	for _, want := range []string{
+		`<th>Label</th><th>Operator</th><th>Expected</th><th>Actual</th>`,
+		`<td><code>severity</code></td><td>=</td><td><code>&#34;critical&#34;</code></td><td><code>&#34;critical&#34;</code></td>`,
+		`<td><code>team</code></td><td>=</td><td><code>&#34;platform&#34;</code></td><td>missing</td>`,
+	} {
+		if !strings.Contains(output, want) {
+			t.Errorf("matcher table does not contain %q", want)
+		}
 	}
 }
 
@@ -1488,7 +1523,7 @@ func TestResultTemplateHighlightsReceiverAndCollapsesRouteExplanation(t *testing
 	if detailsTagEnd <= detailsStart || strings.Contains(output[detailsStart:detailsTagEnd], " open") {
 		t.Fatal("route disclosure is open by default")
 	}
-	condition := strings.Index(output, `cluster=&#34;prod-west&#34;`)
+	condition := strings.Index(output, `<span class="trace-kv">cluster=prod-west</span>`)
 	ladder := strings.Index(output, `class="route-ladder route-trace"`)
 	if condition < detailsStart || ladder < detailsStart {
 		t.Fatal("matched conditions and route ladder must be inside the collapsed disclosure")

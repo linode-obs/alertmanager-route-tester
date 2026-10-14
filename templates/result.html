@@ -45,27 +45,7 @@
                     {{range .RouteSteps}}
                     <div class="route-flow-rule">
                         <span class="route-flow-rule-index">#{{.Index}}</span>
-                        <div class="route-flow-rule-conditions">
-                            {{if .Match}}
-                            {{range $key, $value := .Match}}
-                            <code>{{$key}}={{printf "%q" $value}}</code>
-                            {{end}}
-                            {{end}}
-                            {{if .MatchRE}}
-                            {{range $key, $value := .MatchRE}}
-                            <code>{{$key}}=~{{printf "%q" $value}}</code>
-                            {{end}}
-                            {{end}}
-                            {{range .Matchers}}
-                            <code>{{.}}</code>
-                            {{end}}
-                            {{if not (or .Match .MatchRE .Matchers)}}
-                            <span class="route-flow-no-conditions">No explicit conditions</span>
-                            {{end}}
-                            {{range .MatcherResults}}
-                            <span class="route-flow-actual">{{.Label}} {{.Operator}} {{printf "%q" .Expected}} matched actual value <code>{{if .Missing}}missing{{else}}{{printf "%q" .Actual}}{{end}}</code></span>
-                            {{end}}
-                        </div>
+                        <span class="route-flow-rule-receiver">{{.Receiver}}</span>
                     </div>
                     {{end}}
                 </div>
@@ -367,9 +347,14 @@ repeat_interval: {{.Route.RepeatInterval}}{{end}}</pre>
                     <div class="trace-block">
                         <div class="trace-title">Matched label values</div>
                         <div class="trace-content">
-                            {{range .MatcherResults}}
-                            <span class="trace-kv">{{.Label}} {{.Operator}} {{printf "%q" .Expected}} matched actual value {{if .Missing}}missing{{else}}{{printf "%q" .Actual}}{{end}}</span>
-                            {{end}}
+                            <table class="matcher-table">
+                                <thead><tr><th>Label</th><th>Operator</th><th>Expected</th><th>Actual</th></tr></thead>
+                                <tbody>
+                                {{range .MatcherResults}}
+                                <tr><td><code>{{.Label}}</code></td><td>{{.Operator}}</td><td><code>{{printf "%q" .Expected}}</code></td><td>{{if .Missing}}missing{{else}}<code>{{printf "%q" .Actual}}</code>{{end}}</td></tr>
+                                {{end}}
+                                </tbody>
+                            </table>
                         </div>
                     </div>
                     {{end}}

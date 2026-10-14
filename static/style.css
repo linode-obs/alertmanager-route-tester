@@ -2874,25 +2874,39 @@ html[data-theme="light"] .trace-row.trace-final .trace-meta {
     font-size: 0.65rem;
 }
 
-.route-flow-rule-conditions {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 4px;
+.route-flow-rule-receiver {
     min-width: 0;
+    overflow-wrap: anywhere;
+    font-size: 0.85rem;
+    font-weight: 600;
 }
 
-.route-flow-rule-conditions code {
-    padding: 2px 4px;
-    border: 1px solid var(--border-color);
-    border-radius: 4px;
-    background: var(--panel-bg);
-    color: var(--text-color);
+.matcher-table {
+    width: 100%;
+    margin-top: 6px;
+    border-collapse: collapse;
+    font-size: 0.8rem;
+}
+
+.matcher-table th,
+.matcher-table td {
+    padding: 4px 6px;
+    border-bottom: 1px solid var(--border-color);
+    text-align: left;
+    vertical-align: top;
+}
+
+.matcher-table th {
+    color: var(--text-muted);
+    font-weight: 600;
+}
+
+.matcher-table code {
     font-family: var(--font-mono);
-    font-size: 0.68rem;
+    font-size: 0.75rem;
     overflow-wrap: anywhere;
 }
 
-.route-flow-no-conditions,
 .route-flow-empty {
     color: var(--text-muted);
     font-size: 0.78rem;

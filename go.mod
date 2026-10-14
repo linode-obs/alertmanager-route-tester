@@ -4,10 +4,12 @@ go 1.27
 
 require (
 	github.com/prometheus/alertmanager v0.33.0
+	github.com/prometheus/client_golang v1.24.1
 	github.com/prometheus/common v0.70.1
 	go.opentelemetry.io/contrib/exporters/autoexport v0.71.0
 	go.opentelemetry.io/contrib/propagators/autoprop v0.71.0
 	go.opentelemetry.io/otel v1.46.0
+	go.opentelemetry.io/otel/exporters/prometheus v0.68.0
 	go.opentelemetry.io/otel/metric v1.46.0
 	go.opentelemetry.io/otel/sdk v1.46.0
 	go.opentelemetry.io/otel/sdk/metric v1.46.0
@@ -69,7 +71,6 @@ require (
 	github.com/oklog/run v1.2.0 // indirect
 	github.com/oklog/ulid/v2 v2.1.1 // indirect
 	github.com/pierrec/lz4/v4 v4.1.26 // indirect
-	github.com/prometheus/client_golang v1.24.1 // indirect
 	github.com/prometheus/client_model v0.6.2 // indirect
 	github.com/prometheus/exporter-toolkit v0.16.0 // indirect
 	github.com/prometheus/otlptranslator v1.0.0 // indirect
@@ -97,7 +98,6 @@ require (
 	go.opentelemetry.io/otel/exporters/otlp/otlptrace v1.46.0 // indirect
 	go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracegrpc v1.46.0 // indirect
 	go.opentelemetry.io/otel/exporters/otlp/otlptrace/otlptracehttp v1.46.0 // indirect
-	go.opentelemetry.io/otel/exporters/prometheus v0.68.0 // indirect
 	go.opentelemetry.io/otel/exporters/stdout/stdoutlog v0.22.0 // indirect
 	go.opentelemetry.io/otel/exporters/stdout/stdoutmetric v1.46.0 // indirect
 	go.opentelemetry.io/otel/exporters/stdout/stdouttrace v1.46.0 // indirect

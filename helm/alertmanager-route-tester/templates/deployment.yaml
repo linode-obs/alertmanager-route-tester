@@ -42,7 +42,7 @@ spec:
             - /etc/alertmanager-route-tester/config.yaml
           ports:
             - name: http
-              containerPort: 8080
+              containerPort: {{ include "alertmanager-route-tester.listenPort" . }}
               protocol: TCP
           startupProbe:
             httpGet:

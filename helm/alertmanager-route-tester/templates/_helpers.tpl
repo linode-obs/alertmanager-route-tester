@@ -22,3 +22,11 @@ app.kubernetes.io/managed-by: {{ .Release.Service }}
 app.kubernetes.io/name: {{ include "alertmanager-route-tester.name" . }}
 app.kubernetes.io/instance: {{ .Release.Name }}
 {{- end }}
+
+{{- define "alertmanager-route-tester.listenPort" -}}
+{{- $port := .Values.service.port | int -}}
+{{- if or (lt $port 1024) (gt $port 65535) -}}
+{{- fail (printf "service.port must be from 1024 through 65535; the container runs as UID 65532 and cannot bind a privileged port (got %v)" .Values.service.port) -}}
+{{- end -}}
+{{- $port -}}
+{{- end }}

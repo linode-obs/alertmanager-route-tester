@@ -112,6 +112,14 @@
                 </div>
                 {{end}}
 
+                <div class="recent-label-controls">
+                    <label for="recent-labels">Recent alert labels</label>
+                    <select id="recent-labels" onchange="loadRecentLabels(this.value)">
+                        <option value="">Choose a previous test</option>
+                    </select>
+                    <button id="clear-recent-labels" type="button" class="btn-secondary" onclick="clearRecentLabels()">Clear recent labels</button>
+                </div>
+
                 <div class="input-mode-toggle">
                     <button id="ui-mode-btn" class="active" aria-pressed="true" title="Build labels with key and value fields" onclick="switchMode('ui')">Label editor</button>
                     <button id="raw-mode-btn" aria-pressed="false" title="Paste labels as YAML" onclick="switchMode('raw')">Paste YAML</button>
@@ -194,7 +202,7 @@ team: platform'></textarea>
         const emptyLabelsMessage = document.querySelector('#current-labels .no-labels-text');
 
         // Label suggestions from config
-        const labelSuggestions = {
+        let labelSuggestions = {
             {{range $suggestion := .LabelSuggestions}}
             "{{$suggestion.Key}}": [{{range $i, $value := $suggestion.Values}}{{if $i}}, {{end}}"{{$value}}"{{end}}],
             {{end}}
@@ -249,9 +257,83 @@ team: platform'></textarea>
         window.addEventListener('beforeunload', saveEditorState);
         document.getElementById('raw-input').addEventListener('input', saveEditorState);
 
+        const historyStorageName = `art:recent:${selectedAlertmanager}`;
+        let recentLabelSets = [];
+        let submittedLabels = null;
+        let suggestionRequest = 0;
+
+        function renderRecentLabels() {
+            const select = document.getElementById('recent-labels');
+            select.replaceChildren(new Option('Choose a previous test', ''));
+            recentLabelSets.forEach((labels, index) => {
+                const description = Object.entries(labels).map(([name, value]) => `${name}=${value}`).join(', ') || 'No labels';
+                select.add(new Option(description, String(index)));
+            });
+        }
+
+        function loadRecentLabels(index) {
+            if (index === '' || !recentLabelSets[index]) return;
+            currentLabels = { ...recentLabelSets[index] };
+            renderLabels();
+            switchMode('ui');
+        }
+
+        function clearRecentLabels() {
+            recentLabelSets = [];
+            try { sessionStorage.removeItem(historyStorageName); } catch (error) {}
+            renderRecentLabels();
+        }
+
+        function labelSetIdentity(labels) {
+            return JSON.stringify(Object.entries(labels).sort(([a], [b]) => a.localeCompare(b)));
+        }
+
+        document.getElementById('alert-form').addEventListener('htmx:afterRequest', event => {
+            if (!event.detail.successful || !submittedLabels || !document.querySelector('#result .result-success')) return;
+            const identity = labelSetIdentity(submittedLabels);
+            recentLabelSets = [submittedLabels, ...recentLabelSets.filter(labels => labelSetIdentity(labels) !== identity)].slice(0, 10);
+            try { sessionStorage.setItem(historyStorageName, JSON.stringify(recentLabelSets)); } catch (error) {}
+            renderRecentLabels();
+        });
+
+        function renderValueSuggestions() {
+            const values = document.getElementById('current-values');
+            values.replaceChildren();
+            (labelSuggestions[document.getElementById('label-key-input').value] || []).forEach(value => values.appendChild(new Option(value)));
+        }
+
+        async function refreshLabelSuggestions() {
+            const request = ++suggestionRequest;
+            const labels = { ...currentLabels };
+            delete labels[document.getElementById('label-key-input').value];
+            try {
+                const response = await fetch('/labels/suggestions', {
+                    method: 'POST', headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({labels, alertmanager: selectedAlertmanager}),
+                });
+                if (!response.ok) return;
+                const suggestions = await response.json();
+                if (request !== suggestionRequest) return;
+                labelSuggestions = Object.fromEntries(suggestions.map(item => [item.key, item.values]));
+                const names = document.getElementById('all-keys');
+                names.replaceChildren();
+                suggestions.forEach(item => names.appendChild(new Option(item.key)));
+                renderValueSuggestions();
+            } catch (error) {
+                // Suggestions are optional. Manual input remains available.
+            }
+        }
+
+        try {
+            const saved = JSON.parse(sessionStorage.getItem(historyStorageName));
+            if (Array.isArray(saved)) recentLabelSets = saved.slice(0, 10).map(labels => decodeSharedLabels(encodeSharedLabels(labels)));
+        } catch (error) {}
+        renderRecentLabels();
+
         // Render labels as badges
         function renderLabels() {
             saveEditorState();
+            refreshLabelSuggestions();
             const container = document.getElementById('current-labels');
             container.replaceChildren();
 
@@ -361,18 +443,9 @@ team: platform'></textarea>
         }
 
         // Update value suggestions when key changes
-        document.getElementById('label-key-input').addEventListener('input', function(e) {
-            const key = e.target.value;
-            const valueDatalist = document.getElementById('current-values');
-            valueDatalist.innerHTML = '';
-
-            if (labelSuggestions[key]) {
-                labelSuggestions[key].forEach(val => {
-                    const option = document.createElement('option');
-                    option.value = val;
-                    valueDatalist.appendChild(option);
-                });
-            }
+        document.getElementById('label-key-input').addEventListener('input', function() {
+            renderValueSuggestions();
+            refreshLabelSuggestions();
         });
 
         // Allow Enter key to add label
@@ -447,6 +520,7 @@ team: platform'></textarea>
 
         // Form submission: create hidden inputs for labels
         document.getElementById('alert-form').addEventListener('submit', function(e) {
+            submittedLabels = { ...currentLabels };
             // Remove any existing hidden inputs
             document.querySelectorAll('.label-hidden-input').forEach(el => el.remove());
 

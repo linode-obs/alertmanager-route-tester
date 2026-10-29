@@ -704,8 +704,8 @@ func (c *Client) FindReceiverByName(name string, config *Config) *Receiver {
 }
 
 type LabelSuggestion struct {
-	Key    string
-	Values []string
+	Key    string   `json:"key"`
+	Values []string `json:"values"`
 }
 
 type SampleAlert struct {

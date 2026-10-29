@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 
+	"github.com/linode-obs/alertmanager-route-tester/internal/alertmanager"
 	"gopkg.in/yaml.v3"
 )
 
@@ -62,4 +63,45 @@ func HandleParseLabels(w http.ResponseWriter, r *http.Request) {
 	}
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(map[string]any{"labels": labels})
+}
+
+func (h *Handler) HandleLabelSuggestions(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	r.Body = http.MaxBytesReader(w, r.Body, maxTestRequestBodyBytes)
+	var request TestRequest
+	decoder := json.NewDecoder(r.Body)
+	err := decoder.Decode(&request)
+	if err == nil {
+		var extra json.RawMessage
+		err = decoder.Decode(&extra)
+		if err == io.EOF {
+			err = nil
+		} else if err == nil {
+			http.Error(w, "Invalid JSON", http.StatusBadRequest)
+			return
+		}
+	}
+	if err != nil {
+		if requestBodyTooLarge(err) {
+			http.Error(w, "Request body too large", http.StatusRequestEntityTooLarge)
+		} else {
+			http.Error(w, "Invalid JSON", http.StatusBadRequest)
+		}
+		return
+	}
+	client, _, err := h.selectedClient(request.Alertmanager)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	config, err := client.GetConfigContext(r.Context())
+	if err != nil {
+		http.Error(w, "Cannot load route suggestions", http.StatusServiceUnavailable)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(alertmanager.SuggestLabels(config, request.Labels))
 }

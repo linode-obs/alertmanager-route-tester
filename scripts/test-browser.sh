@@ -7,6 +7,44 @@ SESSION=${ART_BROWSER_SESSION:-art-issues}
 ab() { agent-browser --session "$SESSION" "$@"; }
 ab open "$URL"
 
+if [[ ${1:-all} == all || ${1:-all} == reuse ]]; then
+ab eval 'if (!document.getElementById("recent-labels")) throw new Error("Recent label reuse is unavailable");'
+ab eval 'switchMode("ui"); currentLabels = {severity:"critical", alertname:"HistoryExample"}; renderLabels();'
+ab click '.btn-test-route'
+ab wait '.result-primary-receiver'
+ab wait --fn 'document.getElementById("recent-labels").options.length > 1'
+ab eval 'currentLabels = {}; renderLabels();'
+ab select '#recent-labels' 0
+ab eval 'if (currentLabels.alertname !== "HistoryExample") throw new Error("Recent labels did not load");'
+ab eval --stdin <<'JS'
+(async () => {
+    for (let index = 0; index < 12; index++) {
+        currentLabels = {severity:'critical', alertname:`History${index}`};
+        renderLabels();
+        const done = new Promise(resolve => document.getElementById('alert-form').addEventListener('htmx:afterRequest', resolve, {once:true}));
+        document.getElementById('alert-form').requestSubmit();
+        await done;
+    }
+    if (document.getElementById('recent-labels').options.length !== 11) throw new Error('Recent labels are not limited to ten');
+    const done = new Promise(resolve => document.getElementById('alert-form').addEventListener('htmx:afterRequest', resolve, {once:true}));
+    document.getElementById('alert-form').requestSubmit();
+    await done;
+    if (document.getElementById('recent-labels').options.length !== 11) throw new Error('Duplicate labels entered history');
+})()
+JS
+ab click '#clear-recent-labels'
+ab eval 'if (document.getElementById("recent-labels").options.length !== 1) throw new Error("Recent labels were not cleared");'
+ab eval --stdin <<'JS'
+(async () => {
+    const response = await fetch('/labels/suggestions', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({labels:{team:'database'},alertmanager:'local'})});
+    if (!response.ok) throw new Error(`Suggestions returned ${response.status}`);
+    const suggestions = await response.json();
+    if (!suggestions.some(item => item.key === 'alertname')) throw new Error('Nested route suggestions are missing');
+    return 'Label reuse and suggestion tests passed';
+})()
+JS
+fi
+
 if [[ ${1:-all} == all || ${1:-all} == yaml ]]; then
 ab eval --stdin <<'JS'
 (async () => {

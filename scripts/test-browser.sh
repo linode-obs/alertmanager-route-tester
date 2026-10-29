@@ -7,6 +7,56 @@ SESSION=${ART_BROWSER_SESSION:-art-issues}
 ab() { agent-browser --session "$SESSION" "$@"; }
 ab open "$URL"
 
+if [[ ${1:-all} == all || ${1:-all} == visual ]]; then
+ab click '#start-draft'
+ab wait --fn 'document.getElementById("config-draft").value.length > 0'
+ab eval --stdin <<'JS'
+document.getElementById('config-draft').value = 'route:\n  receiver: default\n  routes:\n  - receiver: hosts\n    match:\n      ccsret_testing_service_endpoint: hosts\nreceivers:\n- name: default\n- name: hosts\n';
+switchMode('ui');
+currentLabels = {ccsret_testing_service_endpoint:'hosts'};
+renderLabels();
+JS
+ab click '.btn-test-route'
+ab wait '.route-matching-details'
+ab eval 'document.querySelector(".route-matching-details").open = true;'
+for theme in light dark; do
+ab eval "setTheme('$theme')"
+for width in 1440 1024 768; do
+ab set viewport "$width" 1000
+ab eval --stdin <<'JS'
+(() => {
+const trace = document.querySelector('.route-trace');
+if (document.documentElement.scrollWidth > window.innerWidth + 1) throw new Error('Route result overflows viewport');
+for (const name of document.querySelectorAll('.sample-name')) {
+    if (name.scrollWidth > name.clientWidth + 1) throw new Error('Quick example title overflows its card');
+}
+function luminance(color) {
+    const channels = color.match(/[\d.]+/g).slice(0,3).map(Number).map(value => value / 255).map(value => value <= 0.04045 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4);
+    return channels[0] * 0.2126 + channels[1] * 0.7152 + channels[2] * 0.0722;
+}
+for (const element of trace.querySelectorAll('.trace-title, .trace-kv')) {
+    let background = element;
+    while (background.parentElement && ['transparent', 'rgba(0, 0, 0, 0)'].includes(getComputedStyle(background).backgroundColor)) background = background.parentElement;
+    const foreground = luminance(getComputedStyle(element).color);
+    const surface = luminance(getComputedStyle(background).backgroundColor);
+    if ((Math.max(foreground, surface) + 0.05) / (Math.min(foreground, surface) + 0.05) < 4.5) throw new Error('Route text contrast is below 4.5:1');
+}
+const title = trace.querySelector('.trace-title');
+if (parseFloat(getComputedStyle(title).fontSize) < 12) throw new Error('Route headings are too small to read');
+const label = trace.querySelector('.matcher-table tbody td code');
+if (label.getClientRects().length > 1) throw new Error('Label name breaks inside a word');
+const table = trace.querySelector('.matcher-table');
+if (table.scrollWidth > trace.clientWidth + 1) throw new Error('Matched-label table exceeds route ladder width');
+})()
+JS
+ab scrollintoview '.route-trace'
+ab screenshot "/tmp/art-route-ladder-${theme}-${width}.png"
+done
+done
+ab set viewport 1440 1000
+ab click '#discard-draft'
+fi
+
 if [[ ${1:-all} == all || ${1:-all} == draft ]]; then
 ab eval 'if (!document.getElementById("start-draft")) throw new Error("Configuration drafts are unavailable");'
 ab click '#start-draft'

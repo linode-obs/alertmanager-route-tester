@@ -2658,15 +2658,24 @@ html[data-theme="light"] .trace-row {
 }
 
 .trace-title {
-    font-size: 0.62rem;
+    font-size: 0.8rem;
+    color: var(--text-color);
+    font-weight: 600;
+    text-transform: none;
+    letter-spacing: normal;
 }
 
 .trace-kv {
-    padding: 0;
-    border: 0;
-    background: transparent;
-    font-size: 0.95em;
-    font-weight: 600;
+    max-width: 100%;
+    padding: 3px 6px;
+    border: 1px solid var(--code-border);
+    background: var(--code-bg);
+    color: var(--text-color);
+    font-size: 0.85rem;
+    font-weight: 400;
+    overflow-x: auto;
+    overflow-wrap: normal;
+    word-break: normal;
 }
 
 .trace-receiver {
@@ -2688,8 +2697,14 @@ html[data-theme="light"] .trace-row.trace-final .trace-meta {
 }
 
 .sample-alerts-grid {
-    grid-template-columns: repeat(3, minmax(0, 1fr));
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 12rem), 1fr));
     gap: 6px;
+}
+
+.sample-name {
+    min-width: 0;
+    overflow-wrap: anywhere;
+    font-size: 0.85rem;
 }
 
 .sample-alert-card {
@@ -3159,6 +3174,99 @@ html[data-theme="dark"] .workspace-result-pane {
         right: 0;
         width: min(180px, calc(100vw - 216px));
     }
+}
+
+.route-trace .trace-meta {
+    min-width: 0;
+    container-type: inline-size;
+    container-name: route-detail;
+}
+
+.route-trace .trace-content,
+.route-trace .trace-match,
+.route-trace .trace-block {
+    min-width: 0;
+    max-width: 100%;
+}
+
+.route-trace .matcher-table td:first-child code,
+.route-trace .matcher-table td:nth-child(2) {
+    white-space: nowrap;
+    overflow-wrap: normal;
+    word-break: normal;
+}
+
+@container route-detail (max-width: 520px) {
+    .matcher-table thead {
+        position: absolute;
+        width: 1px;
+        height: 1px;
+        overflow: hidden;
+        clip-path: inset(50%);
+        white-space: nowrap;
+    }
+
+    .matcher-table,
+    .matcher-table tbody {
+        display: block;
+        width: 100%;
+    }
+
+    .matcher-table tr {
+        display: grid;
+        padding: 6px 0;
+        border-bottom: 1px solid var(--border-color);
+    }
+
+    .matcher-table td {
+        display: grid;
+        grid-template-columns: 5rem minmax(0, 1fr);
+        gap: 8px;
+        min-width: 0;
+        border: 0;
+    }
+
+    .matcher-table td::before {
+        color: var(--text-color);
+        font-weight: 600;
+    }
+
+    .matcher-table td:nth-child(1)::before { content: "Label"; }
+    .matcher-table td:nth-child(2)::before { content: "Operator"; }
+    .matcher-table td:nth-child(3)::before { content: "Expected"; }
+    .matcher-table td:nth-child(4)::before { content: "Actual"; }
+
+    .matcher-table td code {
+        min-width: 0;
+        max-width: 100%;
+        overflow-x: auto;
+    }
+}
+
+.recent-label-controls,
+.receiver-question {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+    margin: 12px 0;
+    min-width: 0;
+}
+
+.recent-label-controls select,
+.receiver-question select {
+    min-width: 0;
+    max-width: 100%;
+    padding: 8px;
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    background: var(--panel-bg);
+    color: var(--text-color);
+    font: inherit;
+}
+
+.recent-label-controls select {
+    flex: 1 1 14rem;
 }
 
 .draft-section {

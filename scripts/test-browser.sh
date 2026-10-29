@@ -28,6 +28,19 @@ ab eval --stdin <<'JS'
 JS
 ab click '#routing-options > summary'
 
+if [[ ${1:-all} == all || ${1:-all} == capture-guard ]]; then
+GUARD=$(mktemp -d)
+if ART_SCREENSHOT_DIR="$GUARD" bash scripts/capture-readme-screenshots.sh > "$GUARD/output.log" 2>&1; then
+    echo "Screenshot capture accepted a configuration other than the fictional demo: $GUARD" >&2
+    exit 1
+fi
+if ! grep -q 'Screenshots require the isolated fictional demo configuration' "$GUARD/output.log" || [[ -n $(find "$GUARD" -name '*.png' -print -quit) ]]; then
+    echo "Screenshot capture did not reject the unrelated configuration before saving images: $GUARD" >&2
+    exit 1
+fi
+rm -rf "$GUARD"
+fi
+
 if [[ ${1:-all} == all || ${1:-all} == editor ]]; then
 ab click '#start-draft'
 ab wait --fn 'document.getElementById("config-draft").value.length > 0'
@@ -146,6 +159,28 @@ ab wait --fn 'document.getElementById("config-draft").value.includes("pagerduty-
 ab eval 'document.getElementById("config-draft").value = document.getElementById("config-draft").value.replaceAll("pagerduty-critical", "draft-critical"); document.getElementById("config-draft").dispatchEvent(new Event("input"));'
 ab click '#preview-draft'
 ab wait --fn '/^\+\s*-?\s*receiver: draft-critical$/m.test(document.getElementById("config-diff").textContent)'
+ab fill '#patch-target' configs/alertmanager.yml
+ab scrollintoview '#export-editor-patch'
+ab download '#export-editor-patch' /tmp/art-draft-download.patch
+python3 - "$URL" <<'PY'
+import json
+from pathlib import Path
+import subprocess
+import sys
+import tempfile
+import urllib.request
+
+with urllib.request.urlopen(sys.argv[1] + '/config/source?alertmanager=local', timeout=10) as response:
+    baseline = json.load(response)['source']
+patch = Path('/tmp/art-draft-download.patch').read_bytes()
+with tempfile.TemporaryDirectory() as directory:
+    target = Path(directory) / 'configs/alertmanager.yml'
+    target.parent.mkdir()
+    target.write_text(baseline)
+    subprocess.run(['git', 'apply', '--check', '-'], cwd=directory, input=patch, check=True)
+    subprocess.run(['git', 'apply', '-'], cwd=directory, input=patch, check=True)
+    assert 'draft-critical' in target.read_text(), 'Downloaded patch did not apply draft changes'
+PY
 ab eval 'switchMode("ui"); currentLabels={severity:"critical"}; renderLabels();'
 ab click '#use-draft'
 ab fill '#receiver-search' draftcritical
@@ -201,7 +236,9 @@ const text = explanation.textContent;
 if (!explanation.querySelector('.receiver-check-summary')) throw new Error('Receiver explanation lacks a clear summary');
 if (!text.includes('pagerduty-platform') || !text.includes('service') || !text.includes('Missing') || !text.includes('warning')) throw new Error('Receiver explanation omitted failed parent or child conditions');
 if (!explanation.querySelector('.receiver-condition-table')) throw new Error('Receiver conditions are not shown as a comparison');
-if (Array.from(explanation.querySelectorAll('.receiver-path-details')).some(details => details.open)) throw new Error('Raw route details must be collapsed initially');
+if (explanation.textContent.includes('root/')) throw new Error('Receiver explanation exposes internal route identifiers');
+if (explanation.querySelectorAll('.receiver-check-summary').length !== 1) throw new Error('Receiver explanation repeats its summary');
+if (explanation.querySelector('.receiver-blocker-name') && Array.from(explanation.querySelectorAll('.receiver-path-details')).some(details => details.open)) throw new Error('Extra label checks must stay collapsed when an earlier route stopped matching');
 if (!(document.querySelector('.result-primary-outcome').compareDocumentPosition(explanation) & Node.DOCUMENT_POSITION_FOLLOWING)) throw new Error('Receiver explanation obscures the main routing result');
 JS
 ab click '#clear-receiver'

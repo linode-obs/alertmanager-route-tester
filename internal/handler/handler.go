@@ -427,6 +427,7 @@ func (h *Handler) HandleTest(w http.ResponseWriter, r *http.Request) {
 		}
 		routeMismatches, routeMismatchesOmitted := alertmanager.FindRouteMismatchesWithLimit(labels, config, limit)
 		data := struct {
+			ReceiverCheck            ReceiverCheck
 			Draft                    bool
 			TargetReceiver           string
 			ReceiverPaths            []alertmanager.ReceiverPath
@@ -444,6 +445,7 @@ func (h *Handler) HandleTest(w http.ResponseWriter, r *http.Request) {
 			Labels                   map[string]string
 			Error                    string
 		}{
+			ReceiverCheck:            receiverCheck(receiverPaths),
 			Draft:                    draft != nil,
 			TargetReceiver:           targetReceiver,
 			ReceiverPaths:            receiverPaths,

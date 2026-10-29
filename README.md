@@ -8,6 +8,12 @@ ART has a two-pane browser UI. Blue marks alert input, and green marks selected 
 
 ![Light theme showing two selected receivers](docs/screenshots/route-tester-light.png)
 
+Both examples below use fictional alerts and receivers on local services.
+
+![Fuzzy receiver search and a concise explanation for a blocked checkout alert](docs/screenshots/receiver-search-demo.png)
+
+![Draft editor showing an exportable Git patch with fictional configuration](docs/screenshots/draft-patch-demo.png)
+
 ## Usage
 
 Point it at any Alertmanager instance with `config.yaml`. ART supports multiple Alertmanager instances/clusters.
@@ -19,14 +25,22 @@ go tool otelc go run .
 Build your alert using the UI or paste simple YAML `key: value` label lines. Hit "Test Route" to see which receiver it matches and the full route path.
 
 Open "More options", then select "Edit configuration draft" to edit a copy of the fetched Alertmanager configuration.
-The draft opens in a wide editor. Select "Show diff" to compare it with the fetched configuration.
+The draft opens in a wide editor. Select "Show patch" to compare it with the fetched configuration.
 Select "Use draft" to return to the label editor. "Test draft" evaluates labels without updating live Alertmanager.
 "Discard draft" returns tests to the fetched configuration. Drafts stay in page memory and disappear when the page closes.
 Reloads and instance changes ask before discarding an edited draft.
 
+Set "Patch target" to the configuration path from the repository root.
+Select "Export patch" to download the changes. ART does not write repository files or update live Alertmanager.
+
+The patch baseline is Alertmanager's sanitized YAML. Comments, formatting, or secret values can differ from your repository file.
+Make sure that the target matches before you apply the patch.
+If the draft contains secrets, keep the patch private.
+
 In "More options", choose a recent test and select "Load" to reuse its labels.
 "Clear history" removes saved tests without changing current labels.
-Type parts of a receiver name in "Explain a receiver" to search, then choose a match with the mouse or arrow keys.
+In "Explain a receiver", type parts of a receiver name.
+Choose a match with the mouse or arrow keys.
 
 ### Configuration File
 
@@ -196,6 +210,9 @@ To run browser regressions, first run `mise run build` and `mise run setup` with
 Then run `bash scripts/run-browser-tests.sh`. The script starts isolated ART and Alertmanager processes on ports 18081 and 19095.
 It requires the installed `agent-browser`, Bash, curl, and lsof. It never installs these tools.
 Screenshots stay under `/tmp/art-route-ladder-*.png`. Failed runs retain their service logs at the printed local path.
+
+To regenerate the fictional README screenshots, run `bash scripts/run-browser-tests.sh screenshots` after building the application.
+The screenshot workflow uses `testdata/demo-alertmanager.yml` and stops if the loaded receivers differ from that fixture.
 
 The project pins Alertmanager 0.33.0 in `go.mod`, `.mise.toml`, the CI workflow, and the parity test version check. Update these pins together.
 

@@ -3403,6 +3403,16 @@ html[data-theme="dark"] .workspace-result-pane {
     font-size: 0.75rem;
 }
 
+.receiver-rule-or {
+    margin: 4px 14px;
+    color: var(--text-muted);
+    font-size: 0.8rem;
+}
+
+.receiver-path-details .receiver-condition-scroll {
+    padding: 0 8px;
+}
+
 .receiver-condition-scroll {
     max-width: 100%;
     overflow-x: auto;
@@ -3662,6 +3672,28 @@ html[data-theme="dark"] .workspace-result-pane {
     flex: 1 1 100%;
     margin: 0 0 4px;
     font-size: 0.85rem;
+}
+
+.draft-patch-target {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+    flex: 1 1 300px;
+    max-width: 380px;
+    font-size: 0.8rem;
+}
+
+.draft-patch-target input {
+    flex: 1 1 180px;
+    min-width: 0;
+    padding: 8px 10px;
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    background: var(--panel-alt);
+    color: var(--text-color);
+    font-family: var(--font-mono);
+    font-size: 0.8rem;
 }
 
 .draft-editor-footer #use-draft {

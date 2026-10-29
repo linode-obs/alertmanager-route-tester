@@ -186,6 +186,7 @@ team: platform'></textarea>
                         <span class="help-tip" role="img" data-tooltip="Edit a copy of the loaded configuration and test it. Live Alertmanager stays unchanged. Drafts are not saved." aria-label="Configuration draft help: Edit a copy of the loaded configuration and test it. Live Alertmanager stays unchanged. Drafts are not saved." tabindex="0">ⓘ</span>
                         <div id="draft-panel" hidden>
                             <button id="edit-draft" type="button" class="btn-secondary" onclick="openDraftEditor()">Open draft editor</button>
+                            <button id="export-draft" type="button" class="btn-secondary" onclick="exportDraftPatch()" disabled>Export patch</button>
                             <span class="draft-active-label">Draft active</span>
                         </div>
                     </section>
@@ -239,13 +240,18 @@ team: platform'></textarea>
                 <textarea id="config-draft" rows="24" wrap="off" spellcheck="false" autocapitalize="off" disabled></textarea>
             </div>
             <section id="draft-diff" class="draft-diff" aria-label="Draft comparison" hidden>
-                <h3>Changes from fetched configuration</h3>
+                <h3>Git patch</h3>
                 <pre id="config-diff" aria-label="Configuration diff" tabindex="0"></pre>
             </section>
         </div>
         <footer class="draft-editor-footer">
             <p id="draft-status" role="status" hidden></p>
-            <button id="preview-draft" type="button" class="btn-secondary" onclick="toggleDraftDiff()">Show diff</button>
+            <div class="draft-patch-target">
+                <label for="patch-target">Patch target <span class="help-tip" role="img" data-tooltip="Repository-relative filename. The baseline is Alertmanager's sanitized YAML, which can differ from your repository file." aria-label="Patch target help: Repository-relative filename. The baseline is Alertmanager's sanitized YAML, which can differ from your repository file." tabindex="0">ⓘ</span></label>
+                <input id="patch-target" type="text" value="alertmanager.yml" spellcheck="false" aria-label="Patch target file">
+            </div>
+            <button id="preview-draft" type="button" class="btn-secondary" onclick="toggleDraftDiff()">Show patch</button>
+            <button id="export-editor-patch" type="button" class="btn-secondary" onclick="exportDraftPatch()" disabled>Export patch</button>
             <button id="discard-draft" type="button" class="btn-secondary" onclick="discardDraft()">Discard draft</button>
             <button id="use-draft" type="button" class="btn-primary" onclick="closeDraftEditor()" title="Close the editor and use this draft for routing tests.">Use draft</button>
         </footer>
@@ -344,7 +350,7 @@ team: platform'></textarea>
 
         function hideDraftDiff() {
             document.getElementById('draft-diff').hidden = true;
-            document.getElementById('preview-draft').textContent = 'Show diff';
+            document.getElementById('preview-draft').textContent = 'Show patch';
         }
 
         function toggleDraftDiff() {
@@ -372,6 +378,7 @@ team: platform'></textarea>
                 document.querySelector('.btn-test-route').textContent = 'Test draft';
                 document.querySelector('.btn-test-route').title = 'Evaluate labels against this draft. Live Alertmanager stays unchanged.';
                 setDraftStatus('Draft ready.');
+                updatePatchControls();
                 openDraftEditor();
             } catch (error) {
                 setDraftStatus('Cannot load a configuration draft. ' + error.message, true);
@@ -380,20 +387,62 @@ team: platform'></textarea>
             }
         }
 
+        function updatePatchControls() {
+            const enabled = draftIsEdited() && document.getElementById('patch-target').value.trim() !== '';
+            for (const id of ['export-draft', 'export-editor-patch']) {
+                const button = document.getElementById(id);
+                button.disabled = !enabled;
+                button.title = enabled ? 'Download the patch. It can contain secrets from your edits.' : 'Edit the draft before exporting a patch.';
+            }
+        }
+
+        async function compareDraft(draft, target) {
+            const response = await fetch('/config/draft', {
+                method: 'POST', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({alertmanager: selectedAlertmanager, baseline: draftBaseline, draft, patch_target: target}),
+            });
+            if (!response.ok) throw new Error(await response.text());
+            return response.json();
+        }
+
+        async function exportDraftPatch() {
+            const draft = document.getElementById('config-draft').value;
+            const target = document.getElementById('patch-target').value.trim();
+            for (const id of ['export-draft', 'export-editor-patch']) document.getElementById(id).disabled = true;
+            try {
+                const data = await compareDraft(draft, target);
+                if (!data.patch) throw new Error('No draft changes to export.');
+                const url = URL.createObjectURL(new Blob([data.patch], {type: 'text/x-patch;charset=utf-8'}));
+                const link = document.createElement('a');
+                link.href = url;
+                link.download = target.split('/').pop() + '.patch';
+                document.body.appendChild(link);
+                link.click();
+                link.remove();
+                setTimeout(() => URL.revokeObjectURL(url), 1000);
+                setDraftStatus('Patch downloaded.');
+            } catch (error) {
+                if (!document.getElementById('draft-editor').open) openDraftEditor();
+                setDraftStatus(error.message, true);
+            } finally {
+                updatePatchControls();
+            }
+        }
+
+        document.getElementById('patch-target').addEventListener('input', () => {
+            hideDraftDiff();
+            updatePatchControls();
+        });
+
         async function previewDraft() {
             const draft = document.getElementById('config-draft').value;
             setDraftStatus('Comparing configurations.');
             try {
-                const response = await fetch('/config/draft', {
-                    method: 'POST', headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({alertmanager: selectedAlertmanager, baseline: draftBaseline, draft}),
-                });
-                if (!response.ok) throw new Error(await response.text());
-                const data = await response.json();
+                const data = await compareDraft(draft, document.getElementById('patch-target').value.trim());
                 if (draft !== document.getElementById('config-draft').value || draftBaseline === null) return;
-                document.getElementById('config-diff').textContent = data.diff || 'No changes from the fetched configuration.';
+                document.getElementById('config-diff').textContent = data.patch || 'No changes from the fetched configuration.';
                 document.getElementById('draft-diff').hidden = false;
-                document.getElementById('preview-draft').textContent = 'Hide diff';
+                document.getElementById('preview-draft').textContent = 'Hide patch';
                 const receivers = document.getElementById('target-receiver');
                 const selected = receivers.value;
                 receivers.replaceChildren(new Option('No receiver selected', ''));
@@ -425,6 +474,7 @@ team: platform'></textarea>
             receivers.replaceChildren(...Array.from(liveReceiverChoices.options).map(option => option.cloneNode(true)));
             syncReceiverPicker();
             setDraftStatus('Draft discarded.');
+            updatePatchControls();
         }
 
         document.getElementById('config-draft').addEventListener('input', () => {
@@ -432,6 +482,7 @@ team: platform'></textarea>
             document.getElementById('config-diff').textContent = '';
             hideDraftDiff();
             setDraftStatus('Draft changed.');
+            updatePatchControls();
         });
         document.getElementById('alert-form').addEventListener('htmx:afterRequest', event => {
             if (draftBaseline !== null && !event.detail.successful) {

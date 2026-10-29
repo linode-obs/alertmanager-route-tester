@@ -5,6 +5,11 @@ cd "$(dirname "$0")/.."
 # Ports stay separate from the development server and Go integration tests.
 APP_PORT=${ART_BROWSER_PORT:-18081}
 AM_PORT=${ART_BROWSER_AM_PORT:-19095}
+FIXTURE=testdata/alertmanager.yml
+if [[ ${1:-all} == screenshots ]]; then
+    FIXTURE=testdata/demo-alertmanager.yml
+    export OTEL_SDK_DISABLED=true
+fi
 TEMP=$(mktemp -d)
 AM_PID=""
 APP_PID=""
@@ -22,7 +27,7 @@ for port in "$APP_PORT" "$AM_PORT"; do
     fi
 done
 printf 'alertmanager-route-tester:\n  server:\n    listen: 127.0.0.1:%s\nalertmanagers:\n  local:\n    url: http://127.0.0.1:%s\n  second:\n    url: http://127.0.0.1:%s\n' "$APP_PORT" "$AM_PORT" "$AM_PORT" > "$TEMP/config.yaml"
-./bin/alertmanager/alertmanager --config.file=testdata/alertmanager.yml --web.listen-address="127.0.0.1:$AM_PORT" --cluster.listen-address= --storage.path="$TEMP/data" > "$TEMP/alertmanager.log" 2>&1 &
+./bin/alertmanager/alertmanager --config.file="$FIXTURE" --web.listen-address="127.0.0.1:$AM_PORT" --cluster.listen-address= --storage.path="$TEMP/data" > "$TEMP/alertmanager.log" 2>&1 &
 AM_PID=$!
 ./bin/alertmanager-route-tester -config "$TEMP/config.yaml" > "$TEMP/app.log" 2>&1 &
 APP_PID=$!
@@ -34,4 +39,8 @@ for i in {1..100}; do
     fi
     sleep 0.1
 done
-ART_BROWSER_URL="http://127.0.0.1:$APP_PORT" bash scripts/test-browser.sh "${1:-all}"
+if [[ ${1:-all} == screenshots ]]; then
+    ART_BROWSER_URL="http://127.0.0.1:$APP_PORT" bash scripts/capture-readme-screenshots.sh
+else
+    ART_BROWSER_URL="http://127.0.0.1:$APP_PORT" bash scripts/test-browser.sh "${1:-all}"
+fi

@@ -56,8 +56,16 @@ func (h *Handler) HandlePreviewDraft(w http.ResponseWriter, r *http.Request) {
 		Alertmanager string `json:"alertmanager"`
 		Baseline     string `json:"baseline"`
 		Draft        string `json:"draft"`
+		PatchTarget  string `json:"patch_target"`
 	}
 	if !decodeJSONRequest(w, r, &request) {
+		return
+	}
+	if request.PatchTarget == "" {
+		request.PatchTarget = "alertmanager.yml"
+	}
+	if !validPatchTarget(request.PatchTarget) {
+		http.Error(w, "Patch target must be a relative file path without parent traversal or control characters", http.StatusBadRequest)
 		return
 	}
 	client, _, err := h.selectedClient(request.Alertmanager)
@@ -74,12 +82,14 @@ func (h *Handler) HandlePreviewDraft(w http.ResponseWriter, r *http.Request) {
 	for _, receiver := range config.Receivers {
 		receivers = append(receivers, receiver.Name)
 	}
+	diff := unifiedDiff(request.Baseline, request.Draft)
 	w.Header().Set("Cache-Control", "no-store")
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(struct {
 		Diff      string   `json:"diff"`
 		Receivers []string `json:"receivers"`
-	}{unifiedDiff(request.Baseline, request.Draft), receivers})
+		Patch     string   `json:"patch"`
+	}{diff, receivers, configurationPatch(diff, request.PatchTarget)})
 }
 
 func configurationLines(text string) []string {

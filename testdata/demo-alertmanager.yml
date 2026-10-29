@@ -1,0 +1,25 @@
+route:
+  receiver: demo-inbox
+  group_by: [alertname, service]
+  routes:
+    - receiver: demo-sandbox-chat
+      matchers:
+        - environment="sandbox"
+    - receiver: demo-checkout-oncall
+      matchers:
+        - service="checkout"
+        - severity="critical"
+    - receiver: demo-checkout-chat
+      matchers:
+        - service="checkout"
+    - receiver: demo-database-oncall
+      matchers:
+        - service="database"
+        - severity="critical"
+
+receivers:
+  - name: demo-inbox
+  - name: demo-sandbox-chat
+  - name: demo-checkout-oncall
+  - name: demo-checkout-chat
+  - name: demo-database-oncall

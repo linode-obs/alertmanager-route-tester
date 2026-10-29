@@ -46,6 +46,7 @@ func captureSlogOutput(t *testing.T, expectedMessages ...string) *bytes.Buffer {
 
 // resultData mirrors the anonymous struct passed to result.html in HandleTest.
 type resultData struct {
+	ReceiverCheck            ReceiverCheck
 	Draft                    bool
 	TargetReceiver           string
 	ReceiverPaths            []alertmanager.ReceiverPath

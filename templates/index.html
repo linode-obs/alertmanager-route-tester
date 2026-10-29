@@ -38,7 +38,7 @@
             {{if gt (len .AlertmanagerNames) 1}}
             <form class="alertmanager-selector" method="GET" action="/">
                 <label for="alertmanager-select">Alertmanager</label>
-                <select id="alertmanager-select" name="alertmanager" onchange="this.form.submit()">
+                <select id="alertmanager-select" name="alertmanager" onchange="if (preserveEditorBeforeNavigation()) this.form.submit()">
                     {{range $name := .AlertmanagerNames}}
                     <option value="{{$name}}" {{if eq $name $.SelectedAlertmanager}}selected{{end}}>{{$name}}</option>
                     {{end}}
@@ -200,8 +200,58 @@ team: platform'></textarea>
             {{end}}
         };
 
+        const selectedAlertmanager = "{{.SelectedAlertmanager}}";
+        const editorStorageName = `art:labels:${selectedAlertmanager}`;
+
+        function saveEditorState() {
+            try {
+                sessionStorage.setItem(editorStorageName, JSON.stringify({
+                    labels: currentLabels,
+                    mode: document.getElementById('raw-mode-btn').getAttribute('aria-pressed') === 'true' ? 'raw' : 'ui',
+                    raw: document.getElementById('raw-input').value,
+                    name: document.getElementById('label-key-input').value,
+                    value: document.getElementById('label-value-input').value,
+                }));
+                return true;
+            } catch (error) {
+                return false;
+            }
+        }
+
+        function restoreEditorState() {
+            try {
+                const state = JSON.parse(sessionStorage.getItem(editorStorageName));
+                if (!state) return;
+                currentLabels = decodeSharedLabels(encodeSharedLabels(state.labels));
+                renderLabels();
+                switchMode(state.mode === 'raw' ? 'raw' : 'ui');
+                document.getElementById('raw-input').value = typeof state.raw === 'string' ? state.raw : '';
+                document.getElementById('label-key-input').value = typeof state.name === 'string' ? state.name : '';
+                document.getElementById('label-value-input').value = typeof state.value === 'string' ? state.value : '';
+            } catch (error) {
+                setShareStatus('Saved labels could not be loaded.', true);
+            }
+        }
+
+        function preserveEditorBeforeNavigation() {
+            if (saveEditorState()) return true;
+            return confirm('Browser storage is unavailable. Reloading will discard your alert input. Continue?');
+        }
+
+        document.querySelectorAll('form[action="/config/reload"]').forEach(form => {
+            form.addEventListener('submit', event => {
+                if (!preserveEditorBeforeNavigation()) {
+                    event.preventDefault();
+                    event.stopImmediatePropagation();
+                }
+            }, true);
+        });
+        window.addEventListener('beforeunload', saveEditorState);
+        document.getElementById('raw-input').addEventListener('input', saveEditorState);
+
         // Render labels as badges
         function renderLabels() {
+            saveEditorState();
             const container = document.getElementById('current-labels');
             container.replaceChildren();
 
@@ -301,8 +351,8 @@ team: platform'></textarea>
             }
         }
 
-        document.getElementById('label-key-input').addEventListener('input', syncLabelValidationState);
-        document.getElementById('label-value-input').addEventListener('input', syncLabelValidationState);
+        document.getElementById('label-key-input').addEventListener('input', () => { syncLabelValidationState(); saveEditorState(); });
+        document.getElementById('label-value-input').addEventListener('input', () => { syncLabelValidationState(); saveEditorState(); });
 
         // Remove a label
         function removeLabel(key) {
@@ -357,6 +407,7 @@ team: platform'></textarea>
                 rawBtn.classList.add('active');
                 rawBtn.setAttribute('aria-pressed', 'true');
             }
+            saveEditorState();
         }
 
         // Load sample alert
@@ -539,6 +590,7 @@ team: platform'></textarea>
         });
 
         applyTheme(document.documentElement.dataset.themePreference || 'system');
+        restoreEditorState();
         loadSharedLabels();
     </script>
 </body>

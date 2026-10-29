@@ -37,3 +37,28 @@ ab eval --stdin <<'JS'
 })()
 JS
 fi
+
+if [[ ${1:-all} == all || ${1:-all} == reload ]]; then
+ab eval --stdin <<'JS'
+currentLabels = {severity: 'critical', note: 'keep me'};
+renderLabels();
+document.getElementById('label-key-input').value = 'unfinished';
+document.getElementById('label-value-input').value = 'value';
+switchMode('raw');
+document.getElementById('raw-input').value += '\npending: yaml';
+JS
+ab click '.btn-reload-config'
+ab wait --load networkidle
+ab eval --stdin <<'JS'
+if (currentLabels.note !== 'keep me' || currentLabels.severity !== 'critical') throw new Error('Config reload discarded labels');
+if (!document.getElementById('raw-input').value.includes('pending: yaml')) throw new Error('Config reload discarded raw input');
+if (document.getElementById('raw-builder').style.display === 'none') throw new Error('Config reload changed editor mode');
+if (document.getElementById('label-key-input').value !== 'unfinished' || document.getElementById('label-value-input').value !== 'value') throw new Error('Config reload discarded unfinished label');
+JS
+ab select '#alertmanager-select' second
+ab wait --load networkidle
+ab eval 'if (Object.keys(currentLabels).length) throw new Error("Labels crossed Alertmanager instances");'
+ab select '#alertmanager-select' local
+ab wait --load networkidle
+ab eval 'if (currentLabels.note !== "keep me") throw new Error("Returning to the instance lost its labels"); "Reload tests passed";'
+fi

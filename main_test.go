@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strings"
 	"sync/atomic"
@@ -21,6 +22,17 @@ import (
 	appconfig "github.com/linode-obs/alertmanager-route-tester/internal/config"
 	"github.com/linode-obs/alertmanager-route-tester/internal/telemetry"
 )
+
+func TestStylesheetUsesOnlyLocalResources(t *testing.T) {
+	contents, err := assets.ReadFile("static/style.css")
+	if err != nil {
+		t.Fatal(err)
+	}
+	external := regexp.MustCompile(`(?i)(?:url\(\s*['"]?\s*|@import\s*['"])(?:https?:)?//`)
+	if external.Match(contents) {
+		t.Fatal("stylesheet loads a resource from an external host")
+	}
+}
 
 func TestAlertmanagerRequestOnlyAppliesInCLIMode(t *testing.T) {
 	if got := alertmanagerRequest(false, "staging"); got != "" {

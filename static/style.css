@@ -1,10 +1,8 @@
-@import url('https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@400;500;600;700&display=swap');
-
 /* Alertmanager-inspired styling */
 
 :root {
-    --font-sans: "IBM Plex Sans", "Segoe UI", Arial, sans-serif;
-    --font-mono: "IBM Plex Mono", "SFMono-Regular", "Courier New", monospace;
+    --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+    --font-mono: ui-monospace, "SFMono-Regular", Menlo, Consolas, "Liberation Mono", monospace;
     --primary-color: #337ab7;
     --primary-dark: #286090;
     --accent-color: #286090;

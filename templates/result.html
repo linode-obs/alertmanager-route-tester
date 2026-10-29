@@ -1,32 +1,6 @@
 <div class="result-panel">
     <span class="workspace-pane-label">ROUTING OUTPUT</span>
     {{if .Draft}}<p class="draft-result">Draft configuration result. Live Alertmanager is unchanged.</p>{{end}}
-    {{if .TargetReceiver}}
-    <section class="receiver-explanation result-section">
-        <h3>Paths to {{.TargetReceiver}}</h3>
-        {{range .ReceiverPaths}}
-        <details class="result-details" open>
-            <summary>{{.Path}}: {{if .Delivered}}receives this alert{{else}}does not receive this alert{{end}}</summary>
-            {{if .BlockedBy}}<p>{{.BlockedBy}}</p>{{end}}
-            <ol>
-                {{range .Steps}}
-                <li>
-                    <code>{{.Path}}</code> to <code>{{.Receiver}}</code>
-                    {{if not .Evaluated}}<span>Not evaluated because an earlier condition blocked this path.</span>{{end}}
-                    {{range .FailedMatchers}}
-                    <p><code>{{.Label}} {{.Operator}} {{printf "%q" .Expected}}</code>:
-                        {{if .Missing}}label is missing{{else}}actual value {{printf "%q" .Actual}} does not match{{end}}.
-                    </p>
-                    {{end}}
-                </li>
-                {{end}}
-            </ol>
-        </details>
-        {{else}}
-        <p>No route path uses this receiver.</p>
-        {{end}}
-    </section>
-    {{end}}
     {{if .Error}}
     <div class="result-surface result-error">
         <h2>Error</h2>
@@ -58,6 +32,7 @@
                 <span>{{len .RouteSteps}} matched route rule{{if ne (len .RouteSteps) 1}}s{{end}}</span>
             </div>
         </div>
+        {{if .TargetReceiver}}{{template "receiver-explanation" .}}{{end}}
         {{if .RouteSteps}}
         <details class="result-details route-matching-details">
             <summary>Expand: How routing matched ({{len .RouteSteps}} matched route rule{{if ne (len .RouteSteps) 1}}s{{end}})</summary>
@@ -327,6 +302,62 @@ repeat_interval: {{.Route.RepeatInterval}}{{end}}</pre>
     </div>
     {{end}}
 </div>
+
+{{define "receiver-explanation"}}
+<section class="receiver-explanation">
+    <div class="receiver-check-heading">
+        <h3>Receiver check</h3>
+        <code>{{.TargetReceiver}}</code>
+    </div>
+    {{range .ReceiverPaths}}
+    <article class="receiver-path-check">
+        <div class="receiver-check-summary {{if .Delivered}}receiver-check-delivered{{end}}">
+            <p class="receiver-check-status">{{if .Delivered}}Receives this alert{{else}}Not selected on this path{{end}}</p>
+            {{if .StoppedByReceiver}}
+            <p>Matching stopped at an earlier route:</p>
+            <code class="receiver-blocker-name">{{.StoppedByReceiver}}</code>
+            <span class="help-tip" role="img" data-tooltip="This route matched with continue=false, so Alertmanager did not evaluate later sibling routes." aria-label="Routing stop help: This route matched with continue=false, so Alertmanager did not evaluate later sibling routes." tabindex="0">ⓘ</span>
+            {{else if not .Delivered}}
+                {{if .Matched}}<p>A matching child route selects another delivery path.</p>
+                {{else}}<p>This route or a parent route does not match the alert labels.</p>{{end}}
+            {{end}}
+        </div>
+        <details class="result-details receiver-path-details">
+            <summary>Conditions and route details <code>{{.Path}}</code></summary>
+            {{if .BlockedBy}}<p class="receiver-route-reason">{{.BlockedBy}}</p>{{end}}
+            <ol class="receiver-path-steps">
+                {{range .Steps}}
+                <li>
+                    <div class="receiver-step-heading">
+                        <code>{{.Path}}</code>
+                        <span class="receiver-step-name">{{.Receiver}}</span>
+                        <span class="receiver-step-state">{{if .Evaluated}}Evaluated{{else}}Skipped{{end}}</span>
+                    </div>
+                    {{if .FailedMatchers}}
+                    <div class="receiver-condition-scroll">
+                        <table class="receiver-condition-table">
+                            <thead><tr><th>Label</th><th>Required</th><th>Alert value</th></tr></thead>
+                            <tbody>
+                                {{range .FailedMatchers}}
+                                <tr>
+                                    <td><code>{{.Label}}</code></td>
+                                    <td><code>{{.Operator}} {{printf "%q" .Expected}}</code></td>
+                                    <td>{{if .Missing}}<span class="receiver-missing">Missing</span>{{else}}<code>{{printf "%q" .Actual}}</code>{{end}}</td>
+                                </tr>
+                                {{end}}
+                            </tbody>
+                        </table>
+                    </div>
+                    {{else}}<p class="receiver-condition-note">No failed conditions for these labels.</p>{{end}}
+                    {{if not .Evaluated}}<p class="receiver-condition-note">These conditions show what the skipped route requires.</p>{{end}}
+                </li>
+                {{end}}
+            </ol>
+        </details>
+    </article>
+    {{else}}<p>No route uses this receiver.</p>{{end}}
+</section>
+{{end}}
 
 {{define "route-ladder"}}
 <div class="route-ladder route-trace">

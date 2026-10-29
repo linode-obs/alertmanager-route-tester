@@ -4,7 +4,10 @@ set -euo pipefail
 # Tests use the running application and its configured Alertmanager.
 URL=${ART_BROWSER_URL:-http://127.0.0.1:18080}
 SESSION=${ART_BROWSER_SESSION:-art-issues}
-ab() { agent-browser --session "$SESSION" "$@"; }
+ab() {
+    if [[ ${1:-} == click ]]; then agent-browser --session "$SESSION" scrollintoview "$2"; fi
+    agent-browser --session "$SESSION" "$@"
+}
 ab open "$URL"
 ab set viewport 1440 1000
 ab eval --stdin <<'JS'
@@ -16,7 +19,7 @@ ab eval --stdin <<'JS'
     for (const card of cards) {
         if (card.querySelector('.sample-name').textContent.length > 40 || card.querySelector('.sample-description').textContent.length > 40) throw new Error('Quick example copy is too long');
     }
-    for (const selector of ['#recent-labels', '#target-receiver', '#start-draft']) {
+    for (const selector of ['#recent-labels', '#receiver-search', '#start-draft']) {
         const control = document.querySelector(selector);
         if (!options.contains(control) || control.checkVisibility()) throw new Error('Secondary control is visible before More options opens');
     }
@@ -24,6 +27,33 @@ ab eval --stdin <<'JS'
 })()
 JS
 ab click '#routing-options > summary'
+
+if [[ ${1:-all} == all || ${1:-all} == editor ]]; then
+ab click '#start-draft'
+ab wait --fn 'document.getElementById("config-draft").value.length > 0'
+ab eval --stdin <<'JS'
+(() => {
+    const dialog = document.querySelector('#draft-editor[open]');
+    if (!dialog) throw new Error('Draft editor is not expanded into a dialog');
+    const editor = document.getElementById('config-draft');
+    if (dialog.getBoundingClientRect().width < innerWidth * 0.85) throw new Error('Draft editor is too narrow');
+    if (editor.getBoundingClientRect().height < innerHeight * 0.6) throw new Error('Draft editor is too short');
+    if (parseFloat(getComputedStyle(editor).fontSize) < 14) throw new Error('Draft text is too small');
+    const help = document.getElementById('draft-editor-help');
+    const colors = [getComputedStyle(help).color, getComputedStyle(help.closest('header')).backgroundColor].map(color => {
+        const channels = color.match(/[\d.]+/g).slice(0,3).map(Number).map(value => value / 255).map(value => value <= 0.04045 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4);
+        return channels[0] * 0.2126 + channels[1] * 0.7152 + channels[2] * 0.0722;
+    });
+    if ((Math.max(...colors) + 0.05) / (Math.min(...colors) + 0.05) < 4.5) throw new Error('Draft editor help has insufficient contrast');
+})()
+JS
+ab press Escape
+ab eval 'if (document.getElementById("draft-editor").open || draftBaseline === null) throw new Error("Closing the editor discarded the draft");'
+ab click '#edit-draft'
+ab wait '#draft-editor[open]'
+ab click '#discard-draft'
+ab eval 'if (document.getElementById("draft-editor").open || draftBaseline !== null) throw new Error("Discard did not close the editor and clear the draft");'
+fi
 
 if [[ ${1:-all} == all || ${1:-all} == labels ]]; then
 ab eval --stdin <<'JS'
@@ -66,6 +96,7 @@ switchMode('ui');
 currentLabels = {ccsret_testing_service_endpoint:'hosts'};
 renderLabels();
 JS
+ab click '#use-draft'
 ab click '.btn-test-route'
 ab wait '.route-matching-details'
 ab eval 'document.querySelector(".route-matching-details").open = true;'
@@ -104,6 +135,7 @@ ab screenshot "/tmp/art-route-ladder-${theme}-${width}.png"
 done
 done
 ab set viewport 1440 1000
+ab click '#edit-draft'
 ab click '#discard-draft'
 fi
 
@@ -115,6 +147,10 @@ ab eval 'document.getElementById("config-draft").value = document.getElementById
 ab click '#preview-draft'
 ab wait --fn '/^\+\s*-?\s*receiver: draft-critical$/m.test(document.getElementById("config-diff").textContent)'
 ab eval 'switchMode("ui"); currentLabels={severity:"critical"}; renderLabels();'
+ab click '#use-draft'
+ab fill '#receiver-search' draftcritical
+ab press Enter
+ab eval 'if (document.getElementById("target-receiver").value !== "draft-critical") throw new Error("Receiver search did not use draft receivers");'
 ab click '.btn-test-route'
 ab wait --fn 'document.querySelector("#result .result-primary-receiver")?.textContent.includes("draft-critical")'
 ab eval 'if (!document.querySelector("#result .draft-result")) throw new Error("Draft results are not identified"); if (Array.from({length:sessionStorage.length},(_,i)=>sessionStorage.getItem(sessionStorage.key(i))).some(value => value.includes("draft-critical"))) throw new Error("Draft configuration entered browser storage");'
@@ -127,22 +163,48 @@ ab eval --stdin <<'JS'
     if (invalid.status !== 400) throw new Error('Invalid draft was accepted');
 })()
 JS
+ab click '#edit-draft'
 ab click '#discard-draft'
 ab click '.btn-test-route'
 ab wait --fn 'document.querySelector("#result .result-primary-receiver")?.textContent.includes("pagerduty-critical")'
 ab eval 'if (document.querySelector("#result .draft-result")) throw new Error("Discard did not restore live routing");'
 fi
 
+if [[ ${1:-all} == all || ${1:-all} == search || ${1:-all} == receiver ]]; then
+ab eval 'if (!document.querySelector("#receiver-search[role=combobox]")) throw new Error("Receiver selection is not searchable");'
+ab fill '#receiver-search' pdplt
+ab wait '#receiver-options [role=option]'
+ab eval 'if (document.querySelector("#receiver-options [role=option]").textContent !== "pagerduty-platform") throw new Error("Fuzzy receiver search did not rank the intended receiver");'
+ab press ArrowDown
+ab press ArrowUp
+ab press Enter
+ab eval 'if (document.getElementById("target-receiver").value !== "pagerduty-platform" || document.getElementById("receiver-search").getAttribute("aria-expanded") !== "false") throw new Error("Keyboard selection failed");'
+ab click '#clear-receiver'
+ab fill '#receiver-search' 'not-a-configured-receiver'
+ab eval 'if (document.getElementById("target-receiver").value || document.getElementById("receiver-search").validity.valid) throw new Error("Unknown receiver was accepted");'
+ab press Escape
+ab click '#clear-receiver'
+ab fill '#receiver-search' pdplt
+ab click '#receiver-options [role=option]'
+ab eval 'if (document.getElementById("target-receiver").value !== "pagerduty-platform") throw new Error("Pointer receiver selection failed");'
+fi
+
 if [[ ${1:-all} == all || ${1:-all} == receiver ]]; then
 ab eval 'switchMode("ui"); currentLabels = {severity:"warning"}; renderLabels();'
-ab select '#target-receiver' pagerduty-platform
+ab fill '#receiver-search' pdplt
+ab press Enter
 ab click '.btn-test-route'
 ab wait '.receiver-explanation'
 ab eval --stdin <<'JS'
-const text = document.querySelector('.receiver-explanation').textContent;
-if (!text.includes('pagerduty-platform') || !text.includes('service') || !text.includes('label is missing') || !text.includes('warning')) throw new Error('Receiver explanation omitted failed parent or child conditions');
+const explanation = document.querySelector('.receiver-explanation');
+const text = explanation.textContent;
+if (!explanation.querySelector('.receiver-check-summary')) throw new Error('Receiver explanation lacks a clear summary');
+if (!text.includes('pagerduty-platform') || !text.includes('service') || !text.includes('Missing') || !text.includes('warning')) throw new Error('Receiver explanation omitted failed parent or child conditions');
+if (!explanation.querySelector('.receiver-condition-table')) throw new Error('Receiver conditions are not shown as a comparison');
+if (Array.from(explanation.querySelectorAll('.receiver-path-details')).some(details => details.open)) throw new Error('Raw route details must be collapsed initially');
+if (!(document.querySelector('.result-primary-outcome').compareDocumentPosition(explanation) & Node.DOCUMENT_POSITION_FOLLOWING)) throw new Error('Receiver explanation obscures the main routing result');
 JS
-ab select '#target-receiver' ''
+ab click '#clear-receiver'
 fi
 
 if [[ ${1:-all} == all || ${1:-all} == reuse ]]; then
@@ -150,9 +212,19 @@ ab eval 'if (!document.getElementById("recent-labels")) throw new Error("Recent 
 ab eval 'switchMode("ui"); currentLabels = {severity:"critical", alertname:"HistoryExample"}; renderLabels();'
 ab click '.btn-test-route'
 ab wait '.result-primary-receiver'
-ab wait --fn 'document.getElementById("recent-labels").options.length > 1'
+ab wait --fn 'document.getElementById("recent-labels").options[1]?.textContent.includes("HistoryExample")'
 ab eval 'currentLabels = {}; renderLabels();'
 ab select '#recent-labels' 0
+ab eval 'if (Object.keys(currentLabels).length) throw new Error("Selecting a recent test must not load it automatically");'
+ab eval --stdin <<'JS'
+(async () => {
+    const done = new Promise(resolve => document.getElementById('alert-form').addEventListener('htmx:afterRequest', resolve, {once:true}));
+    document.getElementById('alert-form').requestSubmit();
+    await done;
+    if (!document.getElementById('recent-labels').selectedOptions[0].textContent.includes('HistoryExample')) throw new Error('A routing result reset the selected recent test');
+})()
+JS
+ab click '#load-recent-labels'
 ab eval 'if (currentLabels.alertname !== "HistoryExample") throw new Error("Recent labels did not load");'
 ab eval --stdin <<'JS'
 (async () => {
@@ -170,8 +242,9 @@ ab eval --stdin <<'JS'
     if (document.getElementById('recent-labels').options.length !== 11) throw new Error('Duplicate labels entered history');
 })()
 JS
+ab eval 'window.labelsBeforeHistoryClear = JSON.stringify(currentLabels);'
 ab click '#clear-recent-labels'
-ab eval 'if (document.getElementById("recent-labels").options.length !== 1) throw new Error("Recent labels were not cleared");'
+ab eval 'if (document.getElementById("recent-labels").options.length !== 1) throw new Error("Recent labels were not cleared"); if (JSON.stringify(currentLabels) !== window.labelsBeforeHistoryClear) throw new Error("Clearing history changed current labels"); if (document.getElementById("clear-recent-labels").textContent !== "Clear history") throw new Error("Clear history action is ambiguous");'
 ab eval --stdin <<'JS'
 (async () => {
     const response = await fetch('/labels/suggestions', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({labels:{team:'database'},alertmanager:'local'})});

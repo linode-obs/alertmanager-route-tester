@@ -1,6 +1,7 @@
 package alertmanager
 
 import (
+	"encoding/json"
 	"strings"
 	"testing"
 )
@@ -32,6 +33,12 @@ func TestReceiverPathsExplainAllBlockers(t *testing.T) {
 	}
 	paths = ExplainReceiverPaths(map[string]string{"severity": "critical", "team": "platform", "service": "api", "job": "salt"}, config, "wanted")
 	for _, path := range paths {
+		encoded, _ := json.Marshal(path)
+		var facts map[string]any
+		_ = json.Unmarshal(encoded, &facts)
+		if facts["stopped_by_receiver"] != "stop" {
+			t.Fatalf("blocking receiver = %v, want stop", facts["stopped_by_receiver"])
+		}
 		if !strings.Contains(path.BlockedBy, "Earlier sibling root/1") || path.Delivered {
 			t.Fatalf("sibling blocker = %#v", path)
 		}

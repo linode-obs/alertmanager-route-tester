@@ -174,30 +174,30 @@ team: platform'></textarea>
                     <details id="routing-options" class="routing-options">
                         <summary>More options <span class="help-tip" role="img" data-tooltip="Reuse labels, edit a draft, explain a receiver, or share labels." aria-label="More options help: Reuse labels, edit a draft, explain a receiver, or share labels." tabindex="0">ⓘ</span></summary>
                         <div class="recent-label-controls">
-                            <label for="recent-labels">Recent tests <span class="help-tip" role="img" data-tooltip="Reuse labels from a successful test in this tab. Each Alertmanager keeps its own history." aria-label="Recent tests help: Reuse labels from a successful test in this tab. Each Alertmanager keeps its own history." tabindex="0">ⓘ</span></label>
-                            <select id="recent-labels" onchange="loadRecentLabels(this.value)">
+                            <label for="recent-labels">Recent tests <span class="help-tip" role="img" data-tooltip="Choose a saved test, then select Load to replace the current labels. Clear history removes saved tests only." aria-label="Recent tests help: Choose a saved test, then select Load to replace the current labels. Clear history removes saved tests only." tabindex="0">ⓘ</span></label>
+                            <select id="recent-labels" onchange="updateHistoryControls()">
                                 <option value="">Choose a previous test</option>
                             </select>
-                            <button id="clear-recent-labels" type="button" class="btn-secondary" onclick="clearRecentLabels()" title="Remove saved tests from this tab. Current labels stay.">Clear</button>
+                            <button id="load-recent-labels" type="button" class="btn-secondary" onclick="loadRecentLabels(document.getElementById('recent-labels').value)" title="Replace current labels with the selected test." disabled>Load</button>
+                            <button id="clear-recent-labels" type="button" class="btn-secondary" onclick="clearRecentLabels()" title="Remove saved tests from this tab. Current labels stay.">Clear history</button>
                         </div>
                     <section class="draft-section">
                         <button id="start-draft" type="button" class="btn-secondary" onclick="startDraft()">Edit configuration draft</button>
                         <span class="help-tip" role="img" data-tooltip="Edit a copy of the loaded configuration and test it. Live Alertmanager stays unchanged. Drafts are not saved." aria-label="Configuration draft help: Edit a copy of the loaded configuration and test it. Live Alertmanager stays unchanged. Drafts are not saved." tabindex="0">ⓘ</span>
                         <div id="draft-panel" hidden>
-                            <label for="config-draft">Proposed Alertmanager configuration</label>
-                            <p class="help-text">Draft tests do not change live Alertmanager. This draft stays in this page only.</p>
-                            <textarea id="config-draft" name="draft" rows="16" spellcheck="false" disabled></textarea>
-                            <div class="form-actions">
-                                <button id="preview-draft" type="button" class="btn-secondary" onclick="previewDraft()">Show diff</button>
-                                <button id="discard-draft" type="button" class="btn-secondary" onclick="discardDraft()">Discard draft</button>
-                            </div>
-                            <pre id="config-diff" aria-label="Configuration diff" tabindex="0"></pre>
+                            <button id="edit-draft" type="button" class="btn-secondary" onclick="openDraftEditor()">Open draft editor</button>
+                            <span class="draft-active-label">Draft active</span>
                         </div>
-                        <p id="draft-status" role="status" hidden></p>
                     </section>
                     <div class="receiver-question">
-                        <label for="target-receiver">Explain a receiver <span class="help-tip" role="img" data-tooltip="Explain why these labels do or do not reach this receiver. This choice does not change routing." aria-label="Receiver explanation help: Explain why these labels do or do not reach this receiver. This choice does not change routing." tabindex="0">ⓘ</span></label>
-                        <select id="target-receiver" name="target_receiver">
+                        <label for="receiver-search">Explain a receiver <span class="help-tip" role="img" data-tooltip="Type parts of a receiver name to search. Choose a match to explain its routing. This does not change routing." aria-label="Receiver explanation help: Type parts of a receiver name to search. Choose a match to explain its routing. This does not change routing." tabindex="0">ⓘ</span></label>
+                        <div class="receiver-picker">
+                            <input id="receiver-search" class="receiver-search" type="text" role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="receiver-options" aria-describedby="receiver-search-status" autocomplete="off" spellcheck="false" placeholder="Search receivers...">
+                            <button id="clear-receiver" class="receiver-clear" type="button" aria-label="Clear receiver selection" title="Clear receiver selection" hidden>×</button>
+                            <div id="receiver-options" class="receiver-options" role="listbox" aria-label="Matching receivers" hidden></div>
+                            <span id="receiver-search-status" class="receiver-search-status" role="status" aria-live="polite"></span>
+                        </div>
+                        <select id="target-receiver" name="target_receiver" hidden>
                             <option value="">No receiver selected</option>
                             {{if .Config}}{{range .Config.Receivers}}
                             <option value="{{.Name}}">{{.Name}}</option>
@@ -224,6 +224,32 @@ team: platform'></textarea>
             </div>
         </main>
     </div>
+
+    <dialog id="draft-editor" class="draft-editor" aria-labelledby="draft-editor-title" aria-describedby="draft-editor-help">
+        <header class="draft-editor-header">
+            <div>
+                <h2 id="draft-editor-title">Configuration draft</h2>
+                <p id="draft-editor-help">Changes stay in this page. Live Alertmanager stays unchanged.</p>
+            </div>
+            <button type="button" class="btn-secondary" onclick="closeDraftEditor()" title="Close the editor and keep the draft.">Close</button>
+        </header>
+        <div class="draft-editor-body">
+            <div class="draft-editor-field">
+                <label for="config-draft">Alertmanager YAML</label>
+                <textarea id="config-draft" rows="24" wrap="off" spellcheck="false" autocapitalize="off" disabled></textarea>
+            </div>
+            <section id="draft-diff" class="draft-diff" aria-label="Draft comparison" hidden>
+                <h3>Changes from fetched configuration</h3>
+                <pre id="config-diff" aria-label="Configuration diff" tabindex="0"></pre>
+            </section>
+        </div>
+        <footer class="draft-editor-footer">
+            <p id="draft-status" role="status" hidden></p>
+            <button id="preview-draft" type="button" class="btn-secondary" onclick="toggleDraftDiff()">Show diff</button>
+            <button id="discard-draft" type="button" class="btn-secondary" onclick="discardDraft()">Discard draft</button>
+            <button id="use-draft" type="button" class="btn-primary" onclick="closeDraftEditor()" title="Close the editor and use this draft for routing tests.">Use draft</button>
+        </footer>
+    </dialog>
 
     <script>
         // Current alert labels
@@ -307,6 +333,29 @@ team: platform'></textarea>
             status.hidden = false;
         }
 
+        function openDraftEditor() {
+            document.getElementById('draft-editor').showModal();
+            document.getElementById('config-draft').focus({preventScroll: true});
+        }
+
+        function closeDraftEditor() {
+            document.getElementById('draft-editor').close();
+        }
+
+        function hideDraftDiff() {
+            document.getElementById('draft-diff').hidden = true;
+            document.getElementById('preview-draft').textContent = 'Show diff';
+        }
+
+        function toggleDraftDiff() {
+            if (document.getElementById('draft-diff').hidden) previewDraft();
+            else hideDraftDiff();
+        }
+
+        document.getElementById('draft-editor').addEventListener('close', () => {
+            document.querySelector('.btn-test-route').focus({preventScroll: true});
+        });
+
         async function startDraft() {
             const button = document.getElementById('start-draft');
             button.disabled = true;
@@ -322,8 +371,8 @@ team: platform'></textarea>
                 button.hidden = true;
                 document.querySelector('.btn-test-route').textContent = 'Test draft';
                 document.querySelector('.btn-test-route').title = 'Evaluate labels against this draft. Live Alertmanager stays unchanged.';
-                setDraftStatus('Draft mode. Live Alertmanager is unchanged.');
-                editor.focus();
+                setDraftStatus('Draft ready.');
+                openDraftEditor();
             } catch (error) {
                 setDraftStatus('Cannot load a configuration draft. ' + error.message, true);
             } finally {
@@ -333,7 +382,7 @@ team: platform'></textarea>
 
         async function previewDraft() {
             const draft = document.getElementById('config-draft').value;
-            setDraftStatus('Preparing draft diff.');
+            setDraftStatus('Comparing configurations.');
             try {
                 const response = await fetch('/config/draft', {
                     method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -343,14 +392,18 @@ team: platform'></textarea>
                 const data = await response.json();
                 if (draft !== document.getElementById('config-draft').value || draftBaseline === null) return;
                 document.getElementById('config-diff').textContent = data.diff || 'No changes from the fetched configuration.';
+                document.getElementById('draft-diff').hidden = false;
+                document.getElementById('preview-draft').textContent = 'Hide diff';
                 const receivers = document.getElementById('target-receiver');
                 const selected = receivers.value;
                 receivers.replaceChildren(new Option('No receiver selected', ''));
                 data.receivers.forEach(name => receivers.add(new Option(name, name)));
                 if (data.receivers.includes(selected)) receivers.value = selected;
-                setDraftStatus('Draft is valid. Test alert labels against this draft.');
+                syncReceiverPicker();
+                setDraftStatus('Draft is valid.');
             } catch (error) {
                 document.getElementById('config-diff').textContent = '';
+                hideDraftDiff();
                 setDraftStatus(error.message, true);
             }
         }
@@ -363,18 +416,22 @@ team: platform'></textarea>
             editor.disabled = true;
             document.getElementById('draft-panel').hidden = true;
             document.getElementById('config-diff').textContent = '';
+            hideDraftDiff();
+            closeDraftEditor();
             document.getElementById('start-draft').hidden = false;
             document.querySelector('.btn-test-route').textContent = 'Test route';
             document.querySelector('.btn-test-route').title = 'Evaluate labels against the loaded configuration. No alert is sent.';
             const receivers = document.getElementById('target-receiver');
             receivers.replaceChildren(...Array.from(liveReceiverChoices.options).map(option => option.cloneNode(true)));
-            setDraftStatus('Draft discarded. Tests use the fetched configuration.');
+            syncReceiverPicker();
+            setDraftStatus('Draft discarded.');
         }
 
         document.getElementById('config-draft').addEventListener('input', () => {
             draftNavigationApproved = false;
             document.getElementById('config-diff').textContent = '';
-            setDraftStatus('Draft changed. Show the diff or test alert labels.');
+            hideDraftDiff();
+            setDraftStatus('Draft changed.');
         });
         document.getElementById('alert-form').addEventListener('htmx:afterRequest', event => {
             if (draftBaseline !== null && !event.detail.successful) {
@@ -393,7 +450,7 @@ team: platform'></textarea>
         let submittedLabels = null;
         let suggestionRequest = 0;
 
-        function renderRecentLabels() {
+        function renderRecentLabels(choice = null) {
             const select = document.getElementById('recent-labels');
             select.replaceChildren(new Option(recentLabelSets.length ? 'Choose a previous test' : 'No recent tests', ''));
             select.disabled = recentLabelSets.length === 0;
@@ -402,6 +459,16 @@ team: platform'></textarea>
                 const description = Object.entries(labels).map(([name, value]) => `${name}=${value}`).join(', ') || 'No labels';
                 select.add(new Option(description, String(index)));
             });
+            if (choice) {
+                const identity = labelSetIdentity(choice);
+                const index = recentLabelSets.findIndex(labels => labelSetIdentity(labels) === identity);
+                if (index >= 0) select.value = String(index);
+            }
+            updateHistoryControls();
+        }
+
+        function updateHistoryControls() {
+            document.getElementById('load-recent-labels').disabled = document.getElementById('recent-labels').value === '';
         }
 
         function loadRecentLabels(index) {
@@ -423,10 +490,11 @@ team: platform'></textarea>
 
         document.getElementById('alert-form').addEventListener('htmx:afterRequest', event => {
             if (!event.detail.successful || !submittedLabels || !document.querySelector('#result .result-success')) return;
+            const choice = recentLabelSets[document.getElementById('recent-labels').value];
             const identity = labelSetIdentity(submittedLabels);
             recentLabelSets = [submittedLabels, ...recentLabelSets.filter(labels => labelSetIdentity(labels) !== identity)].slice(0, 10);
             try { sessionStorage.setItem(historyStorageName, JSON.stringify(recentLabelSets)); } catch (error) {}
-            renderRecentLabels();
+            renderRecentLabels(choice);
         });
 
         function renderValueSuggestions() {
@@ -802,6 +870,7 @@ team: platform'></textarea>
         applyTheme(document.documentElement.dataset.themePreference || 'system');
         if (!restoreEditorState()) loadSharedLabels();
     </script>
+    <script src="/static/receiver-picker.js"></script>
 </body>
 </html>
 

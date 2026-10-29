@@ -159,6 +159,7 @@ func run() int {
 
 	// Web server mode
 	h := handler.NewWithClientsFromFS(clients, names, defaultName, assets)
+	h.RouteMismatchLimit = cfg.App.Server.RouteMismatchLimit
 	mux := http.NewServeMux()
 	mux.Handle("/static/", http.FileServer(http.FS(assets)))
 	mux.HandleFunc("/healthz", handler.HandleHealth)

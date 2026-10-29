@@ -18,13 +18,14 @@ import (
 	"go.opentelemetry.io/otel/codes"
 
 	"github.com/linode-obs/alertmanager-route-tester/internal/alertmanager"
+	appconfig "github.com/linode-obs/alertmanager-route-tester/internal/config"
 	"github.com/linode-obs/alertmanager-route-tester/internal/telemetry"
 )
 
 const maxTestRequestBodyBytes int64 = 1 << 20
-const maxRouteMismatchDiagnostics = 100
 
 type Handler struct {
+	RouteMismatchLimit  int
 	client              *alertmanager.Client
 	clients             map[string]*alertmanager.Client
 	alertmanagerNames   []string
@@ -402,7 +403,11 @@ func (h *Handler) HandleTest(w http.ResponseWriter, r *http.Request) {
 		routeSteps, matchedReceivers, continueCount, finalMatch := buildRouteSummary(matchedRoutes, receiver, config)
 		matchedReceiverSummaries := buildReceiverSummaries(matchedRoutes, receiver, config)
 		defaultRoot := isDefaultRoot(receiver, matchedRoutes, config)
-		routeMismatches, routeMismatchesOmitted := alertmanager.FindRouteMismatchesWithLimit(labels, config, maxRouteMismatchDiagnostics)
+		limit := h.RouteMismatchLimit
+		if limit <= 0 {
+			limit = appconfig.DefaultRouteMismatchLimit
+		}
+		routeMismatches, routeMismatchesOmitted := alertmanager.FindRouteMismatchesWithLimit(labels, config, limit)
 		data := struct {
 			Receiver                 string
 			ReceiverConfig           *alertmanager.Receiver

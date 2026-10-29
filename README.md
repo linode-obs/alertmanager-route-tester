@@ -25,6 +25,7 @@ alertmanager-route-tester:
   server:
     enabled: true
     listen: "127.0.0.1:8080"
+    route_mismatch_limit: 500
   cli-test-mode:
     enabled: false # set true to run in CLI test mode instead of web server mode
     format: "simple"
@@ -61,6 +62,8 @@ alertmanagers:
 Each entry under `alertmanagers` has a name and URL. HTTP, TLS, retry, connection-pool, and matcher parsing settings can be configured per instance. Set `matcher_mode` to `fallback` (the default), `classic`, or `utf8-strict` to match the connected Alertmanager's `--enable-feature` mode. When more than one instance is configured, the web UI shows an Alertmanager selector above the connection status. Changing the selection reloads the route suggestions and uses that instance for route tests and config reloads. It is recommended to use multiple Alertmanagers only when configuring ART for multiple clusters, not for multiple Alertmanagers within the same cluster.
 
 ART caches Alertmanager configuration with an option to reload the configuration.
+Set `alertmanager-route-tester.server.route_mismatch_limit` to limit mismatch diagnostics in browser results.
+The default is 500 when omitted or zero. Negative values are invalid. Results show how many diagnostics the limit omits.
 
 Deploy ART behind the same authentication, network protection, and access controls as the Alertmanager it connects to. In general, its deployment boundary and public URL should match the protected boundary used for that Alertmanager rather than exposing ART directly. ART displays routing metadata and raw receiver configuration, which may contain sensitive endpoints or fields that Alertmanager does not redact.
 

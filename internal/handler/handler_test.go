@@ -759,45 +759,50 @@ func TestResultTemplateRendersRootFallbackWithMatchedParent(t *testing.T) {
 }
 
 func TestHandleTestBoundsRouteMismatchDiagnostics(t *testing.T) {
-	const mismatchLimit = 100
-	const omittedRoutes = 2
-	const totalRoutes = mismatchLimit + omittedRoutes
+	for _, limit := range []int{0, 2} {
+		mismatchLimit := limit
+		if limit == 0 {
+			mismatchLimit = 500
+		}
+		const omittedRoutes = 2
+		totalRoutes := mismatchLimit + omittedRoutes
 
-	var original strings.Builder
-	original.WriteString("route:\n  receiver: default\n  routes:\n")
-	for index := 0; index < totalRoutes; index++ {
-		fmt.Fprintf(&original, "  - receiver: route-%d\n    match:\n      severity: exact-%d\n", index, index)
-	}
-	original.WriteString("receivers:\n- name: default\n")
-	for index := 0; index < totalRoutes; index++ {
-		fmt.Fprintf(&original, "- name: route-%d\n", index)
-	}
-	configJSON, err := json.Marshal(map[string]map[string]string{"config": {"original": original.String()}})
-	if err != nil {
-		t.Fatalf("marshal status response: %v", err)
-	}
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write(configJSON)
-	}))
-	defer server.Close()
+		var original strings.Builder
+		original.WriteString("route:\n  receiver: default\n  routes:\n")
+		for index := 0; index < totalRoutes; index++ {
+			fmt.Fprintf(&original, "  - receiver: route-%d\n    match:\n      severity: exact-%d\n", index, index)
+		}
+		original.WriteString("receivers:\n- name: default\n")
+		for index := 0; index < totalRoutes; index++ {
+			fmt.Fprintf(&original, "- name: route-%d\n", index)
+		}
+		configJSON, err := json.Marshal(map[string]map[string]string{"config": {"original": original.String()}})
+		if err != nil {
+			t.Fatalf("marshal status response: %v", err)
+		}
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write(configJSON)
+		}))
+		defer server.Close()
 
-	h := &Handler{client: alertmanager.NewClient(server.URL, false), tmpl: loadTemplates(t)}
-	request := httptest.NewRequest(http.MethodPost, "/test", bytes.NewBufferString(`{"labels":{"severity":"warning"}}`))
-	request.Header.Set("Content-Type", "application/json")
-	request.Header.Set("HX-Request", "true")
-	response := httptest.NewRecorder()
+		h := &Handler{client: alertmanager.NewClient(server.URL, false), tmpl: loadTemplates(t), RouteMismatchLimit: limit}
+		request := httptest.NewRequest(http.MethodPost, "/test", bytes.NewBufferString(`{"labels":{"severity":"warning"}}`))
+		request.Header.Set("Content-Type", "application/json")
+		request.Header.Set("HX-Request", "true")
+		response := httptest.NewRecorder()
 
-	h.HandleTest(response, request)
+		h.HandleTest(response, request)
 
-	if response.Code != http.StatusOK {
-		t.Fatalf("status = %d, want %d: %s", response.Code, http.StatusOK, response.Body.String())
-	}
-	if got := strings.Count(response.Body.String(), `<div class="route-item">`); got != mismatchLimit {
-		t.Fatalf("rendered route mismatch count = %d, want %d", got, mismatchLimit)
-	}
-	if !strings.Contains(response.Body.String(), fmt.Sprintf("%d more omitted", omittedRoutes)) {
-		t.Fatalf("response = %q, want omitted-count notice", response.Body.String())
+		if response.Code != http.StatusOK {
+			t.Fatalf("status = %d, want %d: %s", response.Code, http.StatusOK, response.Body.String())
+		}
+		if got := strings.Count(response.Body.String(), `<div class="route-item">`); got != mismatchLimit {
+			t.Fatalf("rendered route mismatch count = %d, want %d", got, mismatchLimit)
+		}
+		if !strings.Contains(response.Body.String(), fmt.Sprintf("%d more omitted", omittedRoutes)) {
+			t.Fatalf("response = %q, want omitted-count notice", response.Body.String())
+		}
 	}
 }
 

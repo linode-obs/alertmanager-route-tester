@@ -296,6 +296,35 @@ func TestHandleConfigLabelsRejectsNonGetRequests(t *testing.T) {
 	}
 }
 
+func TestHandleIndexRedactsAlertmanagerURLCredentials(t *testing.T) {
+	config := `{"config":{"original":"route:\n  receiver: default\nreceivers:\n- name: default\n"}}`
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(config))
+	}))
+	defer server.Close()
+	parsed, err := url.Parse(server.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	parsed.User = url.User("test-user")
+	handler := &Handler{client: alertmanager.NewClient(parsed.String(), false), tmpl: loadTemplates(t)}
+	request := httptest.NewRequest(http.MethodGet, "/", nil)
+	response := httptest.NewRecorder()
+	handler.HandleIndex(response, request)
+	if response.Code != http.StatusOK {
+		t.Fatalf("status = %d: %s", response.Code, response.Body.String())
+	}
+	for _, secret := range []string{"test-user"} {
+		if strings.Contains(response.Body.String(), secret) {
+			t.Fatalf("page exposes URL credential %q", secret)
+		}
+	}
+	if !strings.Contains(response.Body.String(), server.URL) {
+		t.Fatalf("page omits the safe Alertmanager link %q", server.URL)
+	}
+}
+
 func TestHandleIndexShowsCachedStatusAfterInitialLoad(t *testing.T) {
 	requests := 0
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -739,6 +768,56 @@ func TestReloadConfigReturnsHXRefreshAfterSuccess(t *testing.T) {
 	}
 	if got := response.Header().Get("HX-Refresh"); got != "true" {
 		t.Fatalf("HX-Refresh = %q, want true", got)
+	}
+}
+
+func TestHandleTestExplainsStoppedRouteWithoutMisattributingReceiver(t *testing.T) {
+	draft := `route:
+  receiver: default
+  routes:
+  - receiver: parent
+    match:
+      team: platform
+    routes:
+    - receiver: child
+      match:
+        severity: critical
+      continue: true
+  - receiver: wanted
+    match:
+      alertname: HighLatency
+receivers:
+- name: default
+- name: parent
+- name: child
+- name: wanted
+`
+	body, err := json.Marshal(TestRequest{
+		Labels:         map[string]string{"team": "platform", "severity": "critical", "alertname": "HighLatency"},
+		Alertmanager:   "default",
+		TargetReceiver: "wanted",
+		Draft:          &draft,
+	})
+	if err != nil {
+		t.Fatalf("marshal request: %v", err)
+	}
+	h := &Handler{client: alertmanager.NewClient("http://127.0.0.1:1", false), tmpl: loadTemplates(t)}
+	request := httptest.NewRequest(http.MethodPost, "/test", bytes.NewReader(body))
+	request.Header.Set("Content-Type", "application/json")
+	request.Header.Set("HX-Request", "true")
+	response := httptest.NewRecorder()
+
+	h.HandleTest(response, request)
+
+	if response.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d: %s", response.Code, http.StatusOK, response.Body.String())
+	}
+	output := response.Body.String()
+	if !strings.Contains(output, `<code class="receiver-blocker-name">child</code>`) {
+		t.Fatalf("response = %q, want terminal receiver child", output)
+	}
+	if !strings.Contains(output, `data-tooltip="An earlier matching route delivered to this receiver and did not continue, so later routes were not checked."`) {
+		t.Fatalf("response = %q, want accurate stopping-route explanation", output)
 	}
 }
 

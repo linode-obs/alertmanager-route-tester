@@ -7,12 +7,63 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
 )
+
+func TestDisplayURLRedactsCredentialsAndQuery(t *testing.T) {
+	client := NewClient(urlWithTestUserInfo(t, "https://alerts.example.test/prometheus/alertmanager"), false)
+	if got, want := client.DisplayURL(), "https://alerts.example.test/prometheus/alertmanager"; got != want {
+		t.Fatalf("DisplayURL() = %q, want %q", got, want)
+	}
+}
+
+func TestGetConfigFailureDoesNotExposeURLCredentials(t *testing.T) {
+	client := NewClient(urlWithTestUserInfo(t, "http://127.0.0.1:1/alertmanager"), false)
+	_, err := client.GetConfig()
+	if err == nil {
+		t.Fatal("GetConfig() error = nil, want connection failure")
+	}
+	for _, secret := range []string{"test-user", "private-value"} {
+		if strings.Contains(err.Error(), secret) {
+			t.Errorf("GetConfig() error exposes %q: %v", secret, err)
+		}
+	}
+}
+
+func urlWithTestUserInfo(t *testing.T, rawURL string) string {
+	t.Helper()
+	parsed, err := url.Parse(rawURL)
+	if err != nil {
+		t.Fatalf("parse test URL: %v", err)
+	}
+	parsed.User = url.User("test-user")
+	query := parsed.Query()
+	query.Set("debug", "private-value")
+	parsed.RawQuery = query.Encode()
+	return parsed.String()
+}
+
+func TestGetConfigRejectsUpstreamErrorBodyWithoutReturningIt(t *testing.T) {
+	const secret = "upstream-error-secret"
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+		_, _ = io.WriteString(w, secret)
+	}))
+	defer server.Close()
+
+	_, err := NewClient(server.URL, false).GetConfig()
+	if err == nil || !strings.Contains(err.Error(), "500") {
+		t.Fatalf("GetConfig() error = %v, want upstream status code 500", err)
+	}
+	if strings.Contains(err.Error(), secret) {
+		t.Fatalf("GetConfig() error exposed upstream body: %v", err)
+	}
+}
 
 func TestGetConfigContextCancelsRequest(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

@@ -175,7 +175,7 @@ func run() int {
 	mux.Handle("/metrics", providers.PrometheusHandler())
 
 	slog.Info("starting server", "listen", cfg.App.Server.Listen)
-	slog.Info("using alertmanager", "name", defaultName, "url", clients[defaultName].BaseURL())
+	slog.Info("using alertmanager", "name", defaultName, "url", clients[defaultName].DisplayURL())
 	server := &http.Server{
 		Addr:              cfg.App.Server.Listen,
 		Handler:           telemetry.MetricsHandler(mux),

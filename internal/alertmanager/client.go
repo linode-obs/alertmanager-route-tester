@@ -10,6 +10,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"regexp"
 	"regexp/syntax"
@@ -235,6 +236,28 @@ func NewClientWithOptions(opts ClientOptions) (*Client, error) {
 
 func (c *Client) BaseURL() string {
 	return c.baseURL
+}
+
+func (c *Client) DisplayURL() string {
+	parsed, err := url.Parse(c.baseURL)
+	if err != nil || parsed.Scheme == "" || parsed.Host == "" {
+		return "Alertmanager"
+	}
+	parsed.User = nil
+	parsed.RawQuery = ""
+	parsed.ForceQuery = false
+	parsed.Fragment = ""
+	return strings.TrimSuffix(parsed.String(), "/")
+}
+
+func redactRequestError(err error) error {
+	var requestError *url.Error
+	if !errors.As(err, &requestError) {
+		return err
+	}
+	redacted := *requestError
+	redacted.URL = (&Client{baseURL: requestError.URL}).DisplayURL()
+	return &redacted
 }
 
 func (c *Client) CheckConnection() error {
@@ -486,11 +509,11 @@ func (c *Client) fetchStatus(ctx context.Context, status *StatusResponse) (retry
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.baseURL+"/api/v2/status", nil)
 	if err != nil {
-		return true, fmt.Errorf("failed to create status request: %w", err)
+		return true, fmt.Errorf("failed to create status request: %w", redactRequestError(err))
 	}
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
-		return true, fmt.Errorf("failed to fetch status: %w", err)
+		return true, fmt.Errorf("failed to fetch status: %w", redactRequestError(err))
 	}
 	defer func() {
 		_ = resp.Body.Close()
@@ -498,12 +521,12 @@ func (c *Client) fetchStatus(ctx context.Context, status *StatusResponse) (retry
 
 	body, err := readResponseBody(resp.Body)
 	if err != nil {
-		return !errors.Is(err, errResponseBodyTooLarge), fmt.Errorf("failed to read response body: %w", err)
+		return !errors.Is(err, errResponseBodyTooLarge), fmt.Errorf("failed to read response body: %w", redactRequestError(err))
 	}
 
 	if resp.StatusCode != http.StatusOK {
 		retryable := resp.StatusCode == http.StatusTooManyRequests || resp.StatusCode >= http.StatusInternalServerError
-		return retryable, fmt.Errorf("unexpected status code %d: %s", resp.StatusCode, string(body))
+		return retryable, fmt.Errorf("unexpected status code %d from Alertmanager", resp.StatusCode)
 	}
 
 	if err := json.Unmarshal(body, status); err != nil {

@@ -312,7 +312,7 @@ repeat_interval: {{.Route.RepeatInterval}}{{end}}</pre>
         {{if .ReceiverCheck.Delivered}}<p>Receives a copy of this alert.</p>
         {{else if .ReceiverCheck.StoppedBy}}
             {{range .ReceiverCheck.StoppedBy}}
-            <p>Stopped by <code class="receiver-blocker-name">{{.}}</code> <span class="help-tip" role="img" data-tooltip="This route sets continue=false, so later routes are not checked." aria-label="Routing stop help: This route sets continue=false, so later routes are not checked." tabindex="0">ⓘ</span></p>
+            <p>Stopped by <code class="receiver-blocker-name">{{.}}</code> <span class="help-tip" role="img" data-tooltip="An earlier matching route delivered to this receiver and did not continue, so later routes were not checked." aria-label="Routing stop help: An earlier matching route delivered to this receiver and did not continue, so later routes were not checked." tabindex="0">ⓘ</span></p>
             {{end}}
         {{else if .ReceiverCheck.ChildSelected}}<p>A child route was selected instead.</p>
         {{else if .ReceiverCheck.HasRoutes}}<p>Required labels do not match.</p>

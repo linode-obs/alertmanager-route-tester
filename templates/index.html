@@ -63,7 +63,7 @@
                         {{end}}
                         <form method="POST" action="/config/reload"
                               hx-post="/config/reload" hx-swap="none"
-                              hx-on:config-reload-error="this.querySelector('.reload-error').hidden = false">
+                              hx-on:config-reload-error="draftNavigationApproved = false; this.querySelector('.reload-error').hidden = false">
                             <input type="hidden" name="alertmanager" value="{{.SelectedAlertmanager}}">
                             <button type="submit" class="btn-reload-config" aria-label="Reload Alertmanager config" title="Load the config again">Reload</button>
                             <span class="reload-error" hidden>Reload failed. Using cached configuration.</span>
@@ -82,7 +82,7 @@
                     <div class="connection-actions">
                         <form method="POST" action="/config/reload"
                               hx-post="/config/reload" hx-swap="none"
-                              hx-on:config-reload-error="this.querySelector('.reload-error').hidden = false">
+                              hx-on:config-reload-error="draftNavigationApproved = false; this.querySelector('.reload-error').hidden = false">
                             <input type="hidden" name="alertmanager" value="{{.SelectedAlertmanager}}">
                             <button type="submit" class="btn-reload-config" aria-label="Try the Alertmanager connection again" title="Try again">Retry</button>
                             <span class="reload-error" hidden>Retry failed.</span>
@@ -185,6 +185,7 @@ team: platform'></textarea>
                     <section class="draft-section">
                         <button id="start-draft" type="button" class="btn-secondary" onclick="startDraft()">Edit configuration draft</button>
                         <span class="help-tip" role="img" data-tooltip="Edit a copy of the loaded configuration and test it. Live Alertmanager stays unchanged. Drafts are not saved." aria-label="Configuration draft help: Edit a copy of the loaded configuration and test it. Live Alertmanager stays unchanged. Drafts are not saved." tabindex="0">ⓘ</span>
+                        <p id="draft-workspace-status" class="field-error" role="alert" aria-live="polite" hidden></p>
                         <div id="draft-panel" hidden>
                             <button id="edit-draft" type="button" class="btn-secondary" onclick="openDraftEditor()">Open draft editor</button>
                             <button id="view-draft-patch" type="button" class="btn-secondary" onclick="showDraftPatch()" disabled>View patch</button>
@@ -259,7 +260,7 @@ team: platform'></textarea>
             </div>
             <button id="preview-draft" type="button" class="btn-secondary" onclick="toggleDraftDiff()">Show patch</button>
             <button id="discard-draft" type="button" class="btn-secondary" onclick="discardDraft()">Discard draft</button>
-            <button id="use-draft" type="button" class="btn-primary" onclick="closeDraftEditor()" title="Close the editor and use this draft for routing tests.">Use draft</button>
+            <button id="use-draft" type="button" class="btn-primary" onclick="useDraft()" title="Close the editor and use this draft for routing tests.">Use draft</button>
         </footer>
     </dialog>
 
@@ -326,6 +327,9 @@ team: platform'></textarea>
                     event.stopImmediatePropagation();
                 }
             }, true);
+            form.addEventListener('htmx:afterRequest', event => {
+                if (event.detail.xhr.getResponseHeader('HX-Refresh') !== 'true') draftNavigationApproved = false;
+            });
         });
         window.addEventListener('beforeunload', saveEditorState);
         document.getElementById('raw-input').addEventListener('input', saveEditorState);
@@ -347,6 +351,24 @@ team: platform'></textarea>
             status.textContent = message;
             status.classList.toggle('field-error', failed);
             status.hidden = false;
+        }
+
+        function setDraftWorkspaceStatus(message) {
+            const status = document.getElementById('draft-workspace-status');
+            status.textContent = message;
+            status.hidden = !message;
+        }
+
+        function showDraftTestFailure() {
+            const result = document.getElementById('result');
+            const warning = document.createElement('div');
+            warning.className = 'result-warning draft-test-error';
+            const heading = document.createElement('h2');
+            heading.textContent = 'Draft test failed';
+            const message = document.createElement('p');
+            message.textContent = 'Open the draft editor to see the error details.';
+            warning.append(heading, message);
+            result.replaceChildren(warning);
         }
 
         function openDraftEditor(opener = document.activeElement) {
@@ -408,10 +430,13 @@ team: platform'></textarea>
                 document.querySelector('.btn-test-route').textContent = 'Test draft';
                 document.querySelector('.btn-test-route').title = 'Evaluate labels against this draft. Live Alertmanager stays unchanged.';
                 setDraftStatus('Draft ready.');
+                setDraftWorkspaceStatus('');
                 updatePatchControls();
                 openDraftEditor(document.getElementById('edit-draft'));
             } catch (error) {
-                setDraftStatus('Cannot load a configuration draft. ' + error.message, true);
+                const message = 'Cannot load a configuration draft. ' + error.message;
+                setDraftStatus(message, true);
+                setDraftWorkspaceStatus(message);
             } finally {
                 button.disabled = false;
             }
@@ -432,6 +457,28 @@ team: platform'></textarea>
             });
             if (!response.ok) throw new Error(await response.text());
             return response.json();
+        }
+
+        function replaceDraftReceiverChoices(names) {
+            const receivers = document.getElementById('target-receiver');
+            const selected = receivers.value;
+            receivers.replaceChildren(new Option('No receiver selected', ''));
+            names.forEach(name => receivers.add(new Option(name, name)));
+            if (names.includes(selected)) receivers.value = selected;
+            syncReceiverPicker();
+        }
+
+        async function useDraft() {
+            const draft = document.getElementById('config-draft').value;
+            try {
+                const data = await compareDraft(draft, '');
+                if (draft !== document.getElementById('config-draft').value || draftBaseline === null) return;
+                replaceDraftReceiverChoices(data.receivers);
+                setDraftStatus('Draft ready.');
+                closeDraftEditor();
+            } catch (error) {
+                setDraftStatus(error.message, true);
+            }
         }
 
         async function copyPatch() {
@@ -475,12 +522,7 @@ team: platform'></textarea>
                     document.getElementById('config-diff').textContent = currentPatch || 'No changes from the fetched configuration.';
                     document.getElementById('draft-diff').hidden = false;
                     document.getElementById('preview-draft').textContent = 'Hide patch';
-                    const receivers = document.getElementById('target-receiver');
-                    const selected = receivers.value;
-                    receivers.replaceChildren(new Option('No receiver selected', ''));
-                    data.receivers.forEach(name => receivers.add(new Option(name, name)));
-                    if (data.receivers.includes(selected)) receivers.value = selected;
-                    syncReceiverPicker();
+                    replaceDraftReceiverChoices(data.receivers);
                     setDraftStatus('Draft is valid.');
                     updatePatchControls();
                 },
@@ -495,6 +537,7 @@ team: platform'></textarea>
         function discardDraft() {
             draftBaseline = null;
             draftNavigationApproved = false;
+            setDraftWorkspaceStatus('');
             const editor = document.getElementById('config-draft');
             editor.value = '';
             editor.disabled = true;
@@ -522,6 +565,7 @@ team: platform'></textarea>
         document.getElementById('alert-form').addEventListener('htmx:afterRequest', event => {
             if (draftBaseline !== null && !event.detail.successful) {
                 setDraftStatus(event.detail.xhr.responseText || 'Draft test failed.', true);
+                showDraftTestFailure();
             }
         });
         window.addEventListener('beforeunload', event => {
@@ -575,10 +619,11 @@ team: platform'></textarea>
         }
 
         document.getElementById('alert-form').addEventListener('htmx:afterRequest', event => {
-            if (!event.detail.successful || !submittedLabels || !document.querySelector('#result .result-success')) return;
+            const labels = event.detail.xhr.artSubmittedLabels;
+            if (!event.detail.successful || !labels || !document.querySelector('#result .result-success')) return;
             const choice = recentLabelSets[document.getElementById('recent-labels').value];
-            const identity = labelSetIdentity(submittedLabels);
-            recentLabelSets = [submittedLabels, ...recentLabelSets.filter(labels => labelSetIdentity(labels) !== identity)].slice(0, 10);
+            const identity = labelSetIdentity(labels);
+            recentLabelSets = [labels, ...recentLabelSets.filter(labels => labelSetIdentity(labels) !== identity)].slice(0, 10);
             try { sessionStorage.setItem(historyStorageName, JSON.stringify(recentLabelSets)); } catch (error) {}
             renderRecentLabels(choice);
         });
@@ -759,8 +804,12 @@ team: platform'></textarea>
                 rawBtn.classList.remove('active');
                 rawBtn.setAttribute('aria-pressed', 'false');
             } else {
-                if (rawBtn.getAttribute('aria-pressed') !== 'true') document.getElementById('raw-input').value = Object.entries(currentLabels)
-                    .map(([name, value]) => `${JSON.stringify(name)}: ${JSON.stringify(value)}`).join('\n');
+                if (rawBtn.getAttribute('aria-pressed') !== 'true') {
+                    const entries = Object.entries(currentLabels);
+                    document.getElementById('raw-input').value = entries.length
+                        ? entries.map(([name, value]) => `${JSON.stringify(name)}: ${JSON.stringify(value)}`).join('\n')
+                        : '{}';
+                }
                 uiBuilder.style.display = 'none';
                 rawBuilder.style.display = 'block';
                 uiBtn.classList.remove('active');
@@ -822,6 +871,9 @@ team: platform'></textarea>
         });
         document.getElementById('alert-form').addEventListener('submit', function() {
             submittedLabels = { ...currentLabels };
+        }, true);
+        document.getElementById('alert-form').addEventListener('htmx:beforeRequest', event => {
+            event.detail.xhr.artSubmittedLabels = { ...submittedLabels };
         });
 
         function setShareStatus(message, isError) {

@@ -117,6 +117,7 @@ currentLabels = {ccsret_testing_service_endpoint:'hosts'};
 renderLabels();
 JS
 ab click '#use-draft'
+ab wait --fn 'document.getElementById("draft-editor").open === false'
 ab click '.btn-test-route'
 ab wait '.route-matching-details'
 ab eval 'document.querySelector(".route-matching-details").open = true;'
@@ -165,6 +166,7 @@ ab click '#start-draft'
 ab wait --fn 'document.getElementById("config-draft").value.includes("pagerduty-critical")'
 ab eval 'document.getElementById("config-draft").value = document.getElementById("config-draft").value.replaceAll("pagerduty-critical", "draft-critical"); document.getElementById("config-draft").dispatchEvent(new Event("input"));'
 ab click '#use-draft'
+ab wait --fn 'document.getElementById("draft-editor").open === false'
 ab eval 'if (!document.getElementById("view-draft-patch")) throw new Error("The draft action must open a patch preview, not download a file");'
 ab click '#view-draft-patch'
 ab wait --fn '/^\+\s*-?\s*receiver: draft-critical$/m.test(document.getElementById("config-diff").textContent)'
@@ -199,6 +201,7 @@ with tempfile.TemporaryDirectory() as directory:
 PY
 ab eval 'switchMode("ui"); currentLabels={severity:"critical"}; renderLabels();'
 ab click '#use-draft'
+ab wait --fn 'document.getElementById("draft-editor").open === false'
 ab fill '#receiver-search' draftcritical
 ab press Enter
 ab eval 'if (document.getElementById("target-receiver").value !== "draft-critical") throw new Error("Receiver search did not use draft receivers");'
@@ -222,9 +225,9 @@ ab eval --stdin <<'JS'
     editor.dispatchEvent(new Event('input'));
 })()
 JS
-ab click '#preview-draft'
-ab wait --fn 'document.getElementById("config-diff").textContent.includes("removed-in-draft")'
 ab click '#use-draft'
+ab wait --fn 'Array.from(document.getElementById("target-receiver").options).some(option => option.value === "removed-in-draft")'
+ab wait --fn 'document.getElementById("draft-editor").open === false'
 ab fill '#receiver-search' removed-in-draft
 ab press Enter
 ab eval 'if (document.getElementById("target-receiver").value !== "removed-in-draft") throw new Error("Draft receiver was not selected before removing it");'
@@ -237,6 +240,7 @@ ab eval --stdin <<'JS'
 })()
 JS
 ab click '#use-draft'
+ab wait --fn 'document.getElementById("draft-editor").open === false'
 ab eval --stdin <<'JS'
 (async () => {
     currentLabels = {severity:'critical'};
@@ -244,20 +248,107 @@ ab eval --stdin <<'JS'
     const completed = new Promise(resolve => document.getElementById('alert-form').addEventListener('htmx:afterRequest', resolve, {once:true}));
     document.getElementById('alert-form').requestSubmit();
     const result = await completed;
+    if (document.getElementById('target-receiver').value) throw new Error('Applying a draft kept a receiver that no longer exists');
     if (!result.detail.successful || !document.querySelector('#result .result-primary-receiver')) throw new Error('Removing an optional receiver prevented draft route testing');
-    if (!document.querySelector('#result .receiver-explanation')?.textContent.includes('No route uses this receiver')) throw new Error('Draft no longer explains the removed receiver choice');
 })()
 JS
+ab eval 'if (Array.from(document.getElementById("target-receiver").options).some(option => option.value === "removed-in-draft")) throw new Error("Applying an edited draft kept a removed receiver selectable");'
+ab click '#edit-draft'
+ab eval --stdin <<'JS'
+(() => {
+    const editor = document.getElementById('config-draft');
+    editor.value = `route:\n  receiver: default\n  routes:\n  - receiver: parent\n    match:\n      team: platform\n    routes:\n    - receiver: child\n      match:\n        severity: critical\n      continue: true\n  - receiver: wanted\n    match:\n      alertname: HighLatency\nreceivers:\n- name: default\n- name: parent\n- name: child\n- name: wanted\n`;
+    editor.dispatchEvent(new Event('input'));
+})()
+JS
+ab click '#use-draft'
+ab wait --fn 'Array.from(document.getElementById("target-receiver").options).some(option => option.value === "wanted")'
+ab wait --fn 'document.getElementById("draft-editor").open === false'
+ab eval 'currentLabels = {team:"platform", severity:"critical", alertname:"HighLatency"}; renderLabels();'
+ab fill '#receiver-search' wanted
+ab press Enter
+ab click '.btn-test-route'
+ab wait '.receiver-explanation .receiver-blocker-name'
+ab eval --stdin <<'JS'
+const blocker = document.querySelector('.receiver-blocker-name');
+const tooltip = blocker?.nextElementSibling?.dataset.tooltip || '';
+if (blocker?.textContent !== 'child') throw new Error('The terminal receiver was not shown as the earlier delivery');
+if (!tooltip.includes('earlier matching route') || tooltip.includes('This route sets continue=false')) throw new Error('The tooltip attributed continue=false to the terminal receiver');
+JS
+ab click '#edit-draft'
+ab eval --stdin <<'JS'
+(() => {
+    const editor = document.getElementById('config-draft');
+    editor.value = 'route: [';
+    editor.dispatchEvent(new Event('input'));
+    closeDraftEditor();
+})()
+JS
+ab click '.btn-test-route'
+ab wait --fn 'document.querySelector("#result .draft-test-error")'
+ab eval 'if (document.querySelector("#result .result-success")) throw new Error("A failed draft test left stale routing output");'
+ab click '#edit-draft'
+ab eval --stdin <<'JS'
+(() => {
+    const editor = document.getElementById('config-draft');
+    editor.value = draftBaseline.replaceAll('pagerduty-critical', 'draft-critical');
+    editor.dispatchEvent(new Event('input'));
+})()
+JS
+ab click '#use-draft'
+ab wait --fn 'document.getElementById("draft-editor").open === false'
 ab click '#edit-draft'
 ab click '#discard-draft'
 ab click '.btn-test-route'
 ab wait --fn 'document.querySelector("#result .result-primary-receiver")?.textContent.includes("pagerduty-critical")'
 ab eval 'if (document.querySelector("#result .draft-result")) throw new Error("Discard did not restore live routing");'
+ab select '#alertmanager-select' second
+ab wait --load networkidle
+ab click '#routing-options > summary'
+ab click '#start-draft'
+ab wait --fn 'document.getElementById("draft-workspace-status") && !document.getElementById("draft-workspace-status").hidden'
+ab eval 'if (!document.getElementById("draft-workspace-status").textContent.includes("Cannot load")) throw new Error("Draft source failure is not visible beside the draft action");'
+ab select '#alertmanager-select' local
+ab wait --load networkidle
+ab click '#routing-options > summary'
 fi
 
 if [[ ${1:-all} == all || ${1:-all} == search || ${1:-all} == receiver ]]; then
 ab eval 'if (!document.querySelector("#receiver-search[role=combobox]")) throw new Error("Receiver selection is not searchable");'
-ab fill '#receiver-search' pdplt
+ab eval --stdin <<'JS'
+(() => {
+    const receivers = document.getElementById('target-receiver');
+    const collidingNames = ['a-b', 'ab'].sort((a, b) => a.localeCompare(b));
+    window.exactReceiverName = collidingNames[1];
+    receivers.add(new Option(collidingNames[0], collidingNames[0]));
+    receivers.add(new Option(collidingNames[1], collidingNames[1]));
+    receivers.add(new Option('Ops', 'Ops'));
+    receivers.add(new Option('ops', 'ops'));
+    const input = document.getElementById('receiver-search');
+    input.focus();
+    input.value = window.exactReceiverName;
+    input.dispatchEvent(new Event('input', {bubbles: true}));
+})()
+JS
+ab eval 'if (document.querySelector("#receiver-options [role=option]")?.textContent !== window.exactReceiverName) throw new Error("Normalized receiver collision outranked the exact name");'
+ab press Enter
+ab eval 'if (document.getElementById("target-receiver").value !== window.exactReceiverName) throw new Error("Enter selected a receiver that only normalized to the query");'
+ab eval --stdin <<'JS'
+(() => {
+    const input = document.getElementById('receiver-search');
+    const selected = document.getElementById('target-receiver');
+    input.focus();
+    input.value = 'ops';
+    input.dispatchEvent(new Event('input', {bubbles: true}));
+    if (selected.value !== 'ops') throw new Error('Case-insensitive auto-selection chose a different receiver');
+    input.value = 'OPS';
+    input.dispatchEvent(new Event('input', {bubbles: true}));
+    if (selected.value || input.validity.valid) throw new Error('A non-exact case match was submitted without explicit selection');
+})()
+JS
+ab eval '(() => { const receivers = document.getElementById("target-receiver"); for (const name of ["a-b", "ab", "Ops", "ops"]) Array.from(receivers.options).find(option => option.value === name)?.remove(); })()'
+ab click '#clear-receiver'
+ab eval '(() => { const input = document.getElementById("receiver-search"); input.focus(); input.value = "pdplt"; input.dispatchEvent(new Event("input", {bubbles: true})); })()'
 ab wait '#receiver-options [role=option]'
 ab eval 'if (document.querySelector("#receiver-options [role=option]").textContent !== "pagerduty-platform") throw new Error("Fuzzy receiver search did not rank the intended receiver");'
 ab press ArrowDown
@@ -265,18 +356,18 @@ ab press ArrowUp
 ab press Enter
 ab eval 'if (document.getElementById("target-receiver").value !== "pagerduty-platform" || document.getElementById("receiver-search").getAttribute("aria-expanded") !== "false") throw new Error("Keyboard selection failed");'
 ab click '#clear-receiver'
-ab fill '#receiver-search' 'not-a-configured-receiver'
+ab eval '(() => { const input = document.getElementById("receiver-search"); input.focus(); input.value = "not-a-configured-receiver"; input.dispatchEvent(new Event("input", {bubbles: true})); })()'
 ab eval 'if (document.getElementById("target-receiver").value || document.getElementById("receiver-search").validity.valid) throw new Error("Unknown receiver was accepted"); if (document.getElementById("receiver-search").getAttribute("aria-invalid") !== "true") throw new Error("Invalid receiver search is reported as valid to assistive technology");'
 ab press Escape
 ab click '#clear-receiver'
-ab fill '#receiver-search' pdplt
+ab eval '(() => { const input = document.getElementById("receiver-search"); input.focus(); input.value = "pdplt"; input.dispatchEvent(new Event("input", {bubbles: true})); })()'
 ab click '#receiver-options [role=option]'
 ab eval 'if (document.getElementById("target-receiver").value !== "pagerduty-platform") throw new Error("Pointer receiver selection failed");'
 fi
 
 if [[ ${1:-all} == all || ${1:-all} == receiver ]]; then
 ab eval 'switchMode("ui"); currentLabels = {severity:"warning"}; renderLabels();'
-ab fill '#receiver-search' pdplt
+ab eval '(() => { const input = document.getElementById("receiver-search"); input.focus(); input.value = "pdplt"; input.dispatchEvent(new Event("input", {bubbles: true})); })()'
 ab press Enter
 ab click '.btn-test-route'
 ab wait '.receiver-explanation'
@@ -300,6 +391,27 @@ ab eval 'switchMode("ui"); currentLabels = {severity:"critical", alertname:"Hist
 ab click '.btn-test-route'
 ab wait '.result-primary-receiver'
 ab wait --fn 'document.getElementById("recent-labels").options[1]?.textContent.includes("HistoryExample")'
+ab eval --stdin <<'JS'
+(() => {
+    clearRecentLabels();
+    const form = document.getElementById('alert-form');
+    const first = new XMLHttpRequest();
+    submittedLabels = {alertname: 'RequestA'};
+    form.dispatchEvent(new CustomEvent('htmx:beforeRequest', {detail: {xhr: first}}));
+    const second = new XMLHttpRequest();
+    submittedLabels = {alertname: 'RequestB'};
+    form.dispatchEvent(new CustomEvent('htmx:beforeRequest', {detail: {xhr: second}}));
+    document.getElementById('result').innerHTML = '<div class="result-success"></div>';
+    form.dispatchEvent(new CustomEvent('htmx:afterRequest', {detail: {successful: true, xhr: first}}));
+    if (!recentLabelSets.some(labels => labels.alertname === 'RequestA') || recentLabelSets.some(labels => labels.alertname === 'RequestB')) throw new Error('An earlier test recorded the labels from a later request');
+    document.getElementById('result').replaceChildren();
+    form.dispatchEvent(new CustomEvent('htmx:afterRequest', {detail: {successful: false, xhr: second}}));
+    if (recentLabelSets.some(labels => labels.alertname === 'RequestB')) throw new Error('A failed test entered recent history');
+    recentLabelSets = [{severity: 'critical', alertname: 'HistoryExample'}];
+    sessionStorage.setItem(historyStorageName, JSON.stringify(recentLabelSets));
+    renderRecentLabels();
+})()
+JS
 ab eval 'currentLabels = {}; renderLabels();'
 ab select '#recent-labels' 0
 ab eval 'if (Object.keys(currentLabels).length) throw new Error("Selecting a recent test must not load it automatically");'
@@ -346,6 +458,15 @@ fi
 if [[ ${1:-all} == all || ${1:-all} == yaml ]]; then
 ab eval --stdin <<'JS'
 (async () => {
+    currentLabels = {};
+    renderLabels();
+    switchMode('raw');
+    if (document.getElementById('raw-input').value !== '{}') throw new Error('Empty labels did not become an empty YAML object');
+    const empty = await fetch('/labels/parse', {method: 'POST', body: document.getElementById('raw-input').value});
+    if (!empty.ok || Object.keys((await empty.json()).labels).length) throw new Error('Empty labels did not round-trip through YAML');
+    await parseRawInput();
+    if (Object.keys(currentLabels).length) throw new Error('Loading an empty YAML object added labels');
+
     currentLabels = {severity: 'critical', message: 'a: b\n"quoted"\\value', empty: '', 'ü:name': '日本語'};
     renderLabels();
     switchMode('raw');
@@ -375,6 +496,27 @@ JS
 fi
 
 if [[ ${1:-all} == all || ${1:-all} == reload ]]; then
+ab click '#start-draft'
+ab wait --fn 'document.getElementById("config-draft").value.length > 0'
+ab eval --stdin <<'JS'
+(() => {
+    const editor = document.getElementById('config-draft');
+    editor.value += '\n# unsaved draft';
+    editor.dispatchEvent(new Event('input'));
+    window.confirm = () => true;
+    closeDraftEditor();
+    document.querySelector('.connection-actions form[action="/config/reload"] input[name="alertmanager"]').value = 'second';
+})()
+JS
+ab click '.btn-reload-config'
+ab wait --fn 'document.querySelector(".reload-error:not([hidden])")'
+ab eval --stdin <<'JS'
+if (draftNavigationApproved) throw new Error('A failed config reload kept draft navigation approval');
+const warning = new Event('beforeunload', {cancelable: true});
+window.dispatchEvent(warning);
+if (!warning.defaultPrevented) throw new Error('A failed config reload no longer warns before discarding the draft');
+document.querySelector('.connection-actions form[action="/config/reload"] input[name="alertmanager"]').value = 'local';
+JS
 ab eval --stdin <<'JS'
 currentLabels = {severity: 'critical', note: 'keep me'};
 renderLabels();

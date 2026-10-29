@@ -177,7 +177,7 @@ func (h *Handler) HandleIndex(w http.ResponseWriter, r *http.Request) {
 		defaultClient, _, defaultErr := h.selectedClient("")
 		alertmanagerURL := ""
 		if defaultErr == nil {
-			alertmanagerURL = defaultClient.BaseURL()
+			alertmanagerURL = defaultClient.DisplayURL()
 		}
 		data := IndexData{
 			LabelSuggestions:     []alertmanager.LabelSuggestion{},
@@ -201,7 +201,7 @@ func (h *Handler) HandleIndex(w http.ResponseWriter, r *http.Request) {
 		SampleAlerts:         []alertmanager.SampleAlert{},
 		AlertmanagerNames:    h.alertmanagerNames,
 		SelectedAlertmanager: selectedName,
-		AlertmanagerURL:      client.BaseURL(),
+		AlertmanagerURL:      client.DisplayURL(),
 		ConnectionStatus:     connectionOK,
 		ConnectionError:      "",
 		ConfigCachedAt:       configCachedAt,

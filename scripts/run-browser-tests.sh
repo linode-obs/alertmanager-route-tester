@@ -30,7 +30,7 @@ for port in "$APP_PORT" "$AM_PORT"; do
         exit 1
     fi
 done
-printf 'alertmanager-route-tester:\n  server:\n    listen: 127.0.0.1:%s\nalertmanagers:\n  local:\n    url: http://127.0.0.1:%s\n  second:\n    url: http://127.0.0.1:%s\n' "$APP_PORT" "$AM_PORT" "$AM_PORT" > "$TEMP/config.yaml"
+printf 'alertmanager-route-tester:\n  server:\n    listen: 127.0.0.1:%s\nalertmanagers:\n  local:\n    url: http://127.0.0.1:%s\n  second:\n    url: http://127.0.0.1:1\n' "$APP_PORT" "$AM_PORT" > "$TEMP/config.yaml"
 ./bin/alertmanager/alertmanager --config.file="$FIXTURE" --web.listen-address="127.0.0.1:$AM_PORT" --cluster.listen-address= --storage.path="$TEMP/data" > "$TEMP/alertmanager.log" 2>&1 &
 AM_PID=$!
 ./bin/alertmanager-route-tester -config "$TEMP/config.yaml" > "$TEMP/app.log" 2>&1 &

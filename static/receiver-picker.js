@@ -9,10 +9,13 @@
     let active = -1;
 
     function score(name, query) {
+        const trimmed = query.trim();
+        if (!trimmed) return 0;
+        if (name === trimmed) return -2;
+        if (name.toLocaleLowerCase() === trimmed.toLocaleLowerCase()) return -1;
         const normalized = value => value.toLocaleLowerCase().replace(/[\s_-]+/g, '');
         const candidate = normalized(name);
-        const search = normalized(query);
-        if (!search) return 0;
+        const search = normalized(trimmed);
         if (candidate === search) return 0;
         if (candidate.startsWith(search)) return 1;
         if (candidate.includes(search)) return 10 + candidate.indexOf(search);
@@ -84,7 +87,7 @@
 
     input.addEventListener('focus', render);
     input.addEventListener('input', () => {
-        const exact = Array.from(selected.options).find(option => option.value.toLocaleLowerCase() === input.value.trim().toLocaleLowerCase());
+        const exact = Array.from(selected.options).find(option => option.value === input.value.trim());
         selected.value = exact ? exact.value : '';
         input.setCustomValidity(input.value.trim() && !selected.value ? 'Choose a receiver from the matches, or clear this field.' : '');
         input.setAttribute('aria-invalid', String(!input.validity.valid));

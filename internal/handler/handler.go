@@ -37,6 +37,28 @@ type TestRequest struct {
 	Alertmanager string            `json:"alertmanager"`
 }
 
+func (request *TestRequest) UnmarshalJSON(data []byte) error {
+	var input struct {
+		Labels       map[string]*string `json:"labels"`
+		Alertmanager string             `json:"alertmanager"`
+	}
+	if err := json.Unmarshal(data, &input); err != nil {
+		return err
+	}
+	if input.Labels == nil {
+		return errors.New("labels must be an object")
+	}
+	request.Labels = make(map[string]string, len(input.Labels))
+	for name, value := range input.Labels {
+		if name == "" || value == nil {
+			return errors.New("labels must have non-empty names and string values")
+		}
+		request.Labels[name] = *value
+	}
+	request.Alertmanager = input.Alertmanager
+	return nil
+}
+
 type TestResponse struct {
 	Receiver       string                      `json:"receiver"`
 	ReceiverConfig *alertmanager.Receiver      `json:"receiver_config,omitempty"`

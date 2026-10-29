@@ -98,6 +98,40 @@ For machine-specific settings, use a local config file (gitignored):
 go tool otelc go run . -config config.local.yaml
 ```
 
+## JSON route-test API
+
+Send `POST /test` with `Content-Type: application/json`. The required `labels` field is an object with non-empty names and string values.
+An empty object tests the default route. The optional `alertmanager` field selects a configured instance by name.
+If omitted, ART uses the alphabetically first instance. The `alertmanager` query parameter takes precedence over the body field.
+
+```bash
+curl --fail-with-body http://localhost:8080/test \
+  -H 'Content-Type: application/json' \
+  --data '{"labels":{"severity":"critical"},"alertmanager":"local"}'
+```
+
+A successful response has `Content-Type: application/json` and these fields:
+
+- `receiver`: the final receiver name. With continued routes, inspect effective entries in `matched_routes` for every delivery.
+- `receiver_config`: the final receiver configuration object, when available. It includes `name` and configured integration fields.
+- `matched_routes`: an array of matching route entries. Root fallback returns an empty array, not `null`.
+- `labels`: the submitted labels object.
+
+Each matched entry contains `route`, `depth`, `is_subroute`, `is_effective`, and `resolved_receiver`.
+The optional `parent_receivers` field contains ancestor receiver names. The optional `matcher_results` field describes evaluated conditions.
+The `route` object contains configured match conditions, children, the receiver name, and `continue` behavior.
+An ancestor entry with `is_effective: false` explains traversal but does not represent a delivery.
+
+ART returns plain-text errors with a trailing newline:
+
+- `400`: invalid JSON, missing or invalid labels, or an unknown Alertmanager name.
+- `405`: a method other than POST. GET is unsupported so alert labels do not enter request URLs.
+- `413`: a request body larger than 1 MiB, including trailing whitespace.
+- `500`: configuration retrieval or route evaluation failed.
+
+Do not set `HX-Request: true` for machine calls. That header selects HTML results for the browser.
+The response can contain sensitive receiver fields. Apply the same access controls as Alertmanager.
+
 ## CLI Test Mode
 
 Run route tests from the command line using the exact same routing logic as the web UI. CLI mode uses the alphabetically first named Alertmanager by default, or the instance selected with `-alertmanager`.

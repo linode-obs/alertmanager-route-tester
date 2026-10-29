@@ -563,31 +563,48 @@ func (c *Client) extractRawReceiverConfigs(config *Config, originalYAML string) 
 		return nil
 	}
 
+	receiverNodes := indexReceiverNodesByName(receiversNode)
 	for i := range config.Receivers {
 		receiver := &config.Receivers[i]
-		for _, receiverNode := range receiversNode.Content {
-			if receiverNode.Kind != yaml.MappingNode {
-				continue
-			}
-			nameNode := yamlMappingValue(receiverNode, "name")
-			if nameNode == nil || nameNode.Value != receiver.Name {
-				continue
-			}
-
-			receiverSequence := yaml.Node{
-				Kind:    yaml.SequenceNode,
-				Content: []*yaml.Node{receiverNode},
-			}
-			rawConfig, err := yaml.Marshal(&receiverSequence)
-			if err != nil {
-				return err
-			}
-			receiver.RawConfig = strings.TrimSpace(string(rawConfig))
-			break
+		receiverNode := receiverNodes[receiver.Name]
+		if receiverNode == nil {
+			continue
 		}
+
+		receiverSequence := yaml.Node{
+			Kind:    yaml.SequenceNode,
+			Content: []*yaml.Node{receiverNode},
+		}
+		rawConfig, err := yaml.Marshal(&receiverSequence)
+		if err != nil {
+			return err
+		}
+		receiver.RawConfig = strings.TrimSpace(string(rawConfig))
 	}
 
 	return nil
+}
+
+func indexReceiverNodesByName(receiversNode *yaml.Node) map[string]*yaml.Node {
+	indexed := make(map[string]*yaml.Node)
+	if receiversNode == nil || receiversNode.Kind != yaml.SequenceNode {
+		return indexed
+	}
+
+	for _, receiverNode := range receiversNode.Content {
+		if receiverNode.Kind != yaml.MappingNode {
+			continue
+		}
+		nameNode := yamlMappingValue(receiverNode, "name")
+		if nameNode == nil {
+			continue
+		}
+		if _, exists := indexed[nameNode.Value]; !exists {
+			indexed[nameNode.Value] = receiverNode
+		}
+	}
+
+	return indexed
 }
 
 func yamlMappingValue(mapping *yaml.Node, name string) *yaml.Node {

@@ -560,6 +560,70 @@ ab eval --stdin <<'JS'
 JS
 fi
 
+if [[ ${1:-all} == all || ${1:-all} == review-state ]]; then
+ab eval 'window.location.hash = "labels=" + encodeSharedLabels({severity:"warning"});'
+ab reload
+ab wait --load networkidle
+ab eval --stdin <<'JS'
+(() => {
+    currentLabels = {alertname: 'SharedState'};
+    renderLabels();
+    switchMode('raw');
+    document.getElementById('raw-input').value = 'alertname: SharedState\ncustom: saved';
+    document.getElementById('label-key-input').value = 'unfinished';
+    document.getElementById('label-value-input').value = 'input';
+    saveEditorState();
+})()
+JS
+ab select '#alertmanager-select' second
+ab wait --load networkidle
+ab select '#alertmanager-select' local
+ab wait --load networkidle
+ab eval --stdin <<'JS'
+if (currentLabels.alertname !== 'SharedState') throw new Error('Returning without a fragment discarded saved labels');
+if (!document.getElementById('raw-input').value.includes('custom: saved')) throw new Error('Returning without a fragment discarded raw input');
+if (document.getElementById('label-key-input').value !== 'unfinished' || document.getElementById('label-value-input').value !== 'input') throw new Error('Returning without a fragment discarded unfinished fields');
+history.replaceState(null, '', window.location.pathname + window.location.search + '#labels=' + encodeSharedLabels({alertname: 'Different'}));
+if (restoreEditorState()) throw new Error('A different explicit fragment restored saved state');
+history.replaceState(null, '', window.location.pathname + window.location.search);
+'No-fragment editor state test passed';
+JS
+ab click '#routing-options > summary'
+fi
+
+if [[ ${1:-all} == all || ${1:-all} == review-import ]]; then
+ab eval --stdin <<'JS'
+(async () => {
+    switchMode('raw');
+    document.getElementById('raw-input').value = 'alertname: ImportResponse';
+    const pendingImport = parseRawInput();
+    currentLabels = {alertname: 'ManualEdit'};
+    renderLabels();
+    await pendingImport;
+    if (currentLabels.alertname !== 'ManualEdit') throw new Error('A pending YAML import replaced newer labels');
+    return 'Label edit invalidated pending import';
+})()
+JS
+fi
+
+if [[ ${1:-all} == all || ${1:-all} == review-suggest ]]; then
+ab eval --stdin <<'JS'
+(async () => {
+    await new Promise(resolve => setTimeout(resolve, 300));
+    performance.clearResourceTimings();
+    const input = document.getElementById('label-key-input');
+    for (let index = 0; index < 8; index++) {
+        input.value = `rapid-key-${index}`;
+        input.dispatchEvent(new Event('input', {bubbles: true}));
+    }
+    await new Promise(resolve => setTimeout(resolve, 600));
+    const requests = performance.getEntriesByType('resource').filter(entry => new URL(entry.name).pathname === '/labels/suggestions');
+    if (requests.length !== 1) throw new Error(`Rapid label typing sent ${requests.length} suggestion requests, want 1`);
+    return 'Label suggestion requests are debounced';
+})()
+JS
+fi
+
 if [[ ${1:-all} == all || ${1:-all} == reload ]]; then
 ab click '#start-draft'
 ab wait --fn 'document.getElementById("config-draft").value.length > 0'

@@ -299,7 +299,7 @@ team: platform'></textarea>
         function restoreEditorState() {
             try {
                 const state = JSON.parse(sessionStorage.getItem(editorStorageName));
-                if (!state || state.hash !== window.location.hash) return false;
+                if (!state || (window.location.hash && state.hash !== window.location.hash)) return false;
                 currentLabels = decodeSharedLabels(encodeSharedLabels(state.labels));
                 renderLabels();
                 switchMode(state.mode === 'raw' ? 'raw' : 'ui');
@@ -579,6 +579,7 @@ team: platform'></textarea>
         let recentLabelSets = [];
         let submittedLabels = null;
         let suggestionRequest = 0;
+        let suggestionTimer;
 
         function renderRecentLabels(choice = null) {
             const select = document.getElementById('recent-labels');
@@ -635,26 +636,29 @@ team: platform'></textarea>
             if (Array.isArray(suggestions)) suggestions.forEach(value => values.appendChild(new Option(value)));
         }
 
-        async function refreshLabelSuggestions() {
+        function refreshLabelSuggestions() {
             const request = ++suggestionRequest;
-            const labels = { ...currentLabels };
-            delete labels[document.getElementById('label-key-input').value];
-            try {
-                const response = await fetch('/labels/suggestions', {
-                    method: 'POST', headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({labels, alertmanager: selectedAlertmanager}),
-                });
-                if (!response.ok) return;
-                const suggestions = await response.json();
-                if (request !== suggestionRequest) return;
-                labelSuggestions = Object.fromEntries(suggestions.map(item => [item.key, item.values]));
-                const names = document.getElementById('all-keys');
-                names.replaceChildren();
-                suggestions.forEach(item => names.appendChild(new Option(item.key)));
-                renderValueSuggestions();
-            } catch (error) {
-                // Suggestions are optional. Manual input remains available.
-            }
+            clearTimeout(suggestionTimer);
+            suggestionTimer = setTimeout(async () => {
+                const labels = { ...currentLabels };
+                delete labels[document.getElementById('label-key-input').value];
+                try {
+                    const response = await fetch('/labels/suggestions', {
+                        method: 'POST', headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({labels, alertmanager: selectedAlertmanager}),
+                    });
+                    if (!response.ok) return;
+                    const suggestions = await response.json();
+                    if (request !== suggestionRequest) return;
+                    labelSuggestions = Object.fromEntries(suggestions.map(item => [item.key, item.values]));
+                    const names = document.getElementById('all-keys');
+                    names.replaceChildren();
+                    suggestions.forEach(item => names.appendChild(new Option(item.key)));
+                    renderValueSuggestions();
+                } catch (error) {
+                    // Suggestions are optional. Manual input remains available.
+                }
+            }, 200);
         }
 
         try {
@@ -665,6 +669,7 @@ team: platform'></textarea>
 
         // Render labels as badges
         function renderLabels() {
+            labelImportRequest++;
             saveEditorState();
             refreshLabelSuggestions();
             const container = document.getElementById('current-labels');

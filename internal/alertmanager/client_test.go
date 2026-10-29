@@ -13,6 +13,8 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"gopkg.in/yaml.v3"
 )
 
 func TestDisplayURLRedactsCredentialsAndQuery(t *testing.T) {
@@ -346,6 +348,30 @@ func TestExtractRawReceiverConfigsMatchesExactNames(t *testing.T) {
 	}
 	if strings.Contains(config.Receivers[0].RawConfig, "https://example.test/long") {
 		t.Fatalf("foo raw config = %q, included foo-bar receiver block", config.Receivers[0].RawConfig)
+	}
+}
+
+func TestIndexReceiverNodesByNamePreservesFirstDuplicate(t *testing.T) {
+	var document yaml.Node
+	contents := "receivers:\n" +
+		"  - name: foo\n" +
+		"    webhook_configs:\n" +
+		"      - url: https://example.test/first\n" +
+		"  - name: foo\n" +
+		"    webhook_configs:\n" +
+		"      - url: https://example.test/second\n" +
+		"  - name: bar\n"
+	if err := yaml.Unmarshal([]byte(contents), &document); err != nil {
+		t.Fatalf("unmarshal receiver YAML: %v", err)
+	}
+
+	receivers := indexReceiverNodesByName(yamlMappingValue(document.Content[0], "receivers"))
+	if len(receivers) != 2 {
+		t.Fatalf("indexed receivers = %d, want 2", len(receivers))
+	}
+	webhooks := yamlMappingValue(receivers["foo"], "webhook_configs")
+	if webhooks == nil || len(webhooks.Content) != 1 || yamlMappingValue(webhooks.Content[0], "url").Value != "https://example.test/first" {
+		t.Fatalf("indexed foo receiver = %#v, want the first foo entry", receivers["foo"])
 	}
 }
 

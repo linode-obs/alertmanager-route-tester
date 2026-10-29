@@ -2,7 +2,7 @@
 set -euo pipefail
 
 URL=${ART_BROWSER_URL:?Run through scripts/run-browser-tests.sh screenshots}
-SESSION=art-readme
+SESSION=art-readme-$$
 OUTPUT=${ART_SCREENSHOT_DIR:-docs/screenshots}
 ab() {
     if [[ ${1:-} == click ]]; then agent-browser --session "$SESSION" scrollintoview "$2"; fi

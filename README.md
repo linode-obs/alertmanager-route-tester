@@ -12,7 +12,7 @@ Both examples below use fictional alerts and receivers on local services.
 
 ![Fuzzy receiver search and a concise explanation for a blocked checkout alert](docs/screenshots/receiver-search-demo.png)
 
-![Draft editor showing an exportable Git patch with fictional configuration](docs/screenshots/draft-patch-demo.png)
+![Draft editor showing a Git patch preview with copy and download controls](docs/screenshots/draft-patch-demo.png)
 
 ## Usage
 
@@ -31,7 +31,9 @@ Select "Use draft" to return to the label editor. "Test draft" evaluates labels 
 Reloads and instance changes ask before discarding an edited draft.
 
 Set "Patch target" to the configuration path from the repository root.
-Select "Export patch" to download the changes. ART does not write repository files or update live Alertmanager.
+Select "View patch" to open the Git diff without downloading a file.
+Select "Copy patch" to copy its text, or "Download .patch" to save a file.
+ART does not write repository files or update live Alertmanager.
 
 The patch baseline is Alertmanager's sanitized YAML. Comments, formatting, or secret values can differ from your repository file.
 Make sure that the target matches before you apply the patch.
@@ -209,6 +211,8 @@ mise run clean  # cleanup
 To run browser regressions, first run `mise run build` and `mise run setup` with the approved tools installed.
 Then run `bash scripts/run-browser-tests.sh`. The script starts isolated ART and Alertmanager processes on ports 18081 and 19095.
 It requires the installed `agent-browser`, Bash, curl, and lsof. It never installs these tools.
+Browser tests also use Git, Python 3, and Node.js 22 or later.
+Clipboard tests grant browser access only to the loopback test origin.
 Screenshots stay under `/tmp/art-route-ladder-*.png`. Failed runs retain their service logs at the printed local path.
 
 To regenerate the fictional README screenshots, run `bash scripts/run-browser-tests.sh screenshots` after building the application.

@@ -3,11 +3,16 @@ set -euo pipefail
 
 # Tests use the running application and its configured Alertmanager.
 URL=${ART_BROWSER_URL:-http://127.0.0.1:18080}
-SESSION=${ART_BROWSER_SESSION:-art-issues}
+SESSION=${ART_BROWSER_SESSION:-art-issues-$$}
 ab() {
     if [[ ${1:-} == click ]]; then agent-browser --session "$SESSION" scrollintoview "$2"; fi
     agent-browser --session "$SESSION" "$@"
 }
+cleanup_browser() {
+    status=$?
+    if [[ $status == 0 ]]; then ab close; else echo "Browser test session retained: $SESSION" >&2; fi
+}
+trap cleanup_browser EXIT
 ab open "$URL"
 ab set viewport 1440 1000
 ab eval --stdin <<'JS'
@@ -157,11 +162,20 @@ ab eval 'if (!document.getElementById("start-draft")) throw new Error("Configura
 ab click '#start-draft'
 ab wait --fn 'document.getElementById("config-draft").value.includes("pagerduty-critical")'
 ab eval 'document.getElementById("config-draft").value = document.getElementById("config-draft").value.replaceAll("pagerduty-critical", "draft-critical"); document.getElementById("config-draft").dispatchEvent(new Event("input"));'
-ab click '#preview-draft'
+ab click '#use-draft'
+ab eval 'if (!document.getElementById("view-draft-patch")) throw new Error("The draft action must open a patch preview, not download a file");'
+ab click '#view-draft-patch'
 ab wait --fn '/^\+\s*-?\s*receiver: draft-critical$/m.test(document.getElementById("config-diff").textContent)'
+ab eval 'if (!document.getElementById("draft-editor").open || document.getElementById("draft-diff").hidden) throw new Error("Patch preview did not open"); if (Math.abs(document.getElementById("config-diff").getBoundingClientRect().top - document.getElementById("config-draft").getBoundingClientRect().top) > 2) throw new Error("Patch and configuration panes are misaligned");'
+if [[ -n $(find "$ART_BROWSER_DOWNLOAD_DIR" -type f -print -quit) ]]; then echo "Viewing a patch started a download" >&2; exit 1; fi
 ab fill '#patch-target' configs/alertmanager.yml
-ab scrollintoview '#export-editor-patch'
-ab download '#export-editor-patch' /tmp/art-draft-download.patch
+ab eval 'if (!document.getElementById("copy-patch").disabled || !document.getElementById("download-patch").disabled) throw new Error("Changed patch target left stale actions enabled");'
+ab click '#preview-draft'
+ab wait --fn 'document.getElementById("config-diff").textContent.includes("a/configs/alertmanager.yml")'
+node scripts/test-patch-clipboard.mjs "$SESSION" "$URL"
+if [[ -n $(find "$ART_BROWSER_DOWNLOAD_DIR" -type f -print -quit) ]]; then echo "Copying a patch started a download" >&2; exit 1; fi
+ab scrollintoview '#download-patch'
+ab download '#download-patch' /tmp/art-draft-download.patch
 python3 - "$URL" <<'PY'
 import json
 from pathlib import Path

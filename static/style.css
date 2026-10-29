@@ -3633,6 +3633,32 @@ html[data-theme="dark"] .workspace-result-pane {
     display: none;
 }
 
+.draft-patch-heading {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: space-between;
+    align-items: center;
+    gap: 8px;
+    min-height: 36px;
+}
+
+.draft-patch-actions {
+    display: flex;
+    gap: 6px;
+}
+
+.draft-patch-actions .btn-secondary {
+    margin: 0;
+    padding: 5px 8px;
+    font-size: 0.8rem;
+}
+
+.draft-editor-field > label {
+    display: flex;
+    align-items: center;
+    min-height: 36px;
+}
+
 .draft-diff h3,
 .draft-editor-field label {
     margin: 0;

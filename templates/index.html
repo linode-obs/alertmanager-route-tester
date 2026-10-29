@@ -186,7 +186,7 @@ team: platform'></textarea>
                         <span class="help-tip" role="img" data-tooltip="Edit a copy of the loaded configuration and test it. Live Alertmanager stays unchanged. Drafts are not saved." aria-label="Configuration draft help: Edit a copy of the loaded configuration and test it. Live Alertmanager stays unchanged. Drafts are not saved." tabindex="0">ⓘ</span>
                         <div id="draft-panel" hidden>
                             <button id="edit-draft" type="button" class="btn-secondary" onclick="openDraftEditor()">Open draft editor</button>
-                            <button id="export-draft" type="button" class="btn-secondary" onclick="exportDraftPatch()" disabled>Export patch</button>
+                            <button id="view-draft-patch" type="button" class="btn-secondary" onclick="showDraftPatch()" disabled>View patch</button>
                             <span class="draft-active-label">Draft active</span>
                         </div>
                     </section>
@@ -240,8 +240,14 @@ team: platform'></textarea>
                 <textarea id="config-draft" rows="24" wrap="off" spellcheck="false" autocapitalize="off" disabled></textarea>
             </div>
             <section id="draft-diff" class="draft-diff" aria-label="Draft comparison" hidden>
-                <h3>Git patch</h3>
-                <pre id="config-diff" aria-label="Configuration diff" tabindex="0"></pre>
+                <div class="draft-patch-heading">
+                    <h3>Git patch</h3>
+                    <div class="draft-patch-actions">
+                        <button id="copy-patch" type="button" class="btn-secondary" onclick="copyPatch()" title="Copy the displayed patch. It can contain configuration secrets." disabled>Copy patch</button>
+                        <button id="download-patch" type="button" class="btn-secondary" onclick="downloadPatch()" title="Download the displayed patch as a .patch file." disabled>Download .patch</button>
+                    </div>
+                </div>
+                <pre id="config-diff" aria-label="Git patch preview" tabindex="0"></pre>
             </section>
         </div>
         <footer class="draft-editor-footer">
@@ -251,7 +257,6 @@ team: platform'></textarea>
                 <input id="patch-target" type="text" value="alertmanager.yml" spellcheck="false" aria-label="Patch target file">
             </div>
             <button id="preview-draft" type="button" class="btn-secondary" onclick="toggleDraftDiff()">Show patch</button>
-            <button id="export-editor-patch" type="button" class="btn-secondary" onclick="exportDraftPatch()" disabled>Export patch</button>
             <button id="discard-draft" type="button" class="btn-secondary" onclick="discardDraft()">Discard draft</button>
             <button id="use-draft" type="button" class="btn-primary" onclick="closeDraftEditor()" title="Close the editor and use this draft for routing tests.">Use draft</button>
         </footer>
@@ -325,6 +330,8 @@ team: platform'></textarea>
         document.getElementById('raw-input').addEventListener('input', saveEditorState);
 
         let draftBaseline = null;
+        let currentPatch = '';
+        let currentPatchTarget = '';
         let draftNavigationApproved = false;
         const liveReceiverChoices = document.getElementById('target-receiver').cloneNode(true);
 
@@ -349,8 +356,17 @@ team: platform'></textarea>
         }
 
         function hideDraftDiff() {
+            currentPatch = '';
+            currentPatchTarget = '';
             document.getElementById('draft-diff').hidden = true;
             document.getElementById('preview-draft').textContent = 'Show patch';
+            updatePatchControls();
+        }
+
+        async function showDraftPatch() {
+            if (!document.getElementById('draft-editor').open) openDraftEditor();
+            await previewDraft();
+            if (!document.getElementById('draft-diff').hidden) document.getElementById('config-diff').focus();
         }
 
         function toggleDraftDiff() {
@@ -389,11 +405,10 @@ team: platform'></textarea>
 
         function updatePatchControls() {
             const enabled = draftIsEdited() && document.getElementById('patch-target').value.trim() !== '';
-            for (const id of ['export-draft', 'export-editor-patch']) {
-                const button = document.getElementById(id);
-                button.disabled = !enabled;
-                button.title = enabled ? 'Download the patch. It can contain secrets from your edits.' : 'Edit the draft before exporting a patch.';
-            }
+            const view = document.getElementById('view-draft-patch');
+            view.disabled = !enabled;
+            view.title = enabled ? 'View the Git patch. This does not start a download.' : 'Edit the draft to view a patch.';
+            for (const id of ['copy-patch', 'download-patch']) document.getElementById(id).disabled = !enabled || !currentPatch;
         }
 
         async function compareDraft(draft, target) {
@@ -405,28 +420,27 @@ team: platform'></textarea>
             return response.json();
         }
 
-        async function exportDraftPatch() {
-            const draft = document.getElementById('config-draft').value;
-            const target = document.getElementById('patch-target').value.trim();
-            for (const id of ['export-draft', 'export-editor-patch']) document.getElementById(id).disabled = true;
+        async function copyPatch() {
+            if (!currentPatch) return;
             try {
-                const data = await compareDraft(draft, target);
-                if (!data.patch) throw new Error('No draft changes to export.');
-                const url = URL.createObjectURL(new Blob([data.patch], {type: 'text/x-patch;charset=utf-8'}));
-                const link = document.createElement('a');
-                link.href = url;
-                link.download = target.split('/').pop() + '.patch';
-                document.body.appendChild(link);
-                link.click();
-                link.remove();
-                setTimeout(() => URL.revokeObjectURL(url), 1000);
-                setDraftStatus('Patch downloaded.');
+                await copyText(currentPatch);
+                setDraftStatus('Patch copied.');
             } catch (error) {
-                if (!document.getElementById('draft-editor').open) openDraftEditor();
-                setDraftStatus(error.message, true);
-            } finally {
-                updatePatchControls();
+                setDraftStatus('Could not copy patch: ' + error.message, true);
             }
+        }
+
+        function downloadPatch() {
+            if (!currentPatch) return;
+            const url = URL.createObjectURL(new Blob([currentPatch], {type: 'text/x-patch;charset=utf-8'}));
+            const link = document.createElement('a');
+            link.href = url;
+            link.download = currentPatchTarget.split('/').pop() + '.patch';
+            document.body.appendChild(link);
+            link.click();
+            link.remove();
+            setTimeout(() => URL.revokeObjectURL(url), 1000);
+            setDraftStatus('Patch downloaded.');
         }
 
         document.getElementById('patch-target').addEventListener('input', () => {
@@ -436,11 +450,14 @@ team: platform'></textarea>
 
         async function previewDraft() {
             const draft = document.getElementById('config-draft').value;
+            const target = document.getElementById('patch-target').value.trim();
             setDraftStatus('Comparing configurations.');
             try {
-                const data = await compareDraft(draft, document.getElementById('patch-target').value.trim());
-                if (draft !== document.getElementById('config-draft').value || draftBaseline === null) return;
-                document.getElementById('config-diff').textContent = data.patch || 'No changes from the fetched configuration.';
+                const data = await compareDraft(draft, target);
+                if (draft !== document.getElementById('config-draft').value || target !== document.getElementById('patch-target').value.trim() || draftBaseline === null) return;
+                currentPatch = data.patch;
+                currentPatchTarget = target;
+                document.getElementById('config-diff').textContent = currentPatch || 'No changes from the fetched configuration.';
                 document.getElementById('draft-diff').hidden = false;
                 document.getElementById('preview-draft').textContent = 'Hide patch';
                 const receivers = document.getElementById('target-receiver');
@@ -450,6 +467,7 @@ team: platform'></textarea>
                 if (data.receivers.includes(selected)) receivers.value = selected;
                 syncReceiverPicker();
                 setDraftStatus('Draft is valid.');
+                updatePatchControls();
             } catch (error) {
                 document.getElementById('config-diff').textContent = '';
                 hideDraftDiff();
@@ -846,16 +864,17 @@ team: platform'></textarea>
             }
         }
 
-        async function copyShareURL(url) {
+        async function copyText(text) {
             if (navigator.clipboard && window.isSecureContext) {
-                await navigator.clipboard.writeText(url);
+                await navigator.clipboard.writeText(text);
                 return;
             }
             const input = document.createElement('textarea');
-            input.value = url;
+            input.value = text;
             input.style.position = 'fixed';
             input.style.opacity = '0';
-            document.body.appendChild(input);
+            const container = document.querySelector('dialog[open]') || document.body;
+            container.appendChild(input);
             input.select();
             const copied = document.execCommand('copy');
             input.remove();
@@ -869,7 +888,7 @@ team: platform'></textarea>
                 const url = new URL(window.location.href);
                 url.searchParams.delete('alertmanager');
                 url.hash = `labels=${encodeSharedLabels(currentLabels)}`;
-                await copyShareURL(url.toString());
+                await copyText(url.toString());
                 history.replaceState(null, '', url.toString());
                 labelLinkHash = url.hash;
                 setShareStatus('Share link copied. It contains labels only.', false);

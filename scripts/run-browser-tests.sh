@@ -11,6 +11,9 @@ if [[ ${1:-all} == screenshots ]]; then
     export OTEL_SDK_DISABLED=true
 fi
 TEMP=$(mktemp -d)
+export ART_BROWSER_DOWNLOAD_DIR="$TEMP/downloads"
+export AGENT_BROWSER_DOWNLOAD_PATH="$ART_BROWSER_DOWNLOAD_DIR"
+mkdir -p "$ART_BROWSER_DOWNLOAD_DIR"
 AM_PID=""
 APP_PID=""
 cleanup() {

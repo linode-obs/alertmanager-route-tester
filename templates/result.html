@@ -1,5 +1,31 @@
 <div class="result-panel">
     <span class="workspace-pane-label">ROUTING OUTPUT</span>
+    {{if .TargetReceiver}}
+    <section class="receiver-explanation result-section">
+        <h3>Paths to {{.TargetReceiver}}</h3>
+        {{range .ReceiverPaths}}
+        <details class="result-details" open>
+            <summary>{{.Path}}: {{if .Delivered}}receives this alert{{else}}does not receive this alert{{end}}</summary>
+            {{if .BlockedBy}}<p>{{.BlockedBy}}</p>{{end}}
+            <ol>
+                {{range .Steps}}
+                <li>
+                    <code>{{.Path}}</code> to <code>{{.Receiver}}</code>
+                    {{if not .Evaluated}}<span>Not evaluated because an earlier condition blocked this path.</span>{{end}}
+                    {{range .FailedMatchers}}
+                    <p><code>{{.Label}} {{.Operator}} {{printf "%q" .Expected}}</code>:
+                        {{if .Missing}}label is missing{{else}}actual value {{printf "%q" .Actual}} does not match{{end}}.
+                    </p>
+                    {{end}}
+                </li>
+                {{end}}
+            </ol>
+        </details>
+        {{else}}
+        <p>No route path uses this receiver.</p>
+        {{end}}
+    </section>
+    {{end}}
     {{if .Error}}
     <div class="result-surface result-error">
         <h2>Error</h2>

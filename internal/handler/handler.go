@@ -34,14 +34,16 @@ type Handler struct {
 }
 
 type TestRequest struct {
-	Labels       map[string]string `json:"labels"`
-	Alertmanager string            `json:"alertmanager"`
+	Labels         map[string]string `json:"labels"`
+	Alertmanager   string            `json:"alertmanager"`
+	TargetReceiver string            `json:"target_receiver,omitempty"`
 }
 
 func (request *TestRequest) UnmarshalJSON(data []byte) error {
 	var input struct {
-		Labels       map[string]*string `json:"labels"`
-		Alertmanager string             `json:"alertmanager"`
+		Labels         map[string]*string `json:"labels"`
+		Alertmanager   string             `json:"alertmanager"`
+		TargetReceiver string             `json:"target_receiver"`
 	}
 	if err := json.Unmarshal(data, &input); err != nil {
 		return err
@@ -57,10 +59,12 @@ func (request *TestRequest) UnmarshalJSON(data []byte) error {
 		request.Labels[name] = *value
 	}
 	request.Alertmanager = input.Alertmanager
+	request.TargetReceiver = input.TargetReceiver
 	return nil
 }
 
 type TestResponse struct {
+	ReceiverPaths  []alertmanager.ReceiverPath `json:"receiver_paths,omitempty"`
 	Receiver       string                      `json:"receiver"`
 	ReceiverConfig *alertmanager.Receiver      `json:"receiver_config,omitempty"`
 	MatchedRoutes  []alertmanager.MatchedRoute `json:"matched_routes"`
@@ -312,6 +316,7 @@ func (h *Handler) HandleTest(w http.ResponseWriter, r *http.Request) {
 
 	var labels map[string]string
 	requestedAlertmanager := r.URL.Query().Get("alertmanager")
+	targetReceiver := r.URL.Query().Get("target_receiver")
 
 	contentType := r.Header.Get("Content-Type")
 	if strings.Contains(contentType, "application/json") {
@@ -335,6 +340,9 @@ func (h *Handler) HandleTest(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		labels = req.Labels
+		if targetReceiver == "" {
+			targetReceiver = req.TargetReceiver
+		}
 		if requestedAlertmanager == "" {
 			requestedAlertmanager = req.Alertmanager
 		}
@@ -350,7 +358,7 @@ func (h *Handler) HandleTest(w http.ResponseWriter, r *http.Request) {
 
 		labels = make(map[string]string)
 		for key, values := range r.Form {
-			if key == "alertmanager" {
+			if key == "alertmanager" || key == "target_receiver" {
 				continue
 			}
 			if len(values) > 0 && values[0] != "" {
@@ -359,6 +367,9 @@ func (h *Handler) HandleTest(w http.ResponseWriter, r *http.Request) {
 		}
 		if requestedAlertmanager == "" {
 			requestedAlertmanager = r.FormValue("alertmanager")
+		}
+		if targetReceiver == "" {
+			targetReceiver = r.FormValue("target_receiver")
 		}
 	}
 
@@ -399,6 +410,15 @@ func (h *Handler) HandleTest(w http.ResponseWriter, r *http.Request) {
 		span.End()
 	}
 
+	var receiverPaths []alertmanager.ReceiverPath
+	if targetReceiver != "" && config != nil {
+		if client.FindReceiverByName(targetReceiver, config) == nil {
+			http.Error(w, "Unknown target receiver", http.StatusBadRequest)
+			return
+		}
+		receiverPaths = alertmanager.ExplainReceiverPaths(labels, config, targetReceiver)
+	}
+
 	if r.Header.Get("HX-Request") == "true" {
 		routeSteps, matchedReceivers, continueCount, finalMatch := buildRouteSummary(matchedRoutes, receiver, config)
 		matchedReceiverSummaries := buildReceiverSummaries(matchedRoutes, receiver, config)
@@ -409,6 +429,8 @@ func (h *Handler) HandleTest(w http.ResponseWriter, r *http.Request) {
 		}
 		routeMismatches, routeMismatchesOmitted := alertmanager.FindRouteMismatchesWithLimit(labels, config, limit)
 		data := struct {
+			TargetReceiver           string
+			ReceiverPaths            []alertmanager.ReceiverPath
 			Receiver                 string
 			ReceiverConfig           *alertmanager.Receiver
 			MatchedRoutes            []alertmanager.MatchedRoute
@@ -423,6 +445,8 @@ func (h *Handler) HandleTest(w http.ResponseWriter, r *http.Request) {
 			Labels                   map[string]string
 			Error                    string
 		}{
+			TargetReceiver:           targetReceiver,
+			ReceiverPaths:            receiverPaths,
 			Receiver:                 receiver,
 			ReceiverConfig:           receiverConfig,
 			MatchedRoutes:            matchedRoutes,
@@ -450,6 +474,7 @@ func (h *Handler) HandleTest(w http.ResponseWriter, r *http.Request) {
 	}
 
 	response := TestResponse{
+		ReceiverPaths:  receiverPaths,
 		Receiver:       receiver,
 		ReceiverConfig: receiverConfig,
 		MatchedRoutes:  matchedRoutes,

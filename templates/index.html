@@ -179,6 +179,15 @@ team: platform'></textarea>
                         </div>
                     </div>
 
+                    <div class="receiver-question">
+                        <label for="target-receiver">Explain a receiver</label>
+                        <select id="target-receiver" name="target_receiver">
+                            <option value="">No receiver selected</option>
+                            {{if .Config}}{{range .Config.Receivers}}
+                            <option value="{{.Name}}">{{.Name}}</option>
+                            {{end}}{{end}}
+                        </select>
+                    </div>
                     <div class="form-actions">
                         <button type="submit" class="btn-primary btn-test-route" aria-label="Test the alert route" title="Check these labels against the routes">Test route</button>
                         <button type="button" class="btn-secondary" onclick="shareLabels()" title="Copy a link containing these labels">Share link</button>

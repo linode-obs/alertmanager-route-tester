@@ -7,6 +7,18 @@ SESSION=${ART_BROWSER_SESSION:-art-issues}
 ab() { agent-browser --session "$SESSION" "$@"; }
 ab open "$URL"
 
+if [[ ${1:-all} == all || ${1:-all} == receiver ]]; then
+ab eval 'switchMode("ui"); currentLabels = {severity:"warning"}; renderLabels();'
+ab select '#target-receiver' pagerduty-platform
+ab click '.btn-test-route'
+ab wait '.receiver-explanation'
+ab eval --stdin <<'JS'
+const text = document.querySelector('.receiver-explanation').textContent;
+if (!text.includes('pagerduty-platform') || !text.includes('service') || !text.includes('label is missing') || !text.includes('warning')) throw new Error('Receiver explanation omitted failed parent or child conditions');
+JS
+ab select '#target-receiver' ''
+fi
+
 if [[ ${1:-all} == all || ${1:-all} == reuse ]]; then
 ab eval 'if (!document.getElementById("recent-labels")) throw new Error("Recent label reuse is unavailable");'
 ab eval 'switchMode("ui"); currentLabels = {severity:"critical", alertname:"HistoryExample"}; renderLabels();'

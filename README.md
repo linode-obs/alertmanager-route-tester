@@ -132,6 +132,10 @@ ART returns plain-text errors with a trailing newline:
 - `413`: a request body larger than 1 MiB, including trailing whitespace.
 - `500`: configuration retrieval or route evaluation failed.
 
+To explain a receiver, add the optional `target_receiver` request field with a configured receiver name.
+The response adds `receiver_paths`, including each path, delivery status, blocking reason, and failed conditions.
+Missing labels have `missing: true`. Paths include failed parent conditions and blocking earlier siblings.
+
 Do not set `HX-Request: true` for machine calls. That header selects HTML results for the browser.
 The response can contain sensitive receiver fields. Apply the same access controls as Alertmanager.
 

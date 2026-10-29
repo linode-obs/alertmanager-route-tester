@@ -3269,6 +3269,44 @@ html[data-theme="dark"] .workspace-result-pane {
     flex: 1 1 14rem;
 }
 
+.routing-options {
+    margin-top: 16px;
+    padding-top: 12px;
+    border-top: 1px solid var(--border-color);
+}
+
+.routing-options > summary {
+    color: var(--accent-strong);
+    cursor: pointer;
+    font-size: 0.85rem;
+    font-weight: 500;
+}
+
+.routing-options[open] > summary {
+    margin-bottom: 12px;
+}
+
+.routing-options .share-controls {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-top: 12px;
+}
+
+.routing-options .draft-section {
+    margin: 12px 0;
+    padding: 12px 0;
+}
+
+.routing-options .receiver-question {
+    display: grid;
+    gap: 6px;
+}
+
+.routing-options .receiver-question select {
+    width: 100%;
+}
+
 .draft-section {
     margin: 1rem 0;
     padding: 1rem 0;

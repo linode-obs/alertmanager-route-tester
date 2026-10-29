@@ -99,8 +99,7 @@
 
                 {{if or .SampleAlerts .SampleAlertsDeferred}}
                 <div class="quick-start-section">
-                    <h3>Quick examples</h3>
-                    <p class="help-text">Choose an example. The app loads its labels.</p>
+                    <h3>Quick examples <span class="help-tip" role="img" data-tooltip="Load example labels from this configuration. No alert is sent." aria-label="Quick example help: Load example labels from this configuration. No alert is sent." tabindex="0">ⓘ</span></h3>
                     <div id="sample-alerts">
                         {{if .SampleAlerts}}
                         {{template "sample-alert-cards" .}}
@@ -112,17 +111,9 @@
                 </div>
                 {{end}}
 
-                <div class="recent-label-controls">
-                    <label for="recent-labels">Recent alert labels</label>
-                    <select id="recent-labels" onchange="loadRecentLabels(this.value)">
-                        <option value="">Choose a previous test</option>
-                    </select>
-                    <button id="clear-recent-labels" type="button" class="btn-secondary" onclick="clearRecentLabels()">Clear recent labels</button>
-                </div>
-
                 <div class="input-mode-toggle">
-                    <button id="ui-mode-btn" class="active" aria-pressed="true" title="Build labels with key and value fields" onclick="switchMode('ui')">Label editor</button>
-                    <button id="raw-mode-btn" aria-pressed="false" title="Paste labels as YAML" onclick="switchMode('raw')">Paste YAML</button>
+                    <button id="ui-mode-btn" class="active" aria-pressed="true" title="Add individual labels. Suggestions come from the loaded routes." onclick="switchMode('ui')">Label editor</button>
+                    <button id="raw-mode-btn" aria-pressed="false" title="Paste a YAML labels object, then select Load labels before testing." onclick="switchMode('raw')">Paste YAML</button>
                 </div>
 
                 <form id="alert-form" hx-ext="alert-labels" hx-post="/test" hx-target="#result" hx-swap="innerHTML">
@@ -130,10 +121,9 @@
                     <div id="ui-builder">
                         <div class="label-section">
                             <h3>Alert labels <span class="help-tip" role="img" data-tooltip="A route matches only when its labels match." aria-label="Alert label help: A route matches only when its labels match." tabindex="0">ⓘ</span></h3>
-                            <p class="help-text">Add labels from the configuration, or enter them.</p>
 
                             <div id="current-labels" class="current-labels">
-                                <p class="no-labels-text">No labels added. Add labels below, then test the route.</p>
+                                <p class="no-labels-text">No labels yet. Add one below.</p>
                                 <!-- Labels will appear here as badges -->
                             </div>
 
@@ -142,6 +132,7 @@
                                        id="label-key-input"
                                        placeholder="key"
                                        aria-label="Alert label key"
+                                       title="Label name, such as severity or team."
                                        aria-describedby="label-input-error"
                                        aria-invalid="false"
                                        list="all-keys"
@@ -156,6 +147,7 @@
                                        id="label-value-input"
                                        placeholder="value"
                                        aria-label="Alert label value"
+                                       title="Label value, such as critical or platform. Suggestions are optional."
                                        aria-describedby="label-input-error"
                                        aria-invalid="false"
                                        list="current-values"
@@ -179,8 +171,18 @@ team: platform'></textarea>
                         </div>
                     </div>
 
+                    <details id="routing-options" class="routing-options">
+                        <summary>More options <span class="help-tip" role="img" data-tooltip="Reuse labels, edit a draft, explain a receiver, or share labels." aria-label="More options help: Reuse labels, edit a draft, explain a receiver, or share labels." tabindex="0">ⓘ</span></summary>
+                        <div class="recent-label-controls">
+                            <label for="recent-labels">Recent tests <span class="help-tip" role="img" data-tooltip="Reuse labels from a successful test in this tab. Each Alertmanager keeps its own history." aria-label="Recent tests help: Reuse labels from a successful test in this tab. Each Alertmanager keeps its own history." tabindex="0">ⓘ</span></label>
+                            <select id="recent-labels" onchange="loadRecentLabels(this.value)">
+                                <option value="">Choose a previous test</option>
+                            </select>
+                            <button id="clear-recent-labels" type="button" class="btn-secondary" onclick="clearRecentLabels()" title="Remove saved tests from this tab. Current labels stay.">Clear</button>
+                        </div>
                     <section class="draft-section">
-                        <button id="start-draft" type="button" class="btn-secondary" onclick="startDraft()">Draft configuration changes</button>
+                        <button id="start-draft" type="button" class="btn-secondary" onclick="startDraft()">Edit configuration draft</button>
+                        <span class="help-tip" role="img" data-tooltip="Edit a copy of the loaded configuration and test it. Live Alertmanager stays unchanged. Drafts are not saved." aria-label="Configuration draft help: Edit a copy of the loaded configuration and test it. Live Alertmanager stays unchanged. Drafts are not saved." tabindex="0">ⓘ</span>
                         <div id="draft-panel" hidden>
                             <label for="config-draft">Proposed Alertmanager configuration</label>
                             <p class="help-text">Draft tests do not change live Alertmanager. This draft stays in this page only.</p>
@@ -194,7 +196,7 @@ team: platform'></textarea>
                         <p id="draft-status" role="status" hidden></p>
                     </section>
                     <div class="receiver-question">
-                        <label for="target-receiver">Explain a receiver</label>
+                        <label for="target-receiver">Explain a receiver <span class="help-tip" role="img" data-tooltip="Explain why these labels do or do not reach this receiver. This choice does not change routing." aria-label="Receiver explanation help: Explain why these labels do or do not reach this receiver. This choice does not change routing." tabindex="0">ⓘ</span></label>
                         <select id="target-receiver" name="target_receiver">
                             <option value="">No receiver selected</option>
                             {{if .Config}}{{range .Config.Receivers}}
@@ -202,18 +204,22 @@ team: platform'></textarea>
                             {{end}}{{end}}
                         </select>
                     </div>
-                    <div class="form-actions">
-                        <button type="submit" class="btn-primary btn-test-route" aria-label="Test the alert route" title="Check these labels against the routes">Test route</button>
-                        <button type="button" class="btn-secondary" onclick="shareLabels()" title="Copy a link containing these labels">Share link</button>
-                    </div>
+                        <div class="share-controls">
+                            <button type="button" class="btn-secondary" onclick="shareLabels()" title="Copy a link containing alert labels only.">Share link</button>
+                            <span class="help-tip" role="img" data-tooltip="Copy a URL containing labels only. Drafts and the selected Alertmanager are excluded." aria-label="Share link help: Copy a URL containing labels only. Drafts and the selected Alertmanager are excluded." tabindex="0">ⓘ</span>
+                        </div>
+                    </details>
                     <p id="share-status" class="field-status" role="status" aria-live="polite" hidden></p>
+                    <div class="form-actions">
+                        <button type="submit" class="btn-primary btn-test-route" aria-label="Test the alert route" title="Evaluate labels against the loaded configuration. No alert is sent.">Test route</button>
+                    </div>
                 </form>
             </div>
 
             <div class="panel workspace-pane workspace-result-pane" id="result" aria-live="polite" aria-atomic="true">
                 <span class="workspace-pane-label">ROUTING OUTPUT</span>
                 <div class="placeholder">
-                    <p>Add labels, then select "Test route". The app shows the matching receiver.</p>
+                    <p>Add labels, then test the route.</p>
                 </div>
             </div>
         </main>
@@ -314,7 +320,8 @@ team: platform'></textarea>
                 editor.disabled = false;
                 document.getElementById('draft-panel').hidden = false;
                 button.hidden = true;
-                document.querySelector('.btn-test-route').textContent = 'Test route against draft';
+                document.querySelector('.btn-test-route').textContent = 'Test draft';
+                document.querySelector('.btn-test-route').title = 'Evaluate labels against this draft. Live Alertmanager stays unchanged.';
                 setDraftStatus('Draft mode. Live Alertmanager is unchanged.');
                 editor.focus();
             } catch (error) {
@@ -358,6 +365,7 @@ team: platform'></textarea>
             document.getElementById('config-diff').textContent = '';
             document.getElementById('start-draft').hidden = false;
             document.querySelector('.btn-test-route').textContent = 'Test route';
+            document.querySelector('.btn-test-route').title = 'Evaluate labels against the loaded configuration. No alert is sent.';
             const receivers = document.getElementById('target-receiver');
             receivers.replaceChildren(...Array.from(liveReceiverChoices.options).map(option => option.cloneNode(true)));
             setDraftStatus('Draft discarded. Tests use the fetched configuration.');
@@ -387,7 +395,9 @@ team: platform'></textarea>
 
         function renderRecentLabels() {
             const select = document.getElementById('recent-labels');
-            select.replaceChildren(new Option('Choose a previous test', ''));
+            select.replaceChildren(new Option(recentLabelSets.length ? 'Choose a previous test' : 'No recent tests', ''));
+            select.disabled = recentLabelSets.length === 0;
+            document.getElementById('clear-recent-labels').hidden = recentLabelSets.length === 0;
             recentLabelSets.forEach((labels, index) => {
                 const description = Object.entries(labels).map(([name, value]) => `${name}=${value}`).join(', ') || 'No labels';
                 select.add(new Option(description, String(index)));
@@ -798,7 +808,7 @@ team: platform'></textarea>
 {{define "sample-alert-cards"}}
 <div class="sample-alerts-grid">
     {{range $sample := .SampleAlerts}}
-    <div class="sample-alert-card" role="button" tabindex="0" aria-label="Load sample alert {{$sample.Name}}" onclick="loadSampleAlertFromCard(this)" onkeydown="if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); loadSampleAlertFromCard(this); }">
+    <div class="sample-alert-card" role="button" tabindex="0" aria-label="Load sample alert {{$sample.Name}}" title="{{$sample.Tooltip}}" onclick="loadSampleAlertFromCard(this)" onkeydown="if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); loadSampleAlertFromCard(this); }">
         <div class="sample-name">{{$sample.Name}}</div>
         <div class="sample-description">{{$sample.Description}}</div>
         <div class="sample-labels">

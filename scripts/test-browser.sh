@@ -6,6 +6,24 @@ URL=${ART_BROWSER_URL:-http://127.0.0.1:18080}
 SESSION=${ART_BROWSER_SESSION:-art-issues}
 ab() { agent-browser --session "$SESSION" "$@"; }
 ab open "$URL"
+ab set viewport 1440 1000
+ab eval --stdin <<'JS'
+(() => {
+    const options = document.getElementById('routing-options');
+    if (!options || options.open) throw new Error('Secondary controls must be collapsed initially');
+    const cards = document.querySelectorAll('.sample-alert-card');
+    if (cards.length > 4) throw new Error('More than four quick examples are visible');
+    for (const card of cards) {
+        if (card.querySelector('.sample-name').textContent.length > 40 || card.querySelector('.sample-description').textContent.length > 40) throw new Error('Quick example copy is too long');
+    }
+    for (const selector of ['#recent-labels', '#target-receiver', '#start-draft']) {
+        const control = document.querySelector(selector);
+        if (!options.contains(control) || control.checkVisibility()) throw new Error('Secondary control is visible before More options opens');
+    }
+    if (options.querySelectorAll('.help-tip[tabindex="0"][aria-label]').length < 4) throw new Error('Secondary controls lack accessible explanations');
+})()
+JS
+ab click '#routing-options > summary'
 
 if [[ ${1:-all} == all || ${1:-all} == labels ]]; then
 ab eval --stdin <<'JS'

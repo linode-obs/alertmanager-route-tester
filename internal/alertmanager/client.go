@@ -721,6 +721,7 @@ type LabelSuggestion struct {
 
 type SampleAlert struct {
 	Name        string
+	Tooltip     string
 	Description string
 	Labels      map[string]string
 }
@@ -729,6 +730,7 @@ const (
 	maxAutomaticSampleAlertRoutes  = 5000
 	maxOnDemandSampleAlertRoutes   = 10000
 	maxSampleAlertCandidates       = 64
+	maxDisplayedSampleAlerts       = 4
 	maxSampleAlertCounterexamples  = 100
 	maxSampleAlertFallbackAttempts = 100
 )
@@ -832,7 +834,8 @@ func generateSampleAlertsContext(ctx context.Context, config *Config, routeLimit
 		return nil, false, err
 	}
 
-	samples := make([]SampleAlert, 0, 13)
+	samples := make([]SampleAlert, 0, maxDisplayedSampleAlerts)
+	continuedExample := -1
 	seen := make(map[string]bool)
 	for _, labels := range candidates {
 		if err := ctx.Err(); err != nil {
@@ -848,35 +851,25 @@ func generateSampleAlertsContext(ctx context.Context, config *Config, routeLimit
 		}
 		seen[fingerprint] = true
 		receivers := effectiveReceivers(receiver, matched)
-		names := make([]string, 0, len(labels))
-		for name := range labels {
-			names = append(names, name)
-		}
-		sort.Strings(names)
-		scenario := make([]string, 0, 2)
-		for _, name := range names {
-			scenario = append(scenario, name+"="+labels[name])
-			if len(scenario) == 2 {
-				break
-			}
-		}
-		title := strings.Join(scenario, ", ")
-		if title == "" {
-			title = "Unconditional route"
-		}
 		sample := SampleAlert{
-			Name:        title + " to " + strings.Join(receivers, ", "),
-			Description: "Routes to " + strings.Join(receivers, ", ") + ".",
+			Name:        sampleScenario(labels),
+			Tooltip:     "Routes to " + strings.Join(receivers, ", ") + ".",
+			Description: sampleCaption(receiver),
 			Labels:      labels,
 		}
 		if len(receivers) > 1 {
-			sample.Description += fmt.Sprintf(" Continue sends to %d receivers.", len(receivers))
-			if len(samples) == 12 {
-				samples[11] = sample
+			sample.Description = fmt.Sprintf("%d receivers", len(receivers))
+			sample.Tooltip += " Continued routing sends a copy to each receiver."
+			if len(samples) == maxDisplayedSampleAlerts {
+				samples[maxDisplayedSampleAlerts-2] = sample
+				continuedExample = maxDisplayedSampleAlerts - 2
 				continue
 			}
 		}
-		if len(samples) < 12 {
+		if len(samples) < maxDisplayedSampleAlerts {
+			if len(receivers) > 1 {
+				continuedExample = len(samples)
+			}
 			samples = append(samples, sample)
 		}
 	}
@@ -895,15 +888,66 @@ func generateSampleAlertsContext(ctx context.Context, config *Config, routeLimit
 		if err != nil || len(matched) != 0 || receiver == "" {
 			continue
 		}
-		samples = append(samples, SampleAlert{
+		fallback := SampleAlert{
 			Name:        "Default receiver",
-			Description: "No child route matched. Uses the root receiver, " + receiver + ".",
+			Description: sampleCaption(receiver),
+			Tooltip:     "No child route matched. Uses the root receiver, " + receiver + ".",
 			Labels:      labels,
-		})
+		}
+		if len(samples) == maxDisplayedSampleAlerts {
+			if continuedExample == maxDisplayedSampleAlerts-1 {
+				samples[maxDisplayedSampleAlerts-2] = samples[continuedExample]
+			}
+			samples[maxDisplayedSampleAlerts-1] = fallback
+		} else {
+			samples = append(samples, fallback)
+		}
 		break
 	}
 
 	return samples, false, nil
+}
+
+func sampleCaption(text string) string {
+	characters := []rune(text)
+	if len(characters) > 40 {
+		return string(characters[:37]) + "..."
+	}
+	return text
+}
+
+func sampleScenario(labels map[string]string) string {
+	for _, name := range []string{"alertname", "component", "job", "service", "team", "environment", "severity"} {
+		if value := labels[name]; value != "" {
+			return sampleTitle(value)
+		}
+	}
+	names := make([]string, 0, len(labels))
+	for name := range labels {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	if len(names) == 0 {
+		return "No labels"
+	}
+	return sampleTitle(labels[names[0]])
+}
+
+func sampleTitle(value string) string {
+	characters := []rune(strings.Join(strings.Fields(strings.ReplaceAll(value, "_", " ")), " "))
+	var title strings.Builder
+	for index, character := range characters {
+		if index > 0 && unicode.IsUpper(character) {
+			previous := characters[index-1]
+			startsWord := unicode.IsLower(previous) || unicode.IsDigit(previous)
+			endsAcronym := unicode.IsUpper(previous) && index+1 < len(characters) && unicode.IsLower(characters[index+1])
+			if startsWord || endsAcronym {
+				title.WriteByte(' ')
+			}
+		}
+		title.WriteRune(character)
+	}
+	return sampleCaption(title.String())
 }
 
 func (c *Client) GetSampleAlerts(config *Config) ([]SampleAlert, bool) {

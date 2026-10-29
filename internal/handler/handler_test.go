@@ -579,7 +579,7 @@ func TestHandleGenerateSampleAlertsUsesCachedConfig(t *testing.T) {
 	if response.Code != http.StatusOK {
 		t.Fatalf("status = %d, want %d: %s", response.Code, http.StatusOK, response.Body.String())
 	}
-	for _, expected := range []string{"to slack-warnings, monitoring-team", "Continue sends to 2 receivers.", "severity=warning", "team=monitoring", `data-label-key="severity"`, `data-label-value="warning"`} {
+	for _, expected := range []string{"to slack-warnings, monitoring-team", "2 receivers", "severity=warning", "team=monitoring", `data-label-key="severity"`, `data-label-value="warning"`} {
 		if !strings.Contains(response.Body.String(), expected) {
 			t.Errorf("sample response does not contain %q: %s", expected, response.Body.String())
 		}
@@ -1481,7 +1481,7 @@ func TestIndexTemplateExplainsEmptyLabelsAreAddedBelow(t *testing.T) {
 		t.Fatal("initial labels area is not closed")
 	}
 	containerMarkup := output[containerStart : containerStart+containerEndOffset]
-	if !strings.Contains(containerMarkup, `<p class="no-labels-text">No labels added. Add labels below, then test the route.</p>`) {
+	if !strings.Contains(containerMarkup, `<p class="no-labels-text">No labels yet. Add one below.</p>`) {
 		t.Fatal("initial labels area does not render its empty-state message")
 	}
 }

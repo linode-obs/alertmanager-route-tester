@@ -61,6 +61,7 @@ type StatusResponse struct {
 }
 
 type Config struct {
+	Source       string     `json:"-" yaml:"-"`
 	Route        *Route     `json:"route" yaml:"route"`
 	Receivers    []Receiver `json:"receivers" yaml:"receivers"`
 	nativeRoutes *nativeRouteTree
@@ -387,19 +388,29 @@ func (c *Client) fetchConfig(ctx context.Context) (result *Config, resultErr err
 		return nil, lastErr
 	}
 
+	return c.ParseConfig(status.ConfigYAML.Original)
+}
+
+func (c *Client) ParseConfig(contents string) (*Config, error) {
 	var config Config
-	if err := yaml.Unmarshal([]byte(status.ConfigYAML.Original), &config); err != nil {
+	decoder := yaml.NewDecoder(strings.NewReader(contents))
+	if err := decoder.Decode(&config); err != nil {
 		return nil, fmt.Errorf("failed to parse YAML config: %w", err)
 	}
+	var extra yaml.Node
+	if err := decoder.Decode(&extra); err != io.EOF {
+		return nil, fmt.Errorf("configuration must contain one YAML document")
+	}
+	config.Source = contents
 
-	if err := c.extractRawReceiverConfigs(&config, status.ConfigYAML.Original); err != nil {
+	if err := c.extractRawReceiverConfigs(&config, contents); err != nil {
 		return nil, fmt.Errorf("failed to extract receiver configs: %w", err)
 	}
 	if config.Route == nil {
 		return &config, nil
 	}
 
-	nativeConfig, err := loadNativeConfig(status.ConfigYAML.Original, c.matcherMode)
+	nativeConfig, err := loadNativeConfig(contents, c.matcherMode)
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse Alertmanager routing config: %w", err)
 	}

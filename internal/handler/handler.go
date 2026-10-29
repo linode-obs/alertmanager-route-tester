@@ -37,6 +37,7 @@ type TestRequest struct {
 	Labels         map[string]string `json:"labels"`
 	Alertmanager   string            `json:"alertmanager"`
 	TargetReceiver string            `json:"target_receiver,omitempty"`
+	Draft          *string           `json:"draft,omitempty"`
 }
 
 func (request *TestRequest) UnmarshalJSON(data []byte) error {
@@ -44,6 +45,7 @@ func (request *TestRequest) UnmarshalJSON(data []byte) error {
 		Labels         map[string]*string `json:"labels"`
 		Alertmanager   string             `json:"alertmanager"`
 		TargetReceiver string             `json:"target_receiver"`
+		Draft          *string            `json:"draft"`
 	}
 	if err := json.Unmarshal(data, &input); err != nil {
 		return err
@@ -60,10 +62,12 @@ func (request *TestRequest) UnmarshalJSON(data []byte) error {
 	}
 	request.Alertmanager = input.Alertmanager
 	request.TargetReceiver = input.TargetReceiver
+	request.Draft = input.Draft
 	return nil
 }
 
 type TestResponse struct {
+	Draft          bool                        `json:"draft,omitempty"`
 	ReceiverPaths  []alertmanager.ReceiverPath `json:"receiver_paths,omitempty"`
 	Receiver       string                      `json:"receiver"`
 	ReceiverConfig *alertmanager.Receiver      `json:"receiver_config,omitempty"`
@@ -317,29 +321,16 @@ func (h *Handler) HandleTest(w http.ResponseWriter, r *http.Request) {
 	var labels map[string]string
 	requestedAlertmanager := r.URL.Query().Get("alertmanager")
 	targetReceiver := r.URL.Query().Get("target_receiver")
+	var draft *string
 
 	contentType := r.Header.Get("Content-Type")
 	if strings.Contains(contentType, "application/json") {
 		var req TestRequest
-		decoder := json.NewDecoder(r.Body)
-		if err := decoder.Decode(&req); err != nil {
-			if requestBodyTooLarge(err) {
-				http.Error(w, "Request body too large", http.StatusRequestEntityTooLarge)
-			} else {
-				http.Error(w, "Invalid JSON", http.StatusBadRequest)
-			}
-			return
-		}
-		var extra json.RawMessage
-		if err := decoder.Decode(&extra); err != io.EOF {
-			if requestBodyTooLarge(err) {
-				http.Error(w, "Request body too large", http.StatusRequestEntityTooLarge)
-			} else {
-				http.Error(w, "Invalid JSON", http.StatusBadRequest)
-			}
+		if !decodeJSONRequest(w, r, &req) {
 			return
 		}
 		labels = req.Labels
+		draft = req.Draft
 		if targetReceiver == "" {
 			targetReceiver = req.TargetReceiver
 		}
@@ -356,9 +347,12 @@ func (h *Handler) HandleTest(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 
+		if values, ok := r.PostForm["draft"]; ok && len(values) > 0 {
+			draft = &values[0]
+		}
 		labels = make(map[string]string)
 		for key, values := range r.Form {
-			if key == "alertmanager" || key == "target_receiver" {
+			if key == "alertmanager" || key == "target_receiver" || key == "draft" {
 				continue
 			}
 			if len(values) > 0 && values[0] != "" {
@@ -378,7 +372,17 @@ func (h *Handler) HandleTest(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, clientErr.Error(), http.StatusBadRequest)
 		return
 	}
-	config, err := client.GetConfigContext(r.Context())
+	var config *alertmanager.Config
+	var err error
+	if draft != nil {
+		config, err = client.ParseConfig(*draft)
+		if err != nil || config.Route == nil {
+			http.Error(w, "Invalid draft configuration", http.StatusBadRequest)
+			return
+		}
+	} else {
+		config, err = client.GetConfigContext(r.Context())
+	}
 	var receiver string
 	var receiverConfig *alertmanager.Receiver
 	var matchedRoutes []alertmanager.MatchedRoute
@@ -429,6 +433,7 @@ func (h *Handler) HandleTest(w http.ResponseWriter, r *http.Request) {
 		}
 		routeMismatches, routeMismatchesOmitted := alertmanager.FindRouteMismatchesWithLimit(labels, config, limit)
 		data := struct {
+			Draft                    bool
 			TargetReceiver           string
 			ReceiverPaths            []alertmanager.ReceiverPath
 			Receiver                 string
@@ -445,6 +450,7 @@ func (h *Handler) HandleTest(w http.ResponseWriter, r *http.Request) {
 			Labels                   map[string]string
 			Error                    string
 		}{
+			Draft:                    draft != nil,
 			TargetReceiver:           targetReceiver,
 			ReceiverPaths:            receiverPaths,
 			Receiver:                 receiver,
@@ -474,6 +480,7 @@ func (h *Handler) HandleTest(w http.ResponseWriter, r *http.Request) {
 	}
 
 	response := TestResponse{
+		Draft:          draft != nil,
 		ReceiverPaths:  receiverPaths,
 		Receiver:       receiver,
 		ReceiverConfig: receiverConfig,

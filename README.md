@@ -18,6 +18,11 @@ go tool otelc go run .
 
 Build your alert using the UI or paste simple YAML `key: value` label lines. Hit "Test Route" to see which receiver it matches and the full route path.
 
+Select "Draft configuration changes" to edit a copy of the fetched Alertmanager configuration.
+Select "Show diff" to compare the draft with that baseline. "Test route against draft" evaluates labels without updating live Alertmanager.
+"Discard draft" returns tests to the fetched configuration. Drafts stay in page memory and disappear when the page closes.
+Reloads and instance changes ask before discarding an edited draft.
+
 ### Configuration File
 
 ```yaml

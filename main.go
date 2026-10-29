@@ -170,6 +170,8 @@ func run() int {
 	mux.HandleFunc("/config/labels", h.HandleConfigLabels)
 	mux.HandleFunc("/config/reload", h.HandleReloadConfig)
 	mux.HandleFunc("/config/samples", h.HandleGenerateSampleAlerts)
+	mux.HandleFunc("/config/source", h.HandleConfigSource)
+	mux.HandleFunc("/config/draft", h.HandlePreviewDraft)
 	mux.Handle("/metrics", providers.PrometheusHandler())
 
 	slog.Info("starting server", "listen", cfg.App.Server.Listen)

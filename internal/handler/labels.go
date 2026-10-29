@@ -70,26 +70,8 @@ func (h *Handler) HandleLabelSuggestions(w http.ResponseWriter, r *http.Request)
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
-	r.Body = http.MaxBytesReader(w, r.Body, maxTestRequestBodyBytes)
 	var request TestRequest
-	decoder := json.NewDecoder(r.Body)
-	err := decoder.Decode(&request)
-	if err == nil {
-		var extra json.RawMessage
-		err = decoder.Decode(&extra)
-		if err == io.EOF {
-			err = nil
-		} else if err == nil {
-			http.Error(w, "Invalid JSON", http.StatusBadRequest)
-			return
-		}
-	}
-	if err != nil {
-		if requestBodyTooLarge(err) {
-			http.Error(w, "Request body too large", http.StatusRequestEntityTooLarge)
-		} else {
-			http.Error(w, "Invalid JSON", http.StatusBadRequest)
-		}
+	if !decodeJSONRequest(w, r, &request) {
 		return
 	}
 	client, _, err := h.selectedClient(request.Alertmanager)

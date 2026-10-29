@@ -1,5 +1,6 @@
 <div class="result-panel">
     <span class="workspace-pane-label">ROUTING OUTPUT</span>
+    {{if .Draft}}<p class="draft-result">Draft configuration result. Live Alertmanager is unchanged.</p>{{end}}
     {{if .TargetReceiver}}
     <section class="receiver-explanation result-section">
         <h3>Paths to {{.TargetReceiver}}</h3>

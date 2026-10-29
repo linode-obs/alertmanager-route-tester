@@ -179,6 +179,20 @@ team: platform'></textarea>
                         </div>
                     </div>
 
+                    <section class="draft-section">
+                        <button id="start-draft" type="button" class="btn-secondary" onclick="startDraft()">Draft configuration changes</button>
+                        <div id="draft-panel" hidden>
+                            <label for="config-draft">Proposed Alertmanager configuration</label>
+                            <p class="help-text">Draft tests do not change live Alertmanager. This draft stays in this page only.</p>
+                            <textarea id="config-draft" name="draft" rows="16" spellcheck="false" disabled></textarea>
+                            <div class="form-actions">
+                                <button id="preview-draft" type="button" class="btn-secondary" onclick="previewDraft()">Show diff</button>
+                                <button id="discard-draft" type="button" class="btn-secondary" onclick="discardDraft()">Discard draft</button>
+                            </div>
+                            <pre id="config-diff" aria-label="Configuration diff" tabindex="0"></pre>
+                        </div>
+                        <p id="draft-status" role="status" hidden></p>
+                    </section>
                     <div class="receiver-question">
                         <label for="target-receiver">Explain a receiver</label>
                         <select id="target-receiver" name="target_receiver">
@@ -251,6 +265,10 @@ team: platform'></textarea>
         }
 
         function preserveEditorBeforeNavigation() {
+            if (draftIsEdited()) {
+                if (!confirm('This page contains an edited configuration draft. Continuing will discard it. Continue?')) return false;
+                draftNavigationApproved = true;
+            }
             if (saveEditorState()) return true;
             return confirm('Browser storage is unavailable. Reloading will discard your alert input. Continue?');
         }
@@ -265,6 +283,100 @@ team: platform'></textarea>
         });
         window.addEventListener('beforeunload', saveEditorState);
         document.getElementById('raw-input').addEventListener('input', saveEditorState);
+
+        let draftBaseline = null;
+        let draftNavigationApproved = false;
+        const liveReceiverChoices = document.getElementById('target-receiver').cloneNode(true);
+
+        function draftIsEdited() {
+            return draftBaseline !== null && document.getElementById('config-draft').value !== draftBaseline;
+        }
+
+        function setDraftStatus(message, failed = false) {
+            const status = document.getElementById('draft-status');
+            status.textContent = message;
+            status.classList.toggle('field-error', failed);
+            status.hidden = false;
+        }
+
+        async function startDraft() {
+            const button = document.getElementById('start-draft');
+            button.disabled = true;
+            try {
+                const response = await fetch('/config/source?alertmanager=' + encodeURIComponent(selectedAlertmanager));
+                if (!response.ok) throw new Error(await response.text());
+                const data = await response.json();
+                draftBaseline = data.source;
+                const editor = document.getElementById('config-draft');
+                editor.value = draftBaseline;
+                editor.disabled = false;
+                document.getElementById('draft-panel').hidden = false;
+                button.hidden = true;
+                document.querySelector('.btn-test-route').textContent = 'Test route against draft';
+                setDraftStatus('Draft mode. Live Alertmanager is unchanged.');
+                editor.focus();
+            } catch (error) {
+                setDraftStatus('Cannot load a configuration draft. ' + error.message, true);
+            } finally {
+                button.disabled = false;
+            }
+        }
+
+        async function previewDraft() {
+            const draft = document.getElementById('config-draft').value;
+            setDraftStatus('Preparing draft diff.');
+            try {
+                const response = await fetch('/config/draft', {
+                    method: 'POST', headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({alertmanager: selectedAlertmanager, baseline: draftBaseline, draft}),
+                });
+                if (!response.ok) throw new Error(await response.text());
+                const data = await response.json();
+                if (draft !== document.getElementById('config-draft').value || draftBaseline === null) return;
+                document.getElementById('config-diff').textContent = data.diff || 'No changes from the fetched configuration.';
+                const receivers = document.getElementById('target-receiver');
+                const selected = receivers.value;
+                receivers.replaceChildren(new Option('No receiver selected', ''));
+                data.receivers.forEach(name => receivers.add(new Option(name, name)));
+                if (data.receivers.includes(selected)) receivers.value = selected;
+                setDraftStatus('Draft is valid. Test alert labels against this draft.');
+            } catch (error) {
+                document.getElementById('config-diff').textContent = '';
+                setDraftStatus(error.message, true);
+            }
+        }
+
+        function discardDraft() {
+            draftBaseline = null;
+            draftNavigationApproved = false;
+            const editor = document.getElementById('config-draft');
+            editor.value = '';
+            editor.disabled = true;
+            document.getElementById('draft-panel').hidden = true;
+            document.getElementById('config-diff').textContent = '';
+            document.getElementById('start-draft').hidden = false;
+            document.querySelector('.btn-test-route').textContent = 'Test route';
+            const receivers = document.getElementById('target-receiver');
+            receivers.replaceChildren(...Array.from(liveReceiverChoices.options).map(option => option.cloneNode(true)));
+            setDraftStatus('Draft discarded. Tests use the fetched configuration.');
+        }
+
+        document.getElementById('config-draft').addEventListener('input', () => {
+            draftNavigationApproved = false;
+            document.getElementById('config-diff').textContent = '';
+            setDraftStatus('Draft changed. Show the diff or test alert labels.');
+        });
+        document.getElementById('alert-form').addEventListener('htmx:afterRequest', event => {
+            if (draftBaseline !== null && !event.detail.successful) {
+                setDraftStatus(event.detail.xhr.responseText || 'Draft test failed.', true);
+            }
+        });
+        window.addEventListener('beforeunload', event => {
+            if (draftIsEdited() && !draftNavigationApproved) {
+                event.preventDefault();
+                event.returnValue = '';
+            }
+        });
 
         const historyStorageName = `art:recent:${selectedAlertmanager}`;
         let recentLabelSets = [];

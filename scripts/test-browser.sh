@@ -7,6 +7,32 @@ SESSION=${ART_BROWSER_SESSION:-art-issues}
 ab() { agent-browser --session "$SESSION" "$@"; }
 ab open "$URL"
 
+if [[ ${1:-all} == all || ${1:-all} == draft ]]; then
+ab eval 'if (!document.getElementById("start-draft")) throw new Error("Configuration drafts are unavailable");'
+ab click '#start-draft'
+ab wait --fn 'document.getElementById("config-draft").value.includes("pagerduty-critical")'
+ab eval 'document.getElementById("config-draft").value = document.getElementById("config-draft").value.replaceAll("pagerduty-critical", "draft-critical"); document.getElementById("config-draft").dispatchEvent(new Event("input"));'
+ab click '#preview-draft'
+ab wait --fn '/^\+\s*-?\s*receiver: draft-critical$/m.test(document.getElementById("config-diff").textContent)'
+ab eval 'switchMode("ui"); currentLabels={severity:"critical"}; renderLabels();'
+ab click '.btn-test-route'
+ab wait --fn 'document.querySelector("#result .result-primary-receiver")?.textContent.includes("draft-critical")'
+ab eval 'if (!document.querySelector("#result .draft-result")) throw new Error("Draft results are not identified"); if (Array.from({length:sessionStorage.length},(_,i)=>sessionStorage.getItem(sessionStorage.key(i))).some(value => value.includes("draft-critical"))) throw new Error("Draft configuration entered browser storage");'
+ab eval --stdin <<'JS'
+(async () => {
+    const response = await fetch('/test', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({labels:{severity:'critical'},alertmanager:'local'})});
+    const result = await response.json();
+    if (result.receiver !== 'pagerduty-critical' || result.draft) throw new Error('Draft changed cached live routing');
+    const invalid = await fetch('/config/draft', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({alertmanager:'local',baseline:draftBaseline,draft:'route: ['})});
+    if (invalid.status !== 400) throw new Error('Invalid draft was accepted');
+})()
+JS
+ab click '#discard-draft'
+ab click '.btn-test-route'
+ab wait --fn 'document.querySelector("#result .result-primary-receiver")?.textContent.includes("pagerduty-critical")'
+ab eval 'if (document.querySelector("#result .draft-result")) throw new Error("Discard did not restore live routing");'
+fi
+
 if [[ ${1:-all} == all || ${1:-all} == receiver ]]; then
 ab eval 'switchMode("ui"); currentLabels = {severity:"warning"}; renderLabels();'
 ab select '#target-receiver' pagerduty-platform

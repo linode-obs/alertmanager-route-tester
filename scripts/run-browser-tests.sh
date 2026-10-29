@@ -9,9 +9,10 @@ TEMP=$(mktemp -d)
 AM_PID=""
 APP_PID=""
 cleanup() {
+    status=$?
     if [[ -n "$APP_PID" ]]; then kill "$APP_PID" 2>/dev/null || true; wait "$APP_PID" 2>/dev/null || true; fi
     if [[ -n "$AM_PID" ]]; then kill "$AM_PID" 2>/dev/null || true; wait "$AM_PID" 2>/dev/null || true; fi
-    rm -rf "$TEMP"
+    if [[ $status == 0 ]]; then rm -rf "$TEMP"; else echo "Browser test logs retained at $TEMP" >&2; fi
 }
 trap cleanup EXIT
 for port in "$APP_PORT" "$AM_PORT"; do

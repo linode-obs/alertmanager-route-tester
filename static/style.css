@@ -3161,6 +3161,36 @@ html[data-theme="dark"] .workspace-result-pane {
     }
 }
 
+.draft-section {
+    margin: 1rem 0;
+    padding: 1rem 0;
+    border-top: 1px solid var(--border-color);
+}
+
+#config-draft,
+#config-diff {
+    width: 100%;
+    max-width: 100%;
+    font-family: var(--font-mono);
+    font-size: 0.85rem;
+    color: var(--text-color);
+    background: var(--panel-alt);
+}
+
+#config-diff {
+    max-height: 24rem;
+    overflow: auto;
+    padding: 0.75rem;
+    border: 1px solid var(--border-color);
+}
+
+.draft-result {
+    padding: 0.75rem;
+    color: var(--info-color);
+    background: var(--info-bg);
+    border: 1px solid var(--info-border);
+}
+
 @media (max-width: 320px) {
     .help-tip::after,
     #raw-builder .help-tip::after,

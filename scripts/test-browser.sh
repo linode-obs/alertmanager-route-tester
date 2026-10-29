@@ -66,10 +66,12 @@ ab eval --stdin <<'JS'
 })()
 JS
 ab press Escape
-ab eval 'if (document.getElementById("draft-editor").open || draftBaseline === null) throw new Error("Closing the editor discarded the draft");'
+ab wait --fn 'document.activeElement.id === "edit-draft"'
+ab eval 'if (document.getElementById("draft-editor").open || draftBaseline === null) throw new Error("Closing the editor discarded the draft"); if (document.activeElement.id !== "edit-draft") throw new Error("Closing the draft editor did not return focus to its opener");'
 ab click '#edit-draft'
 ab wait '#draft-editor[open]'
 ab click '#discard-draft'
+ab wait --fn 'document.activeElement.id === "start-draft"'
 ab eval 'if (document.getElementById("draft-editor").open || draftBaseline !== null) throw new Error("Discard did not close the editor and clear the draft");'
 fi
 
@@ -213,6 +215,40 @@ ab eval --stdin <<'JS'
 })()
 JS
 ab click '#edit-draft'
+ab eval --stdin <<'JS'
+(() => {
+    const editor = document.getElementById('config-draft');
+    editor.value = editor.value.replace('receivers:\n', 'receivers:\n- name: removed-in-draft\n');
+    editor.dispatchEvent(new Event('input'));
+})()
+JS
+ab click '#preview-draft'
+ab wait --fn 'document.getElementById("config-diff").textContent.includes("removed-in-draft")'
+ab click '#use-draft'
+ab fill '#receiver-search' removed-in-draft
+ab press Enter
+ab eval 'if (document.getElementById("target-receiver").value !== "removed-in-draft") throw new Error("Draft receiver was not selected before removing it");'
+ab click '#edit-draft'
+ab eval --stdin <<'JS'
+(() => {
+    const editor = document.getElementById('config-draft');
+    editor.value = editor.value.replace('- name: removed-in-draft\n', '');
+    editor.dispatchEvent(new Event('input'));
+})()
+JS
+ab click '#use-draft'
+ab eval --stdin <<'JS'
+(async () => {
+    currentLabels = {severity:'critical'};
+    renderLabels();
+    const completed = new Promise(resolve => document.getElementById('alert-form').addEventListener('htmx:afterRequest', resolve, {once:true}));
+    document.getElementById('alert-form').requestSubmit();
+    const result = await completed;
+    if (!result.detail.successful || !document.querySelector('#result .result-primary-receiver')) throw new Error('Removing an optional receiver prevented draft route testing');
+    if (!document.querySelector('#result .receiver-explanation')?.textContent.includes('No route uses this receiver')) throw new Error('Draft no longer explains the removed receiver choice');
+})()
+JS
+ab click '#edit-draft'
 ab click '#discard-draft'
 ab click '.btn-test-route'
 ab wait --fn 'document.querySelector("#result .result-primary-receiver")?.textContent.includes("pagerduty-critical")'
@@ -230,7 +266,7 @@ ab press Enter
 ab eval 'if (document.getElementById("target-receiver").value !== "pagerduty-platform" || document.getElementById("receiver-search").getAttribute("aria-expanded") !== "false") throw new Error("Keyboard selection failed");'
 ab click '#clear-receiver'
 ab fill '#receiver-search' 'not-a-configured-receiver'
-ab eval 'if (document.getElementById("target-receiver").value || document.getElementById("receiver-search").validity.valid) throw new Error("Unknown receiver was accepted");'
+ab eval 'if (document.getElementById("target-receiver").value || document.getElementById("receiver-search").validity.valid) throw new Error("Unknown receiver was accepted"); if (document.getElementById("receiver-search").getAttribute("aria-invalid") !== "true") throw new Error("Invalid receiver search is reported as valid to assistive technology");'
 ab press Escape
 ab click '#clear-receiver'
 ab fill '#receiver-search' pdplt

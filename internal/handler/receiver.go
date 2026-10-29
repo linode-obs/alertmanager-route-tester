@@ -23,8 +23,8 @@ func receiverCheck(paths []alertmanager.ReceiverPath) ReceiverCheck {
 	for _, path := range paths {
 		result.Delivered = result.Delivered || path.Delivered
 		result.ChildSelected = result.ChildSelected || (path.Matched && !path.Delivered)
-		if path.StoppedByReceiver != "" {
-			stops[path.StoppedByReceiver] = true
+		for _, receiver := range path.StoppedByReceivers {
+			stops[receiver] = true
 		}
 		unique := map[alertmanager.MatcherFailure]bool{}
 		for _, step := range path.Steps {

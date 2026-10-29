@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 cd "$(dirname "$0")/.."
+node --test scripts/test-draft-preview.mjs
 
 # Ports stay separate from the development server and Go integration tests.
 APP_PORT=${ART_BROWSER_PORT:-18081}

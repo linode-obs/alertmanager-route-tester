@@ -411,10 +411,13 @@ func (h *Handler) HandleTest(w http.ResponseWriter, r *http.Request) {
 	var receiverPaths []alertmanager.ReceiverPath
 	if targetReceiver != "" && config != nil {
 		if client.FindReceiverByName(targetReceiver, config) == nil {
-			http.Error(w, "Unknown target receiver", http.StatusBadRequest)
-			return
+			if draft == nil {
+				http.Error(w, "Unknown target receiver", http.StatusBadRequest)
+				return
+			}
+		} else {
+			receiverPaths = alertmanager.ExplainReceiverPaths(labels, config, targetReceiver)
 		}
-		receiverPaths = alertmanager.ExplainReceiverPaths(labels, config, targetReceiver)
 	}
 
 	if r.Header.Get("HX-Request") == "true" {

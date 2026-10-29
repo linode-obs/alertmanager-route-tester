@@ -6,6 +6,7 @@
     <title>Alertmanager Route Tester</title>
     <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
     <script src="/static/htmx.min.js"></script>
+    <script src="/static/draft-preview.js"></script>
     <script>
         (function() {
             const savedTheme = localStorage.getItem('theme');
@@ -333,6 +334,8 @@ team: platform'></textarea>
         let currentPatch = '';
         let currentPatchTarget = '';
         let draftNavigationApproved = false;
+        let draftEditorOpener = null;
+        const draftPreviewRequests = createLatestDraftPreview();
         const liveReceiverChoices = document.getElementById('target-receiver').cloneNode(true);
 
         function draftIsEdited() {
@@ -346,7 +349,8 @@ team: platform'></textarea>
             status.hidden = false;
         }
 
-        function openDraftEditor() {
+        function openDraftEditor(opener = document.activeElement) {
+            draftEditorOpener = opener;
             document.getElementById('draft-editor').showModal();
             document.getElementById('config-draft').focus({preventScroll: true});
         }
@@ -356,6 +360,7 @@ team: platform'></textarea>
         }
 
         function hideDraftDiff() {
+            draftPreviewRequests.invalidate();
             currentPatch = '';
             currentPatchTarget = '';
             document.getElementById('draft-diff').hidden = true;
@@ -375,7 +380,16 @@ team: platform'></textarea>
         }
 
         document.getElementById('draft-editor').addEventListener('close', () => {
-            document.querySelector('.btn-test-route').focus({preventScroll: true});
+            const opener = draftEditorOpener;
+            draftEditorOpener = null;
+            const isVisible = element => element?.isConnected && !element.hidden && element.getClientRects().length > 0;
+            if (isVisible(opener)) {
+                opener.focus({preventScroll: true});
+            } else {
+                const editDraft = document.getElementById('edit-draft');
+                const startDraft = document.getElementById('start-draft');
+                (isVisible(editDraft) ? editDraft : isVisible(startDraft) ? startDraft : document.querySelector('.btn-test-route')).focus({preventScroll: true});
+            }
         });
 
         async function startDraft() {
@@ -395,7 +409,7 @@ team: platform'></textarea>
                 document.querySelector('.btn-test-route').title = 'Evaluate labels against this draft. Live Alertmanager stays unchanged.';
                 setDraftStatus('Draft ready.');
                 updatePatchControls();
-                openDraftEditor();
+                openDraftEditor(document.getElementById('edit-draft'));
             } catch (error) {
                 setDraftStatus('Cannot load a configuration draft. ' + error.message, true);
             } finally {
@@ -448,31 +462,34 @@ team: platform'></textarea>
             updatePatchControls();
         });
 
-        async function previewDraft() {
+        function previewDraft() {
             const draft = document.getElementById('config-draft').value;
             const target = document.getElementById('patch-target').value.trim();
             setDraftStatus('Comparing configurations.');
-            try {
-                const data = await compareDraft(draft, target);
-                if (draft !== document.getElementById('config-draft').value || target !== document.getElementById('patch-target').value.trim() || draftBaseline === null) return;
-                currentPatch = data.patch;
-                currentPatchTarget = target;
-                document.getElementById('config-diff').textContent = currentPatch || 'No changes from the fetched configuration.';
-                document.getElementById('draft-diff').hidden = false;
-                document.getElementById('preview-draft').textContent = 'Hide patch';
-                const receivers = document.getElementById('target-receiver');
-                const selected = receivers.value;
-                receivers.replaceChildren(new Option('No receiver selected', ''));
-                data.receivers.forEach(name => receivers.add(new Option(name, name)));
-                if (data.receivers.includes(selected)) receivers.value = selected;
-                syncReceiverPicker();
-                setDraftStatus('Draft is valid.');
-                updatePatchControls();
-            } catch (error) {
-                document.getElementById('config-diff').textContent = '';
-                hideDraftDiff();
-                setDraftStatus(error.message, true);
-            }
+            return draftPreviewRequests.run(
+                () => compareDraft(draft, target),
+                data => {
+                    if (draft !== document.getElementById('config-draft').value || target !== document.getElementById('patch-target').value.trim() || draftBaseline === null) return;
+                    currentPatch = data.patch;
+                    currentPatchTarget = target;
+                    document.getElementById('config-diff').textContent = currentPatch || 'No changes from the fetched configuration.';
+                    document.getElementById('draft-diff').hidden = false;
+                    document.getElementById('preview-draft').textContent = 'Hide patch';
+                    const receivers = document.getElementById('target-receiver');
+                    const selected = receivers.value;
+                    receivers.replaceChildren(new Option('No receiver selected', ''));
+                    data.receivers.forEach(name => receivers.add(new Option(name, name)));
+                    if (data.receivers.includes(selected)) receivers.value = selected;
+                    syncReceiverPicker();
+                    setDraftStatus('Draft is valid.');
+                    updatePatchControls();
+                },
+                error => {
+                    document.getElementById('config-diff').textContent = '';
+                    hideDraftDiff();
+                    setDraftStatus(error.message, true);
+                },
+            );
         }
 
         function discardDraft() {
@@ -482,10 +499,10 @@ team: platform'></textarea>
             editor.value = '';
             editor.disabled = true;
             document.getElementById('draft-panel').hidden = true;
+            document.getElementById('start-draft').hidden = false;
             document.getElementById('config-diff').textContent = '';
             hideDraftDiff();
             closeDraftEditor();
-            document.getElementById('start-draft').hidden = false;
             document.querySelector('.btn-test-route').textContent = 'Test route';
             document.querySelector('.btn-test-route').title = 'Evaluate labels against the loaded configuration. No alert is sent.';
             const receivers = document.getElementById('target-receiver');

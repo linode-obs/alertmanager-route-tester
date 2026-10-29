@@ -6,6 +6,19 @@ import (
 	"testing"
 )
 
+func TestReceiverPathsNameTerminalChildAsSiblingBlocker(t *testing.T) {
+	config := &Config{Route: &Route{Receiver: "default", Routes: []*Route{
+		{Receiver: "parent", Match: map[string]string{"team": "platform"}, Routes: []*Route{
+			{Receiver: "child", Match: map[string]string{"severity": "critical"}},
+		}},
+		{Receiver: "wanted", Match: map[string]string{"alertname": "HighLatency"}},
+	}}, Receivers: []Receiver{{Name: "default"}, {Name: "parent"}, {Name: "child"}, {Name: "wanted"}}}
+	paths := ExplainReceiverPaths(map[string]string{"team": "platform", "severity": "critical", "alertname": "HighLatency"}, config, "wanted")
+	if len(paths) != 1 || len(paths[0].StoppedByReceivers) != 1 || paths[0].StoppedByReceivers[0] != "child" {
+		t.Fatalf("blocking delivery = %#v, want child receiver", paths)
+	}
+}
+
 func TestReceiverPathsExplainAllBlockers(t *testing.T) {
 	config := &Config{Route: &Route{Receiver: "default", Routes: []*Route{
 		{Receiver: "stop", Match: map[string]string{"severity": "critical"}},
@@ -36,7 +49,8 @@ func TestReceiverPathsExplainAllBlockers(t *testing.T) {
 		encoded, _ := json.Marshal(path)
 		var facts map[string]any
 		_ = json.Unmarshal(encoded, &facts)
-		if facts["stopped_by_receiver"] != "stop" {
+		receivers, ok := facts["stopped_by_receivers"].([]any)
+		if !ok || len(receivers) != 1 || receivers[0] != "stop" {
 			t.Fatalf("blocking receiver = %v, want stop", facts["stopped_by_receiver"])
 		}
 		if !strings.Contains(path.BlockedBy, "Earlier sibling root/1") || path.Delivered {

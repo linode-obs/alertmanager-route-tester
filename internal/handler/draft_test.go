@@ -10,6 +10,32 @@ import (
 	"github.com/linode-obs/alertmanager-route-tester/internal/alertmanager"
 )
 
+func TestDraftRouteKeepsRunningWhenOptionalReceiverIsRemoved(t *testing.T) {
+	draft := "route:\n  receiver: draft-default\nreceivers:\n- name: draft-default\n"
+	body, err := json.Marshal(map[string]any{"labels": map[string]string{}, "target_receiver": "removed-receiver", "draft": draft})
+	if err != nil {
+		t.Fatal(err)
+	}
+	request := httptest.NewRequest(http.MethodPost, "/test", strings.NewReader(string(body)))
+	request.Header.Set("Content-Type", "application/json")
+	response := httptest.NewRecorder()
+	client := alertmanager.NewClient("http://127.0.0.1:1", false)
+	(&Handler{client: client}).HandleTest(response, request)
+	if response.Code != http.StatusOK {
+		t.Fatalf("status = %d, want route test result: %s", response.Code, response.Body.String())
+	}
+	var result TestResponse
+	if err := json.Unmarshal(response.Body.Bytes(), &result); err != nil {
+		t.Fatal(err)
+	}
+	if result.Receiver != "draft-default" {
+		t.Fatalf("receiver = %q, want draft-default", result.Receiver)
+	}
+	if len(result.ReceiverPaths) != 0 {
+		t.Fatalf("receiver paths = %#v, want no explanation for removed receiver", result.ReceiverPaths)
+	}
+}
+
 func TestDraftPreviewDiffAndValidation(t *testing.T) {
 	client := alertmanager.NewClient("http://127.0.0.1:1", false)
 	h := &Handler{client: client}

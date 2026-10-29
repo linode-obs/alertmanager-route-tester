@@ -13,8 +13,8 @@ import (
 func TestReceiverCheckGroupsRulesAndDelivery(t *testing.T) {
 	failure := alertmanager.MatcherFailure{Label: "team", Operator: "=", Expected: "platform", Missing: true}
 	paths := []alertmanager.ReceiverPath{
-		{StoppedByReceiver: "earlier", Steps: []alertmanager.ReceiverPathStep{{FailedMatchers: []alertmanager.MatcherFailure{failure, failure}}}},
-		{StoppedByReceiver: "earlier", Steps: []alertmanager.ReceiverPathStep{{FailedMatchers: []alertmanager.MatcherFailure{failure}}}},
+		{StoppedByReceivers: []string{"earlier"}, Steps: []alertmanager.ReceiverPathStep{{FailedMatchers: []alertmanager.MatcherFailure{failure, failure}}}},
+		{StoppedByReceivers: []string{"earlier"}, Steps: []alertmanager.ReceiverPathStep{{FailedMatchers: []alertmanager.MatcherFailure{failure}}}},
 	}
 	check := receiverCheck(paths)
 	if !check.HasRoutes || check.Delivered || len(check.StoppedBy) != 1 || check.StoppedBy[0] != "earlier" || len(check.Rules) != 1 || len(check.Rules[0]) != 1 {

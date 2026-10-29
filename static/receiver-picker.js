@@ -87,7 +87,7 @@
         const exact = Array.from(selected.options).find(option => option.value.toLocaleLowerCase() === input.value.trim().toLocaleLowerCase());
         selected.value = exact ? exact.value : '';
         input.setCustomValidity(input.value.trim() && !selected.value ? 'Choose a receiver from the matches, or clear this field.' : '');
-        input.setAttribute('aria-invalid', 'false');
+        input.setAttribute('aria-invalid', String(!input.validity.valid));
         clear.hidden = !input.value;
         render();
     });

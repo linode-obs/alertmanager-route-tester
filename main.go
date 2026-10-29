@@ -165,6 +165,7 @@ func run() int {
 	mux.HandleFunc("/healthz", handler.HandleHealth)
 	mux.HandleFunc("/", h.HandleIndex)
 	mux.HandleFunc("/test", h.HandleTest)
+	mux.HandleFunc("/labels/parse", handler.HandleParseLabels)
 	mux.HandleFunc("/config/labels", h.HandleConfigLabels)
 	mux.HandleFunc("/config/reload", h.HandleReloadConfig)
 	mux.HandleFunc("/config/samples", h.HandleGenerateSampleAlerts)

@@ -72,9 +72,31 @@ func TestDraftPreviewDiffAndValidation(t *testing.T) {
 		}
 	}
 	response = httptest.NewRecorder()
-	h.HandlePreviewDraft(response, httptest.NewRequest(http.MethodPost, "/config/draft", strings.NewReader(strings.Repeat(" ", 1<<20)+"{}")))
+	h.HandlePreviewDraft(response, httptest.NewRequest(http.MethodPost, "/config/draft", strings.NewReader(strings.Repeat(" ", int(maxDraftPreviewRequestBodyBytes))+"{}")))
 	if response.Code != 413 {
 		t.Fatalf("oversized draft = %d", response.Code)
+	}
+}
+
+func TestDraftPreviewAcceptsTwoConfigurationsWithinItsRequestLimit(t *testing.T) {
+	padding := strings.Repeat("#"+strings.Repeat("x", 999)+"\n", 650)
+	baseline := padding + "route:\n  receiver: fetched\nreceivers:\n- name: fetched\n"
+	draft := padding + "route:\n  receiver: proposed\nreceivers:\n- name: proposed\n"
+	body, err := json.Marshal(map[string]string{"baseline": baseline, "draft": draft})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(body) <= int(maxTestRequestBodyBytes) || len(body) >= 2<<20 {
+		t.Fatalf("test body size = %d, want greater than 1 MiB and less than 2 MiB", len(body))
+	}
+
+	h := &Handler{client: alertmanager.NewClient("http://127.0.0.1:1", false)}
+	request := httptest.NewRequest(http.MethodPost, "/config/draft", strings.NewReader(string(body)))
+	response := httptest.NewRecorder()
+	h.HandlePreviewDraft(response, request)
+
+	if response.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d: %s", response.Code, http.StatusOK, response.Body.String())
 	}
 }
 

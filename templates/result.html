@@ -389,14 +389,16 @@ repeat_interval: {{.Route.RepeatInterval}}{{end}}</pre>
                     <div class="trace-block">
                         <div class="trace-title">Matched label values</div>
                         <div class="trace-content">
-                            <table class="matcher-table">
-                                <thead><tr><th>Label</th><th>Operator</th><th>Expected</th><th>Actual</th></tr></thead>
-                                <tbody>
-                                {{range .MatcherResults}}
-                                <tr><td><code>{{.Label}}</code></td><td>{{.Operator}}</td><td><code>{{printf "%q" .Expected}}</code></td><td>{{if .Missing}}missing{{else}}<code>{{printf "%q" .Actual}}</code>{{end}}</td></tr>
-                                {{end}}
-                                </tbody>
-                            </table>
+                            <div class="matcher-table-scroll" tabindex="0" aria-label="Scrollable matched label values">
+                                <table class="matcher-table">
+                                    <thead><tr><th>Label</th><th>Operator</th><th>Expected</th><th>Actual</th></tr></thead>
+                                    <tbody>
+                                    {{range .MatcherResults}}
+                                    <tr><td><code>{{.Label}}</code></td><td>{{.Operator}}</td><td><code>{{printf "%q" .Expected}}</code></td><td>{{if .Missing}}missing{{else}}<code>{{printf "%q" .Actual}}</code>{{end}}</td></tr>
+                                    {{end}}
+                                    </tbody>
+                                </table>
+                            </div>
                         </div>
                     </div>
                     {{end}}

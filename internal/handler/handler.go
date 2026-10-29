@@ -22,7 +22,10 @@ import (
 	"github.com/linode-obs/alertmanager-route-tester/internal/telemetry"
 )
 
-const maxTestRequestBodyBytes int64 = 1 << 20
+const (
+	maxTestRequestBodyBytes         int64 = 1 << 20
+	maxDraftPreviewRequestBodyBytes int64 = 2*maxTestRequestBodyBytes + (1 << 10)
+)
 
 type Handler struct {
 	RouteMismatchLimit  int
@@ -313,7 +316,7 @@ func (h *Handler) HandleReloadConfig(w http.ResponseWriter, r *http.Request) {
 func readTestRequest(w http.ResponseWriter, r *http.Request) *TestRequest {
 	request := &TestRequest{}
 	if strings.Contains(r.Header.Get("Content-Type"), "application/json") {
-		if !decodeJSONRequest(w, r, request) {
+		if !decodeJSONRequest(w, r, request, maxTestRequestBodyBytes) {
 			return nil
 		}
 	} else {

@@ -158,6 +158,24 @@ done
 ab set viewport 1440 1000
 ab click '#edit-draft'
 ab click '#discard-draft'
+ab eval --stdin <<'JS'
+(async () => {
+    const label = 'a'.repeat(300);
+    const draft = `route:\n  receiver: default\n  routes:\n  - receiver: long-label\n    match:\n      ${label}: value\nreceivers:\n- name: default\n- name: long-label\n`;
+    const response = await fetch('/test', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json', 'HX-Request': 'true'},
+        body: JSON.stringify({labels: {[label]: 'value'}, alertmanager: 'local', target_receiver: 'long-label', draft}),
+    });
+    if (!response.ok) throw new Error(`Long-label test returned ${response.status}`);
+    document.getElementById('result').innerHTML = await response.text();
+    document.querySelector('.route-matching-details').open = true;
+    const trace = document.querySelector('.route-trace');
+    const scroller = trace.querySelector('.matcher-table-scroll');
+    if (!scroller || scroller.scrollWidth <= scroller.clientWidth) throw new Error('Long matcher tables do not scroll horizontally');
+    if (document.documentElement.scrollWidth > window.innerWidth + 1) throw new Error('A long matcher label widens the page');
+})()
+JS
 fi
 
 if [[ ${1:-all} == all || ${1:-all} == draft ]]; then
@@ -490,6 +508,53 @@ ab eval --stdin <<'JS'
     await parseRawInput();
     if (document.getElementById('raw-builder').style.display !== 'none') throw new Error('YAML import did not return to the label editor');
     if (currentLabels.message !== 'a: b\n"quoted"\\value' || currentLabels.empty !== '') throw new Error('YAML import changed values');
+
+    const originalFetch = window.fetch;
+    let releaseOlderImport;
+    let olderResponseReady;
+    const olderResponseHeld = new Promise(resolve => { olderResponseReady = resolve; });
+    window.fetch = (resource, options) => {
+        const response = originalFetch.call(window, resource, options);
+        if (resource !== '/labels/parse' || options.body !== 'alertname: OlderImport') return response;
+        return response.then(result => new Promise(resolve => {
+            releaseOlderImport = () => resolve(result);
+            olderResponseReady();
+        }));
+    };
+    document.getElementById('raw-input').value = 'alertname: OlderImport';
+    const olderImport = parseRawInput();
+    await olderResponseHeld;
+    document.getElementById('raw-input').value = 'alertname: NewerImport';
+    await parseRawInput();
+    releaseOlderImport();
+    await olderImport;
+    window.fetch = originalFetch;
+    if (currentLabels.alertname !== 'NewerImport') throw new Error('A stale YAML import replaced newer labels');
+
+    const realAlert = window.alert;
+    const alerts = [];
+    let releaseOlderError;
+    let olderErrorResponseReady;
+    const olderErrorResponseHeld = new Promise(resolve => { olderErrorResponseReady = resolve; });
+    window.alert = message => alerts.push(message);
+    window.fetch = (resource, options) => {
+        const response = originalFetch.call(window, resource, options);
+        if (resource !== '/labels/parse' || options.body !== 'a: [') return response;
+        return response.then(result => new Promise(resolve => {
+            releaseOlderError = () => resolve(result);
+            olderErrorResponseReady();
+        }));
+    };
+    document.getElementById('raw-input').value = 'a: [';
+    const olderError = parseRawInput();
+    await olderErrorResponseHeld;
+    document.getElementById('raw-input').value = 'alertname: LatestImport';
+    await parseRawInput();
+    releaseOlderError();
+    await olderError;
+    window.fetch = originalFetch;
+    window.alert = realAlert;
+    if (currentLabels.alertname !== 'LatestImport' || alerts.length) throw new Error('A stale YAML error replaced labels or showed an obsolete alert');
     return 'YAML label tests passed';
 })()
 JS

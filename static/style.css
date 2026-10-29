@@ -2894,6 +2894,12 @@ html[data-theme="light"] .trace-row.trace-final .trace-meta {
     font-weight: 600;
 }
 
+.matcher-table-scroll {
+    min-width: 0;
+    max-width: 100%;
+    overflow-x: auto;
+}
+
 .matcher-table {
     width: 100%;
     margin-top: 6px;

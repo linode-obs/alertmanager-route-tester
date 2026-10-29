@@ -69,7 +69,7 @@ func (h *Handler) HandleLabelSuggestions(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	var request TestRequest
-	if !decodeJSONRequest(w, r, &request) {
+	if !decodeJSONRequest(w, r, &request, maxTestRequestBodyBytes) {
 		return
 	}
 	client, _, err := h.selectedClient(request.Alertmanager)

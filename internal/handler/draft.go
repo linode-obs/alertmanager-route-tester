@@ -8,8 +8,8 @@ import (
 	"strings"
 )
 
-func decodeJSONRequest(w http.ResponseWriter, r *http.Request, target any) bool {
-	r.Body = http.MaxBytesReader(w, r.Body, maxTestRequestBodyBytes)
+func decodeJSONRequest(w http.ResponseWriter, r *http.Request, target any, maxBodyBytes int64) bool {
+	r.Body = http.MaxBytesReader(w, r.Body, maxBodyBytes)
 	decoder := json.NewDecoder(r.Body)
 	err := decoder.Decode(target)
 	if err == nil {
@@ -58,7 +58,7 @@ func (h *Handler) HandlePreviewDraft(w http.ResponseWriter, r *http.Request) {
 		Draft        string `json:"draft"`
 		PatchTarget  string `json:"patch_target"`
 	}
-	if !decodeJSONRequest(w, r, &request) {
+	if !decodeJSONRequest(w, r, &request, maxDraftPreviewRequestBodyBytes) {
 		return
 	}
 	if request.PatchTarget == "" {

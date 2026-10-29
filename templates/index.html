@@ -835,22 +835,27 @@ team: platform'></textarea>
         }
 
         // Parse raw YAML input
+        let labelImportRequest = 0;
         async function parseRawInput() {
+            const request = ++labelImportRequest;
+            const source = document.getElementById('raw-input').value;
             try {
                 const response = await fetch('/labels/parse', {
                     method: 'POST',
-                    body: document.getElementById('raw-input').value,
+                    body: source,
                 });
                 if (!response.ok) {
                     throw new Error(await response.text());
                 }
                 const data = await response.json();
+                if (request !== labelImportRequest || source !== document.getElementById('raw-input').value) return;
                 currentLabels = data.labels;
                 renderLabels();
 
                 // Switch to UI mode
                 switchMode('ui');
             } catch (e) {
+                if (request !== labelImportRequest || source !== document.getElementById('raw-input').value) return;
                 alert('Invalid YAML format: ' + e.message);
             }
         }

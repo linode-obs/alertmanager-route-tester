@@ -821,9 +821,7 @@ func generateSampleAlertsContext(ctx context.Context, config *Config, routeLimit
 		return nil, false, err
 	}
 
-	singleReceiverSamples := make([]SampleAlert, 0, 2)
-	var multipleReceiverSample SampleAlert
-	hasMultipleReceiverSample := false
+	samples := make([]SampleAlert, 0, 13)
 	seen := make(map[string]bool)
 	for _, labels := range candidates {
 		if err := ctx.Err(); err != nil {
@@ -839,34 +837,37 @@ func generateSampleAlertsContext(ctx context.Context, config *Config, routeLimit
 		}
 		seen[fingerprint] = true
 		receivers := effectiveReceivers(receiver, matched)
+		names := make([]string, 0, len(labels))
+		for name := range labels {
+			names = append(names, name)
+		}
+		sort.Strings(names)
+		scenario := make([]string, 0, 2)
+		for _, name := range names {
+			scenario = append(scenario, name+"="+labels[name])
+			if len(scenario) == 2 {
+				break
+			}
+		}
+		title := strings.Join(scenario, ", ")
+		if title == "" {
+			title = "Unconditional route"
+		}
 		sample := SampleAlert{
+			Name:        title + " to " + strings.Join(receivers, ", "),
 			Description: "Routes to " + strings.Join(receivers, ", ") + ".",
 			Labels:      labels,
 		}
 		if len(receivers) > 1 {
-			if !hasMultipleReceiverSample {
-				sample.Name = "Multiple receivers"
-				sample.Description = fmt.Sprintf("Continue sends to %d receivers.", len(receivers))
-				multipleReceiverSample = sample
-				hasMultipleReceiverSample = true
+			sample.Description += fmt.Sprintf(" Continue sends to %d receivers.", len(receivers))
+			if len(samples) == 12 {
+				samples[11] = sample
+				continue
 			}
-			continue
 		}
-		if len(singleReceiverSamples) < 2 {
-			sample.Name = fmt.Sprintf("Matching alert %d", len(singleReceiverSamples)+1)
-			singleReceiverSamples = append(singleReceiverSamples, sample)
+		if len(samples) < 12 {
+			samples = append(samples, sample)
 		}
-	}
-
-	samples := make([]SampleAlert, 0, 3)
-	if len(singleReceiverSamples) > 0 {
-		samples = append(samples, singleReceiverSamples[0])
-	}
-	if hasMultipleReceiverSample {
-		samples = append(samples, multipleReceiverSample)
-	}
-	if len(samples) < 2 && len(singleReceiverSamples) > 1 {
-		samples = append(samples, singleReceiverSamples[1])
 	}
 
 	labelKeys := ExtractLabelKeys(config)

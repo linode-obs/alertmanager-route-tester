@@ -1856,6 +1856,38 @@ func TestClientGetSampleAlertsDefersLargeRouteTree(t *testing.T) {
 	}
 }
 
+func TestGenerateSampleAlertsDescribesDistinctScenarios(t *testing.T) {
+	config := &Config{Route: &Route{Receiver: "default"}}
+	for _, service := range []string{"saltstack", "api", "database", "metrics", "web"} {
+		config.Route.Routes = append(config.Route.Routes, &Route{Receiver: service + "-team", Match: map[string]string{"service": service}})
+	}
+	samples := GenerateSampleAlerts(config)
+	if len(samples) < 6 {
+		t.Fatalf("examples = %d, want five configured scenarios and fallback", len(samples))
+	}
+	foundSalt := false
+	for _, sample := range samples {
+		receiver, _, err := (&Client{}).FindMatchingRoute(sample.Labels, config)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !strings.Contains(sample.Description, receiver) {
+			t.Fatalf("description %q omits receiver %s", sample.Description, receiver)
+		}
+		if service := sample.Labels["service"]; service != "" && receiver != "default" {
+			if !strings.Contains(sample.Name, service) || !strings.Contains(sample.Name, receiver) {
+				t.Fatalf("generic scenario name %q", sample.Name)
+			}
+			if service == "saltstack" {
+				foundSalt = true
+			}
+		}
+	}
+	if !foundSalt {
+		t.Fatal("configured SaltStack scenario is missing")
+	}
+}
+
 func TestGenerateSampleAlertsUsesConfiguredRoutes(t *testing.T) {
 	config := &Config{
 		Route: &Route{
@@ -2027,7 +2059,7 @@ func TestGenerateSampleAlertsIncludesMultipleReceiverContinueExample(t *testing.
 	}
 
 	for _, sample := range GenerateSampleAlerts(config) {
-		if sample.Name != "Multiple receivers" {
+		if !strings.Contains(sample.Description, "Continue sends") {
 			continue
 		}
 		if len(sample.Labels) != 2 || sample.Labels["severity"] != "warning" || sample.Labels["team"] != "monitoring" {
@@ -2042,7 +2074,7 @@ func TestGenerateSampleAlertsIncludesMultipleReceiverContinueExample(t *testing.
 		if len(receivers) != 2 || receivers[0] != "slack-warnings" || receivers[1] != "monitoring-team" {
 			t.Fatalf("continued receivers = %v, want slack-warnings and monitoring-team", receivers)
 		}
-		if sample.Description != "Continue sends to 2 receivers." {
+		if sample.Description != "Routes to slack-warnings, monitoring-team. Continue sends to 2 receivers." {
 			t.Fatalf("multiple receiver example description = %q, want concise continue explanation", sample.Description)
 		}
 		return
@@ -2062,7 +2094,7 @@ func TestGenerateSampleAlertsDescribesRegexAndContinuedReceivers(t *testing.T) {
 	}
 
 	for _, sample := range GenerateSampleAlerts(config) {
-		if sample.Name != "Multiple receivers" {
+		if !strings.Contains(sample.Description, "Continue sends") {
 			continue
 		}
 		if sample.Labels["environment"] != "production" || sample.Labels["team"] != "platform" {
@@ -2077,7 +2109,7 @@ func TestGenerateSampleAlertsDescribesRegexAndContinuedReceivers(t *testing.T) {
 		if len(receivers) != 2 || receivers[0] != "operations" || receivers[1] != "security" {
 			t.Fatalf("continued receivers = %v, want operations and security", receivers)
 		}
-		if sample.Description != "Continue sends to 2 receivers." {
+		if sample.Description != "Routes to operations, security. Continue sends to 2 receivers." {
 			t.Fatalf("continued route description = %q, want concise continue explanation", sample.Description)
 		}
 		return

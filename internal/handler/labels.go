@@ -6,8 +6,9 @@ import (
 	"io"
 	"net/http"
 
-	"github.com/linode-obs/alertmanager-route-tester/internal/alertmanager"
 	"gopkg.in/yaml.v3"
+
+	"github.com/linode-obs/alertmanager-route-tester/internal/alertmanager"
 )
 
 func HandleParseLabels(w http.ResponseWriter, r *http.Request) {
@@ -31,19 +32,16 @@ func HandleParseLabels(w http.ResponseWriter, r *http.Request) {
 	if err == nil {
 		var extra yaml.Node
 		err = decoder.Decode(&extra)
-		if err == io.EOF {
+		switch err {
+		case io.EOF:
 			err = nil
-		} else if err == nil {
+		case nil:
 			http.Error(w, "Use one YAML labels object", http.StatusBadRequest)
 			return
 		}
 	}
 	if err != nil {
-		if requestBodyTooLarge(err) {
-			http.Error(w, "Request body too large", http.StatusRequestEntityTooLarge)
-		} else {
-			http.Error(w, "Invalid YAML labels", http.StatusBadRequest)
-		}
+		http.Error(w, "Invalid YAML labels", http.StatusBadRequest)
 		return
 	}
 	if len(document.Content) != 1 || document.Content[0].Kind != yaml.MappingNode {

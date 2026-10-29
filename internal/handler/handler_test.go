@@ -413,7 +413,7 @@ func TestIsDefaultRootRejectsEffectiveNestedMatchUsingRootReceiver(t *testing.T)
 // TestHandleTestRendersErrorForMissingRootRoute verifies that a missing root
 // route returns a rendered error response instead of attempting route matching.
 func TestHandleTestRendersErrorForMissingRootRoute(t *testing.T) {
-	captureSlogOutput(t, "alertmanager config route is nil")
+	logs := captureSlogOutput(t, "alertmanager config route is nil")
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/v2/status" {
 			http.NotFound(w, r)
@@ -440,6 +440,9 @@ func TestHandleTestRendersErrorForMissingRootRoute(t *testing.T) {
 	}
 	if !bytes.Contains(response.Body.Bytes(), []byte("no route defined")) {
 		t.Fatalf("response = %q, want missing-route error", response.Body.String())
+	}
+	if strings.Contains(logs.String(), "receivers:") {
+		t.Fatal("configuration source entered application logs")
 	}
 }
 

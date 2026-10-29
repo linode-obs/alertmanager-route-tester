@@ -82,22 +82,23 @@ func (h *Handler) HandlePreviewDraft(w http.ResponseWriter, r *http.Request) {
 	}{unifiedDiff(request.Baseline, request.Draft), receivers})
 }
 
+func configurationLines(text string) []string {
+	if text == "" {
+		return nil
+	}
+	result := strings.SplitAfter(text, "\n")
+	if result[len(result)-1] == "" {
+		result = result[:len(result)-1]
+	}
+	return result
+}
+
 // A single hunk bounds diff generation to linear time and memory.
 func unifiedDiff(before, after string) string {
 	if before == after {
 		return ""
 	}
-	lines := func(text string) []string {
-		if text == "" {
-			return nil
-		}
-		result := strings.SplitAfter(text, "\n")
-		if result[len(result)-1] == "" {
-			result = result[:len(result)-1]
-		}
-		return result
-	}
-	previous, proposed := lines(before), lines(after)
+	previous, proposed := configurationLines(before), configurationLines(after)
 	prefix := 0
 	for prefix < len(previous) && prefix < len(proposed) && previous[prefix] == proposed[prefix] {
 		prefix++

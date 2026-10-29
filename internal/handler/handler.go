@@ -310,64 +310,58 @@ func (h *Handler) HandleReloadConfig(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, "/?alertmanager="+url.QueryEscape(selectedName), http.StatusSeeOther)
 }
 
-func (h *Handler) HandleTest(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-
-	r.Body = http.MaxBytesReader(w, r.Body, maxTestRequestBodyBytes)
-
-	var labels map[string]string
-	requestedAlertmanager := r.URL.Query().Get("alertmanager")
-	targetReceiver := r.URL.Query().Get("target_receiver")
-	var draft *string
-
-	contentType := r.Header.Get("Content-Type")
-	if strings.Contains(contentType, "application/json") {
-		var req TestRequest
-		if !decodeJSONRequest(w, r, &req) {
-			return
-		}
-		labels = req.Labels
-		draft = req.Draft
-		if targetReceiver == "" {
-			targetReceiver = req.TargetReceiver
-		}
-		if requestedAlertmanager == "" {
-			requestedAlertmanager = req.Alertmanager
+func readTestRequest(w http.ResponseWriter, r *http.Request) *TestRequest {
+	request := &TestRequest{}
+	if strings.Contains(r.Header.Get("Content-Type"), "application/json") {
+		if !decodeJSONRequest(w, r, request) {
+			return nil
 		}
 	} else {
+		r.Body = http.MaxBytesReader(w, r.Body, maxTestRequestBodyBytes)
 		if err := r.ParseForm(); err != nil {
 			if requestBodyTooLarge(err) {
 				http.Error(w, "Request body too large", http.StatusRequestEntityTooLarge)
 			} else {
 				http.Error(w, "Invalid form data", http.StatusBadRequest)
 			}
-			return
+			return nil
 		}
-
-		if values, ok := r.PostForm["draft"]; ok && len(values) > 0 {
-			draft = &values[0]
+		request.Alertmanager = r.FormValue("alertmanager")
+		request.TargetReceiver = r.FormValue("target_receiver")
+		if values := r.PostForm["draft"]; len(values) > 0 {
+			request.Draft = &values[0]
 		}
-		labels = make(map[string]string)
-		for key, values := range r.Form {
-			if key == "alertmanager" || key == "target_receiver" || key == "draft" {
+		request.Labels = make(map[string]string)
+		for name, values := range r.Form {
+			if name == "alertmanager" || name == "target_receiver" || name == "draft" {
 				continue
 			}
 			if len(values) > 0 && values[0] != "" {
-				labels[key] = values[0]
+				request.Labels[name] = values[0]
 			}
 		}
-		if requestedAlertmanager == "" {
-			requestedAlertmanager = r.FormValue("alertmanager")
-		}
-		if targetReceiver == "" {
-			targetReceiver = r.FormValue("target_receiver")
-		}
+	}
+	if name := r.URL.Query().Get("alertmanager"); name != "" {
+		request.Alertmanager = name
+	}
+	if receiver := r.URL.Query().Get("target_receiver"); receiver != "" {
+		request.TargetReceiver = receiver
+	}
+	return request
+}
+
+func (h *Handler) HandleTest(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
 	}
 
-	client, _, clientErr := h.selectedClient(requestedAlertmanager)
+	request := readTestRequest(w, r)
+	if request == nil {
+		return
+	}
+	labels, draft, targetReceiver := request.Labels, request.Draft, request.TargetReceiver
+	client, _, clientErr := h.selectedClient(request.Alertmanager)
 	if clientErr != nil {
 		http.Error(w, clientErr.Error(), http.StatusBadRequest)
 		return
@@ -395,7 +389,7 @@ func (h *Handler) HandleTest(w http.ResponseWriter, r *http.Request) {
 		slog.Error("alertmanager config is nil")
 		errorMsg = "Alertmanager returned empty config"
 	} else if config.Route == nil {
-		slog.Error("alertmanager config route is nil", "config", config)
+		slog.Error("alertmanager config route is nil")
 		errorMsg = "Alertmanager config has no route defined. Check your alertmanager.yml"
 	} else {
 		routeContext, span := telemetry.StartSpan(r.Context(), "alertmanager.route.evaluate")

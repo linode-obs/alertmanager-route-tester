@@ -38,7 +38,7 @@ func SuggestLabels(config *Config, entered map[string]string) []LabelSuggestion 
 					if !ok {
 						continue
 					}
-				default:
+				case amlabels.MatchNotEqual, amlabels.MatchNotRegexp:
 					continue
 				}
 				if matchersMatch(candidate, matchers) {

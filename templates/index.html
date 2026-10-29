@@ -38,7 +38,7 @@
             {{if gt (len .AlertmanagerNames) 1}}
             <form class="alertmanager-selector" method="GET" action="/">
                 <label for="alertmanager-select">Alertmanager</label>
-                <select id="alertmanager-select" name="alertmanager" onchange="if (preserveEditorBeforeNavigation()) this.form.submit()">
+                <select id="alertmanager-select" name="alertmanager" onchange="if (preserveEditorBeforeNavigation()) this.form.submit(); else this.value = selectedAlertmanager">
                     {{range $name := .AlertmanagerNames}}
                     <option value="{{$name}}" {{if eq $name $.SelectedAlertmanager}}selected{{end}}>{{$name}}</option>
                     {{end}}
@@ -125,7 +125,7 @@
                     <button id="raw-mode-btn" aria-pressed="false" title="Paste labels as YAML" onclick="switchMode('raw')">Paste YAML</button>
                 </div>
 
-                <form id="alert-form" hx-post="/test" hx-target="#result" hx-swap="innerHTML">
+                <form id="alert-form" hx-ext="alert-labels" hx-post="/test" hx-target="#result" hx-swap="innerHTML">
                     <input type="hidden" name="alertmanager" value="{{.SelectedAlertmanager}}">
                     <div id="ui-builder">
                         <div class="label-section">
@@ -233,11 +233,13 @@ team: platform'></textarea>
 
         const selectedAlertmanager = "{{.SelectedAlertmanager}}";
         const editorStorageName = `art:labels:${selectedAlertmanager}`;
+        let labelLinkHash = window.location.hash;
 
         function saveEditorState() {
             try {
                 sessionStorage.setItem(editorStorageName, JSON.stringify({
                     labels: currentLabels,
+                    hash: labelLinkHash,
                     mode: document.getElementById('raw-mode-btn').getAttribute('aria-pressed') === 'true' ? 'raw' : 'ui',
                     raw: document.getElementById('raw-input').value,
                     name: document.getElementById('label-key-input').value,
@@ -252,25 +254,25 @@ team: platform'></textarea>
         function restoreEditorState() {
             try {
                 const state = JSON.parse(sessionStorage.getItem(editorStorageName));
-                if (!state) return;
+                if (!state || state.hash !== window.location.hash) return false;
                 currentLabels = decodeSharedLabels(encodeSharedLabels(state.labels));
                 renderLabels();
                 switchMode(state.mode === 'raw' ? 'raw' : 'ui');
                 document.getElementById('raw-input').value = typeof state.raw === 'string' ? state.raw : '';
                 document.getElementById('label-key-input').value = typeof state.name === 'string' ? state.name : '';
                 document.getElementById('label-value-input').value = typeof state.value === 'string' ? state.value : '';
+                return true;
             } catch (error) {
                 setShareStatus('Saved labels could not be loaded.', true);
             }
         }
 
         function preserveEditorBeforeNavigation() {
-            if (draftIsEdited()) {
-                if (!confirm('This page contains an edited configuration draft. Continuing will discard it. Continue?')) return false;
-                draftNavigationApproved = true;
-            }
-            if (saveEditorState()) return true;
-            return confirm('Browser storage is unavailable. Reloading will discard your alert input. Continue?');
+            const editedDraft = draftIsEdited();
+            if (editedDraft && !confirm('This page contains an edited configuration draft. Continuing will discard it. Continue?')) return false;
+            const proceed = saveEditorState() || confirm('Browser storage is unavailable. Reloading will discard your alert input. Continue?');
+            draftNavigationApproved = editedDraft && proceed;
+            return proceed;
         }
 
         document.querySelectorAll('form[action="/config/reload"]').forEach(form => {
@@ -420,7 +422,8 @@ team: platform'></textarea>
         function renderValueSuggestions() {
             const values = document.getElementById('current-values');
             values.replaceChildren();
-            (labelSuggestions[document.getElementById('label-key-input').value] || []).forEach(value => values.appendChild(new Option(value)));
+            const suggestions = labelSuggestions[document.getElementById('label-key-input').value];
+            if (Array.isArray(suggestions)) suggestions.forEach(value => values.appendChild(new Option(value)));
         }
 
         async function refreshLabelSuggestions() {
@@ -521,7 +524,7 @@ team: platform'></textarea>
             inputError.hidden = true;
             keyInput.setAttribute('aria-invalid', 'false');
             valueInput.setAttribute('aria-invalid', 'false');
-            currentLabels[key] = value;
+            currentLabels = { ...currentLabels, [key]: value };
             renderLabels();
 
             // Clear inputs
@@ -592,7 +595,7 @@ team: platform'></textarea>
                 rawBtn.classList.remove('active');
                 rawBtn.setAttribute('aria-pressed', 'false');
             } else {
-                document.getElementById('raw-input').value = Object.entries(currentLabels)
+                if (rawBtn.getAttribute('aria-pressed') !== 'true') document.getElementById('raw-input').value = Object.entries(currentLabels)
                     .map(([name, value]) => `${JSON.stringify(name)}: ${JSON.stringify(value)}`).join('\n');
                 uiBuilder.style.display = 'none';
                 rawBuilder.style.display = 'block';
@@ -606,7 +609,7 @@ team: platform'></textarea>
 
         // Load sample alert
         function loadSampleAlertFromCard(card) {
-            const labels = {};
+            const labels = Object.create(null);
             card.querySelectorAll('.mini-label').forEach(label => {
                 labels[label.dataset.labelKey] = label.dataset.labelValue;
             });
@@ -639,22 +642,22 @@ team: platform'></textarea>
             }
         }
 
-        // Form submission: create hidden inputs for labels
-        document.getElementById('alert-form').addEventListener('submit', function(e) {
+        // Alert labels stay separate from routing controls.
+        htmx.defineExtension('alert-labels', {
+            onEvent(name, event) {
+                if (name === 'htmx:configRequest') event.detail.headers['Content-Type'] = 'application/json';
+            },
+            encodeParameters() {
+                return JSON.stringify({
+                    labels: submittedLabels,
+                    alertmanager: selectedAlertmanager,
+                    target_receiver: document.getElementById('target-receiver').value,
+                    draft: draftBaseline === null ? undefined : document.getElementById('config-draft').value,
+                });
+            },
+        });
+        document.getElementById('alert-form').addEventListener('submit', function() {
             submittedLabels = { ...currentLabels };
-            // Remove any existing hidden inputs
-            document.querySelectorAll('.label-hidden-input').forEach(el => el.remove());
-
-            // Create hidden input for each label
-            const form = e.target;
-            for (const [key, value] of Object.entries(currentLabels)) {
-                const hidden = document.createElement('input');
-                hidden.type = 'hidden';
-                hidden.name = key;
-                hidden.value = value;
-                hidden.className = 'label-hidden-input';
-                form.appendChild(hidden);
-            }
         });
 
         function setShareStatus(message, isError) {
@@ -685,7 +688,7 @@ team: platform'></textarea>
             if (!payload || payload.version !== 1 || !payload.labels || Array.isArray(payload.labels) || typeof payload.labels !== 'object') {
                 throw new Error('the link uses unsupported label data');
             }
-            const labels = {};
+            const labels = Object.create(null);
             for (const [key, labelValue] of Object.entries(payload.labels)) {
                 if (!key || typeof labelValue !== 'string') {
                     throw new Error('labels must have non-empty names and string values');
@@ -706,6 +709,7 @@ team: platform'></textarea>
             }
             try {
                 currentLabels = decodeSharedLabels(window.location.hash.slice(prefix.length));
+                labelLinkHash = window.location.hash;
                 renderLabels();
                 setShareStatus('Labels loaded from the shared link.', false);
             } catch (error) {
@@ -738,6 +742,7 @@ team: platform'></textarea>
                 url.hash = `labels=${encodeSharedLabels(currentLabels)}`;
                 await copyShareURL(url.toString());
                 history.replaceState(null, '', url.toString());
+                labelLinkHash = url.hash;
                 setShareStatus('Share link copied. It contains labels only.', false);
             } catch (error) {
                 setShareStatus(`Could not copy share link: ${error.message}.`, true);
@@ -785,8 +790,7 @@ team: platform'></textarea>
         });
 
         applyTheme(document.documentElement.dataset.themePreference || 'system');
-        restoreEditorState();
-        loadSharedLabels();
+        if (!restoreEditorState()) loadSharedLabels();
     </script>
 </body>
 </html>

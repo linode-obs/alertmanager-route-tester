@@ -141,6 +141,10 @@ To explain a receiver, add the optional `target_receiver` request field with a c
 The response adds `receiver_paths`, including each path, delivery status, blocking reason, and failed conditions.
 Missing labels have `missing: true`. Paths include failed parent conditions and blocking earlier siblings.
 
+To test proposed configuration, add `draft` as a YAML string in the JSON request.
+ART parses it with the selected instance's matcher mode. The response adds `draft: true` and does not change cached or live configuration.
+An invalid draft returns `400` without its contents. Omit `draft` to test the fetched configuration.
+
 Do not set `HX-Request: true` for machine calls. That header selects HTML results for the browser.
 The response can contain sensitive receiver fields. Apply the same access controls as Alertmanager.
 
@@ -182,6 +186,11 @@ mise run clean  # cleanup
 ```
 
 ### Testing
+
+To run browser regressions, first run `mise run build` and `mise run setup` with the approved tools installed.
+Then run `bash scripts/run-browser-tests.sh`. The script starts isolated ART and Alertmanager processes on ports 18081 and 19095.
+It requires the installed `agent-browser`, Bash, curl, and lsof. It never installs these tools.
+Screenshots stay under `/tmp/art-route-ladder-*.png`. Failed runs retain their service logs at the printed local path.
 
 The project pins Alertmanager 0.33.0 in `go.mod`, `.mise.toml`, the CI workflow, and the parity test version check. Update these pins together.
 

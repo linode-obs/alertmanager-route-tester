@@ -7,6 +7,38 @@ SESSION=${ART_BROWSER_SESSION:-art-issues}
 ab() { agent-browser --session "$SESSION" "$@"; }
 ab open "$URL"
 
+if [[ ${1:-all} == all || ${1:-all} == labels ]]; then
+ab eval --stdin <<'JS'
+(async () => {
+    switchMode('ui');
+    currentLabels = {};
+    document.getElementById('label-key-input').value = '__proto__';
+    document.getElementById('label-value-input').value = 'prototype-label';
+    addLabel();
+    if (!Object.hasOwn(currentLabels, '__proto__')) throw new Error('Label editor discarded __proto__');
+    const shared = decodeSharedLabels(encodeSharedLabels(currentLabels));
+    if (shared['__proto__'] !== 'prototype-label') throw new Error('Restoring labels discarded __proto__');
+    document.getElementById('label-key-input').value = 'constructor';
+    renderValueSuggestions();
+    currentLabels = {alertmanager:'label-instance', target_receiver:'label-receiver', draft:'label-draft', empty:''};
+    renderLabels();
+    const done = new Promise(resolve => document.getElementById('alert-form').addEventListener('htmx:afterRequest', resolve, {once:true}));
+    document.getElementById('alert-form').requestSubmit();
+    const event = await done;
+    if (!event.detail.successful) throw new Error('Label names collided with routing controls');
+    const labels = document.querySelector('#result .alert-labels');
+    for (const [name, value] of Object.entries(currentLabels)) {
+        if (!Array.from(labels.querySelectorAll('.label-item')).some(item => item.querySelector('.label-key').textContent === name && item.querySelector('.label-value').textContent === value)) throw new Error(`Routing discarded label ${name}`);
+    }
+    switchMode('raw');
+    document.getElementById('raw-input').value += '\npending: yaml';
+    switchMode('raw');
+    if (!document.getElementById('raw-input').value.includes('pending: yaml')) throw new Error('Clicking the active YAML mode discarded edits');
+    switchMode('ui');
+})()
+JS
+fi
+
 if [[ ${1:-all} == all || ${1:-all} == visual ]]; then
 ab click '#start-draft'
 ab wait --fn 'document.getElementById("config-draft").value.length > 0'
@@ -186,5 +218,12 @@ ab wait --load networkidle
 ab eval 'if (Object.keys(currentLabels).length) throw new Error("Labels crossed Alertmanager instances");'
 ab select '#alertmanager-select' local
 ab wait --load networkidle
-ab eval 'if (currentLabels.note !== "keep me") throw new Error("Returning to the instance lost its labels"); "Reload tests passed";'
+ab eval 'if (currentLabels.note !== "keep me") throw new Error("Returning to the instance lost its labels");'
+ab eval 'window.location.hash = "labels=" + encodeSharedLabels({severity:"warning"});'
+ab reload
+ab wait --load networkidle
+ab eval 'currentLabels.note = "edited shared labels"; renderLabels();'
+ab click '.btn-reload-config'
+ab wait --load networkidle
+ab eval 'if (currentLabels.note !== "edited shared labels") throw new Error("Reload restored the share link instead of edited labels"); history.replaceState(null,"",window.location.pathname); "Reload tests passed";'
 fi

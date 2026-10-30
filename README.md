@@ -8,6 +8,12 @@ ART has a two-pane browser UI. Blue marks alert input, and green marks selected 
 
 ![Light theme showing two selected receivers](docs/screenshots/route-tester-light.png)
 
+Both examples below use fictional alerts and receivers on local services.
+
+![Fuzzy receiver search and a concise explanation for a blocked checkout alert](docs/screenshots/receiver-search-demo.png)
+
+![Draft editor showing a Git patch preview with copy and download controls](docs/screenshots/draft-patch-demo.png)
+
 ## Usage
 
 Point it at any Alertmanager instance with `config.yaml`. ART supports multiple Alertmanager instances/clusters.
@@ -18,6 +24,26 @@ go tool otelc go run .
 
 Build your alert using the UI or paste simple YAML `key: value` label lines. Hit "Test Route" to see which receiver it matches and the full route path.
 
+Open "More options", then select "Edit configuration draft" to edit a copy of the fetched Alertmanager configuration.
+The draft opens in a wide editor. Select "Show patch" to compare it with the fetched configuration.
+Select "Use draft" to return to the label editor. "Test draft" evaluates labels without updating live Alertmanager.
+"Discard draft" returns tests to the fetched configuration. Drafts stay in page memory and disappear when the page closes.
+Reloads and instance changes ask before discarding an edited draft.
+
+Set "Patch target" to the configuration path from the repository root.
+Select "View patch" to open the Git diff without downloading a file.
+Select "Copy patch" to copy its text, or "Download .patch" to save a file.
+ART does not write repository files or update live Alertmanager.
+
+The patch baseline is Alertmanager's sanitized YAML. Comments, formatting, or secret values can differ from your repository file.
+Make sure that the target matches before you apply the patch.
+If the draft contains secrets, keep the patch private.
+
+In "More options", choose a recent test and select "Load" to reuse its labels.
+"Clear history" removes saved tests without changing current labels.
+In "Explain a receiver", type parts of a receiver name.
+Choose a match with the mouse or arrow keys.
+
 ### Configuration File
 
 ```yaml
@@ -25,6 +51,7 @@ alertmanager-route-tester:
   server:
     enabled: true
     listen: "127.0.0.1:8080"
+    route_mismatch_limit: 500
   cli-test-mode:
     enabled: false # set true to run in CLI test mode instead of web server mode
     format: "simple"
@@ -61,6 +88,8 @@ alertmanagers:
 Each entry under `alertmanagers` has a name and URL. HTTP, TLS, retry, connection-pool, and matcher parsing settings can be configured per instance. Set `matcher_mode` to `fallback` (the default), `classic`, or `utf8-strict` to match the connected Alertmanager's `--enable-feature` mode. When more than one instance is configured, the web UI shows an Alertmanager selector above the connection status. Changing the selection reloads the route suggestions and uses that instance for route tests and config reloads. It is recommended to use multiple Alertmanagers only when configuring ART for multiple clusters, not for multiple Alertmanagers within the same cluster.
 
 ART caches Alertmanager configuration with an option to reload the configuration.
+Set `alertmanager-route-tester.server.route_mismatch_limit` to limit mismatch diagnostics in browser results.
+The default is 500 when omitted or zero. Negative values are invalid. Results show how many diagnostics the limit omits.
 
 Deploy ART behind the same authentication, network protection, and access controls as the Alertmanager it connects to. In general, its deployment boundary and public URL should match the protected boundary used for that Alertmanager rather than exposing ART directly. ART displays routing metadata and raw receiver configuration, which may contain sensitive endpoints or fields that Alertmanager does not redact.
 
@@ -97,6 +126,48 @@ For machine-specific settings, use a local config file (gitignored):
 ```bash
 go tool otelc go run . -config config.local.yaml
 ```
+
+## JSON route-test API
+
+Send `POST /test` with `Content-Type: application/json`. The required `labels` field is an object with non-empty names and string values.
+An empty object tests the default route. The optional `alertmanager` field selects a configured instance by name.
+If omitted, ART uses the alphabetically first instance. The `alertmanager` query parameter takes precedence over the body field.
+
+```bash
+curl --fail-with-body http://localhost:8080/test \
+  -H 'Content-Type: application/json' \
+  --data '{"labels":{"severity":"critical"},"alertmanager":"local"}'
+```
+
+A successful response has `Content-Type: application/json` and these fields:
+
+- `receiver`: the final receiver name. With continued routes, inspect effective entries in `matched_routes` for every delivery.
+- `receiver_config`: the final receiver configuration object, when available. It includes `name` and configured integration fields.
+- `matched_routes`: an array of matching route entries. Root fallback returns an empty array, not `null`.
+- `labels`: the submitted labels object.
+
+Each matched entry contains `route`, `depth`, `is_subroute`, `is_effective`, and `resolved_receiver`.
+The optional `parent_receivers` field contains ancestor receiver names. The optional `matcher_results` field describes evaluated conditions.
+The `route` object contains configured match conditions, children, the receiver name, and `continue` behavior.
+An ancestor entry with `is_effective: false` explains traversal but does not represent a delivery.
+
+ART returns plain-text errors with a trailing newline:
+
+- `400`: invalid JSON, missing or invalid labels, or an unknown Alertmanager name.
+- `405`: a method other than POST. GET is unsupported so alert labels do not enter request URLs.
+- `413`: a request body larger than 1 MiB, including trailing whitespace.
+- `500`: configuration retrieval or route evaluation failed.
+
+To explain a receiver, add the optional `target_receiver` request field with a configured receiver name.
+The response adds `receiver_paths`, including each path, delivery status, blocking reason, and failed conditions.
+Missing labels have `missing: true`. Paths include failed parent conditions and blocking earlier siblings.
+
+To test proposed configuration, add `draft` as a YAML string in the JSON request.
+ART parses it with the selected instance's matcher mode. The response adds `draft: true` and does not change cached or live configuration.
+An invalid draft returns `400` without its contents. Omit `draft` to test the fetched configuration.
+
+Do not set `HX-Request: true` for machine calls. That header selects HTML results for the browser.
+The response can contain sensitive receiver fields. Apply the same access controls as Alertmanager.
 
 ## CLI Test Mode
 
@@ -136,6 +207,16 @@ mise run clean  # cleanup
 ```
 
 ### Testing
+
+To run browser regressions, first run `mise run build` and `mise run setup` with the approved tools installed.
+Then run `bash scripts/run-browser-tests.sh`. The script starts isolated ART and Alertmanager processes on ports 18081 and 19095.
+It requires the installed `agent-browser`, Bash, curl, and lsof. It never installs these tools.
+Browser tests also use Git, Python 3, and Node.js 22 or later.
+Clipboard tests grant browser access only to the loopback test origin.
+Screenshots stay under `/tmp/art-route-ladder-*.png`. Failed runs retain their service logs at the printed local path.
+
+To regenerate the fictional README screenshots, run `bash scripts/run-browser-tests.sh screenshots` after building the application.
+The screenshot workflow uses `testdata/demo-alertmanager.yml` and stops if the loaded receivers differ from that fixture.
 
 The project pins Alertmanager 0.33.0 in `go.mod`, `.mise.toml`, the CI workflow, and the parity test version check. Update these pins together.
 

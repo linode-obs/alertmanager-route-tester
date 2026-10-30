@@ -40,13 +40,16 @@ type AppConfig struct {
 	CLITestMode TestConfig   `yaml:"cli-test-mode"`
 }
 
+const DefaultRouteMismatchLimit = 500
+
 type ServerConfig struct {
-	Enabled           *bool    `yaml:"enabled"`
-	Listen            string   `yaml:"listen"`
-	ReadHeaderTimeout Duration `yaml:"read_header_timeout"`
-	ReadTimeout       Duration `yaml:"read_timeout"`
-	WriteTimeout      Duration `yaml:"write_timeout"`
-	IdleTimeout       Duration `yaml:"idle_timeout"`
+	RouteMismatchLimit int      `yaml:"route_mismatch_limit"`
+	Enabled            *bool    `yaml:"enabled"`
+	Listen             string   `yaml:"listen"`
+	ReadHeaderTimeout  Duration `yaml:"read_header_timeout"`
+	ReadTimeout        Duration `yaml:"read_timeout"`
+	WriteTimeout       Duration `yaml:"write_timeout"`
+	IdleTimeout        Duration `yaml:"idle_timeout"`
 }
 
 type AlertmanagerConfig struct {
@@ -130,6 +133,9 @@ func load(path string, allowEmptyCLILabels bool) (*Config, error) {
 }
 
 func applyDefaults(cfg *Config) {
+	if cfg.App.Server.RouteMismatchLimit == 0 {
+		cfg.App.Server.RouteMismatchLimit = DefaultRouteMismatchLimit
+	}
 	if cfg.App.Server.Listen == "" {
 		cfg.App.Server.Listen = "127.0.0.1:8080"
 	}
@@ -222,6 +228,9 @@ func validate(cfg *Config) error {
 }
 
 func validateWithOptions(cfg *Config, allowEmptyCLILabels bool) error {
+	if cfg.App.Server.RouteMismatchLimit < 0 {
+		return errors.New("alertmanager-route-tester.server.route_mismatch_limit must be >= 0")
+	}
 	if len(cfg.Alertmanagers) == 0 {
 		return errors.New("alertmanagers is required and must contain at least one named instance")
 	}

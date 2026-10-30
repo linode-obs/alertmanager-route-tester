@@ -10,6 +10,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"net/url"
 	"os"
 	"regexp"
 	"regexp/syntax"
@@ -61,6 +62,7 @@ type StatusResponse struct {
 }
 
 type Config struct {
+	Source       string     `json:"-" yaml:"-"`
 	Route        *Route     `json:"route" yaml:"route"`
 	Receivers    []Receiver `json:"receivers" yaml:"receivers"`
 	nativeRoutes *nativeRouteTree
@@ -236,6 +238,28 @@ func (c *Client) BaseURL() string {
 	return c.baseURL
 }
 
+func (c *Client) DisplayURL() string {
+	parsed, err := url.Parse(c.baseURL)
+	if err != nil || parsed.Scheme == "" || parsed.Host == "" {
+		return "Alertmanager"
+	}
+	parsed.User = nil
+	parsed.RawQuery = ""
+	parsed.ForceQuery = false
+	parsed.Fragment = ""
+	return strings.TrimSuffix(parsed.String(), "/")
+}
+
+func redactRequestError(err error) error {
+	var requestError *url.Error
+	if !errors.As(err, &requestError) {
+		return err
+	}
+	redacted := *requestError
+	redacted.URL = (&Client{baseURL: requestError.URL}).DisplayURL()
+	return &redacted
+}
+
 func (c *Client) CheckConnection() error {
 	return c.CheckConnectionContext(context.Background())
 }
@@ -387,19 +411,29 @@ func (c *Client) fetchConfig(ctx context.Context) (result *Config, resultErr err
 		return nil, lastErr
 	}
 
+	return c.ParseConfig(status.ConfigYAML.Original)
+}
+
+func (c *Client) ParseConfig(contents string) (*Config, error) {
 	var config Config
-	if err := yaml.Unmarshal([]byte(status.ConfigYAML.Original), &config); err != nil {
+	decoder := yaml.NewDecoder(strings.NewReader(contents))
+	if err := decoder.Decode(&config); err != nil {
 		return nil, fmt.Errorf("failed to parse YAML config: %w", err)
 	}
+	var extra yaml.Node
+	if err := decoder.Decode(&extra); err != io.EOF {
+		return nil, fmt.Errorf("configuration must contain one YAML document")
+	}
+	config.Source = contents
 
-	if err := c.extractRawReceiverConfigs(&config, status.ConfigYAML.Original); err != nil {
+	if err := c.extractRawReceiverConfigs(&config, contents); err != nil {
 		return nil, fmt.Errorf("failed to extract receiver configs: %w", err)
 	}
 	if config.Route == nil {
 		return &config, nil
 	}
 
-	nativeConfig, err := loadNativeConfig(status.ConfigYAML.Original, c.matcherMode)
+	nativeConfig, err := loadNativeConfig(contents, c.matcherMode)
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse Alertmanager routing config: %w", err)
 	}
@@ -475,11 +509,11 @@ func (c *Client) fetchStatus(ctx context.Context, status *StatusResponse) (retry
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.baseURL+"/api/v2/status", nil)
 	if err != nil {
-		return true, fmt.Errorf("failed to create status request: %w", err)
+		return true, fmt.Errorf("failed to create status request: %w", redactRequestError(err))
 	}
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
-		return true, fmt.Errorf("failed to fetch status: %w", err)
+		return true, fmt.Errorf("failed to fetch status: %w", redactRequestError(err))
 	}
 	defer func() {
 		_ = resp.Body.Close()
@@ -487,12 +521,12 @@ func (c *Client) fetchStatus(ctx context.Context, status *StatusResponse) (retry
 
 	body, err := readResponseBody(resp.Body)
 	if err != nil {
-		return !errors.Is(err, errResponseBodyTooLarge), fmt.Errorf("failed to read response body: %w", err)
+		return !errors.Is(err, errResponseBodyTooLarge), fmt.Errorf("failed to read response body: %w", redactRequestError(err))
 	}
 
 	if resp.StatusCode != http.StatusOK {
 		retryable := resp.StatusCode == http.StatusTooManyRequests || resp.StatusCode >= http.StatusInternalServerError
-		return retryable, fmt.Errorf("unexpected status code %d: %s", resp.StatusCode, string(body))
+		return retryable, fmt.Errorf("unexpected status code %d from Alertmanager", resp.StatusCode)
 	}
 
 	if err := json.Unmarshal(body, status); err != nil {
@@ -529,31 +563,48 @@ func (c *Client) extractRawReceiverConfigs(config *Config, originalYAML string) 
 		return nil
 	}
 
+	receiverNodes := indexReceiverNodesByName(receiversNode)
 	for i := range config.Receivers {
 		receiver := &config.Receivers[i]
-		for _, receiverNode := range receiversNode.Content {
-			if receiverNode.Kind != yaml.MappingNode {
-				continue
-			}
-			nameNode := yamlMappingValue(receiverNode, "name")
-			if nameNode == nil || nameNode.Value != receiver.Name {
-				continue
-			}
-
-			receiverSequence := yaml.Node{
-				Kind:    yaml.SequenceNode,
-				Content: []*yaml.Node{receiverNode},
-			}
-			rawConfig, err := yaml.Marshal(&receiverSequence)
-			if err != nil {
-				return err
-			}
-			receiver.RawConfig = strings.TrimSpace(string(rawConfig))
-			break
+		receiverNode := receiverNodes[receiver.Name]
+		if receiverNode == nil {
+			continue
 		}
+
+		receiverSequence := yaml.Node{
+			Kind:    yaml.SequenceNode,
+			Content: []*yaml.Node{receiverNode},
+		}
+		rawConfig, err := yaml.Marshal(&receiverSequence)
+		if err != nil {
+			return err
+		}
+		receiver.RawConfig = strings.TrimSpace(string(rawConfig))
 	}
 
 	return nil
+}
+
+func indexReceiverNodesByName(receiversNode *yaml.Node) map[string]*yaml.Node {
+	indexed := make(map[string]*yaml.Node)
+	if receiversNode == nil || receiversNode.Kind != yaml.SequenceNode {
+		return indexed
+	}
+
+	for _, receiverNode := range receiversNode.Content {
+		if receiverNode.Kind != yaml.MappingNode {
+			continue
+		}
+		nameNode := yamlMappingValue(receiverNode, "name")
+		if nameNode == nil {
+			continue
+		}
+		if _, exists := indexed[nameNode.Value]; !exists {
+			indexed[nameNode.Value] = receiverNode
+		}
+	}
+
+	return indexed
 }
 
 func yamlMappingValue(mapping *yaml.Node, name string) *yaml.Node {
@@ -704,12 +755,13 @@ func (c *Client) FindReceiverByName(name string, config *Config) *Receiver {
 }
 
 type LabelSuggestion struct {
-	Key    string
-	Values []string
+	Key    string   `json:"key"`
+	Values []string `json:"values"`
 }
 
 type SampleAlert struct {
 	Name        string
+	Tooltip     string
 	Description string
 	Labels      map[string]string
 }
@@ -718,6 +770,7 @@ const (
 	maxAutomaticSampleAlertRoutes  = 5000
 	maxOnDemandSampleAlertRoutes   = 10000
 	maxSampleAlertCandidates       = 64
+	maxDisplayedSampleAlerts       = 4
 	maxSampleAlertCounterexamples  = 100
 	maxSampleAlertFallbackAttempts = 100
 )
@@ -821,9 +874,8 @@ func generateSampleAlertsContext(ctx context.Context, config *Config, routeLimit
 		return nil, false, err
 	}
 
-	singleReceiverSamples := make([]SampleAlert, 0, 2)
-	var multipleReceiverSample SampleAlert
-	hasMultipleReceiverSample := false
+	samples := make([]SampleAlert, 0, maxDisplayedSampleAlerts)
+	continuedExample := -1
 	seen := make(map[string]bool)
 	for _, labels := range candidates {
 		if err := ctx.Err(); err != nil {
@@ -840,33 +892,26 @@ func generateSampleAlertsContext(ctx context.Context, config *Config, routeLimit
 		seen[fingerprint] = true
 		receivers := effectiveReceivers(receiver, matched)
 		sample := SampleAlert{
-			Description: "Routes to " + strings.Join(receivers, ", ") + ".",
+			Name:        sampleScenario(labels),
+			Tooltip:     "Routes to " + strings.Join(receivers, ", ") + ".",
+			Description: sampleCaption(receiver),
 			Labels:      labels,
 		}
 		if len(receivers) > 1 {
-			if !hasMultipleReceiverSample {
-				sample.Name = "Multiple receivers"
-				sample.Description = fmt.Sprintf("Continue sends to %d receivers.", len(receivers))
-				multipleReceiverSample = sample
-				hasMultipleReceiverSample = true
+			sample.Description = fmt.Sprintf("%d receivers", len(receivers))
+			sample.Tooltip += " Continued routing sends a copy to each receiver."
+			if len(samples) == maxDisplayedSampleAlerts {
+				samples[maxDisplayedSampleAlerts-2] = sample
+				continuedExample = maxDisplayedSampleAlerts - 2
+				continue
 			}
-			continue
 		}
-		if len(singleReceiverSamples) < 2 {
-			sample.Name = fmt.Sprintf("Matching alert %d", len(singleReceiverSamples)+1)
-			singleReceiverSamples = append(singleReceiverSamples, sample)
+		if len(samples) < maxDisplayedSampleAlerts {
+			if len(receivers) > 1 {
+				continuedExample = len(samples)
+			}
+			samples = append(samples, sample)
 		}
-	}
-
-	samples := make([]SampleAlert, 0, 3)
-	if len(singleReceiverSamples) > 0 {
-		samples = append(samples, singleReceiverSamples[0])
-	}
-	if hasMultipleReceiverSample {
-		samples = append(samples, multipleReceiverSample)
-	}
-	if len(samples) < 2 && len(singleReceiverSamples) > 1 {
-		samples = append(samples, singleReceiverSamples[1])
 	}
 
 	labelKeys := ExtractLabelKeys(config)
@@ -883,15 +928,66 @@ func generateSampleAlertsContext(ctx context.Context, config *Config, routeLimit
 		if err != nil || len(matched) != 0 || receiver == "" {
 			continue
 		}
-		samples = append(samples, SampleAlert{
+		fallback := SampleAlert{
 			Name:        "Default receiver",
-			Description: "No child route matched. Uses the root receiver, " + receiver + ".",
+			Description: sampleCaption(receiver),
+			Tooltip:     "No child route matched. Uses the root receiver, " + receiver + ".",
 			Labels:      labels,
-		})
+		}
+		if len(samples) == maxDisplayedSampleAlerts {
+			if continuedExample == maxDisplayedSampleAlerts-1 {
+				samples[maxDisplayedSampleAlerts-2] = samples[continuedExample]
+			}
+			samples[maxDisplayedSampleAlerts-1] = fallback
+		} else {
+			samples = append(samples, fallback)
+		}
 		break
 	}
 
 	return samples, false, nil
+}
+
+func sampleCaption(text string) string {
+	characters := []rune(text)
+	if len(characters) > 40 {
+		return string(characters[:37]) + "..."
+	}
+	return text
+}
+
+func sampleScenario(labels map[string]string) string {
+	for _, name := range []string{"alertname", "component", "job", "service", "team", "environment", "severity"} {
+		if value := labels[name]; value != "" {
+			return sampleTitle(value)
+		}
+	}
+	names := make([]string, 0, len(labels))
+	for name := range labels {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	if len(names) == 0 {
+		return "No labels"
+	}
+	return sampleTitle(labels[names[0]])
+}
+
+func sampleTitle(value string) string {
+	characters := []rune(strings.Join(strings.Fields(strings.ReplaceAll(value, "_", " ")), " "))
+	var title strings.Builder
+	for index, character := range characters {
+		if index > 0 && unicode.IsUpper(character) {
+			previous := characters[index-1]
+			startsWord := unicode.IsLower(previous) || unicode.IsDigit(previous)
+			endsAcronym := unicode.IsUpper(previous) && index+1 < len(characters) && unicode.IsLower(characters[index+1])
+			if startsWord || endsAcronym {
+				title.WriteByte(' ')
+			}
+		}
+		title.WriteRune(character)
+	}
+	return sampleCaption(title.String())
 }
 
 func (c *Client) GetSampleAlerts(config *Config) ([]SampleAlert, bool) {

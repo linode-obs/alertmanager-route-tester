@@ -18,13 +18,17 @@ import (
 	"go.opentelemetry.io/otel/codes"
 
 	"github.com/linode-obs/alertmanager-route-tester/internal/alertmanager"
+	appconfig "github.com/linode-obs/alertmanager-route-tester/internal/config"
 	"github.com/linode-obs/alertmanager-route-tester/internal/telemetry"
 )
 
-const maxTestRequestBodyBytes int64 = 1 << 20
-const maxRouteMismatchDiagnostics = 100
+const (
+	maxTestRequestBodyBytes         int64 = 1 << 20
+	maxDraftPreviewRequestBodyBytes int64 = 2*maxTestRequestBodyBytes + (1 << 10)
+)
 
 type Handler struct {
+	RouteMismatchLimit  int
 	client              *alertmanager.Client
 	clients             map[string]*alertmanager.Client
 	alertmanagerNames   []string
@@ -33,11 +37,41 @@ type Handler struct {
 }
 
 type TestRequest struct {
-	Labels       map[string]string `json:"labels"`
-	Alertmanager string            `json:"alertmanager"`
+	Labels         map[string]string `json:"labels"`
+	Alertmanager   string            `json:"alertmanager"`
+	TargetReceiver string            `json:"target_receiver,omitempty"`
+	Draft          *string           `json:"draft,omitempty"`
+}
+
+func (request *TestRequest) UnmarshalJSON(data []byte) error {
+	var input struct {
+		Labels         map[string]*string `json:"labels"`
+		Alertmanager   string             `json:"alertmanager"`
+		TargetReceiver string             `json:"target_receiver"`
+		Draft          *string            `json:"draft"`
+	}
+	if err := json.Unmarshal(data, &input); err != nil {
+		return err
+	}
+	if input.Labels == nil {
+		return errors.New("labels must be an object")
+	}
+	request.Labels = make(map[string]string, len(input.Labels))
+	for name, value := range input.Labels {
+		if name == "" || value == nil {
+			return errors.New("labels must have non-empty names and string values")
+		}
+		request.Labels[name] = *value
+	}
+	request.Alertmanager = input.Alertmanager
+	request.TargetReceiver = input.TargetReceiver
+	request.Draft = input.Draft
+	return nil
 }
 
 type TestResponse struct {
+	Draft          bool                        `json:"draft,omitempty"`
+	ReceiverPaths  []alertmanager.ReceiverPath `json:"receiver_paths,omitempty"`
 	Receiver       string                      `json:"receiver"`
 	ReceiverConfig *alertmanager.Receiver      `json:"receiver_config,omitempty"`
 	MatchedRoutes  []alertmanager.MatchedRoute `json:"matched_routes"`
@@ -146,7 +180,7 @@ func (h *Handler) HandleIndex(w http.ResponseWriter, r *http.Request) {
 		defaultClient, _, defaultErr := h.selectedClient("")
 		alertmanagerURL := ""
 		if defaultErr == nil {
-			alertmanagerURL = defaultClient.BaseURL()
+			alertmanagerURL = defaultClient.DisplayURL()
 		}
 		data := IndexData{
 			LabelSuggestions:     []alertmanager.LabelSuggestion{},
@@ -170,7 +204,7 @@ func (h *Handler) HandleIndex(w http.ResponseWriter, r *http.Request) {
 		SampleAlerts:         []alertmanager.SampleAlert{},
 		AlertmanagerNames:    h.alertmanagerNames,
 		SelectedAlertmanager: selectedName,
-		AlertmanagerURL:      client.BaseURL(),
+		AlertmanagerURL:      client.DisplayURL(),
 		ConnectionStatus:     connectionOK,
 		ConnectionError:      "",
 		ConfigCachedAt:       configCachedAt,
@@ -279,72 +313,73 @@ func (h *Handler) HandleReloadConfig(w http.ResponseWriter, r *http.Request) {
 	http.Redirect(w, r, "/?alertmanager="+url.QueryEscape(selectedName), http.StatusSeeOther)
 }
 
-func (h *Handler) HandleTest(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
-		return
-	}
-
-	r.Body = http.MaxBytesReader(w, r.Body, maxTestRequestBodyBytes)
-
-	var labels map[string]string
-	requestedAlertmanager := r.URL.Query().Get("alertmanager")
-
-	contentType := r.Header.Get("Content-Type")
-	if strings.Contains(contentType, "application/json") {
-		var req TestRequest
-		decoder := json.NewDecoder(r.Body)
-		if err := decoder.Decode(&req); err != nil {
-			if requestBodyTooLarge(err) {
-				http.Error(w, "Request body too large", http.StatusRequestEntityTooLarge)
-			} else {
-				http.Error(w, "Invalid JSON", http.StatusBadRequest)
-			}
-			return
-		}
-		var extra json.RawMessage
-		if err := decoder.Decode(&extra); err != io.EOF {
-			if requestBodyTooLarge(err) {
-				http.Error(w, "Request body too large", http.StatusRequestEntityTooLarge)
-			} else {
-				http.Error(w, "Invalid JSON", http.StatusBadRequest)
-			}
-			return
-		}
-		labels = req.Labels
-		if requestedAlertmanager == "" {
-			requestedAlertmanager = req.Alertmanager
+func readTestRequest(w http.ResponseWriter, r *http.Request) *TestRequest {
+	request := &TestRequest{}
+	if strings.Contains(r.Header.Get("Content-Type"), "application/json") {
+		if !decodeJSONRequest(w, r, request, maxTestRequestBodyBytes) {
+			return nil
 		}
 	} else {
+		r.Body = http.MaxBytesReader(w, r.Body, maxTestRequestBodyBytes)
 		if err := r.ParseForm(); err != nil {
 			if requestBodyTooLarge(err) {
 				http.Error(w, "Request body too large", http.StatusRequestEntityTooLarge)
 			} else {
 				http.Error(w, "Invalid form data", http.StatusBadRequest)
 			}
-			return
+			return nil
 		}
-
-		labels = make(map[string]string)
-		for key, values := range r.Form {
-			if key == "alertmanager" {
+		request.Alertmanager = r.FormValue("alertmanager")
+		request.TargetReceiver = r.FormValue("target_receiver")
+		if values := r.PostForm["draft"]; len(values) > 0 {
+			request.Draft = &values[0]
+		}
+		request.Labels = make(map[string]string)
+		for name, values := range r.Form {
+			if name == "alertmanager" || name == "target_receiver" || name == "draft" {
 				continue
 			}
 			if len(values) > 0 && values[0] != "" {
-				labels[key] = values[0]
+				request.Labels[name] = values[0]
 			}
 		}
-		if requestedAlertmanager == "" {
-			requestedAlertmanager = r.FormValue("alertmanager")
-		}
+	}
+	if name := r.URL.Query().Get("alertmanager"); name != "" {
+		request.Alertmanager = name
+	}
+	if receiver := r.URL.Query().Get("target_receiver"); receiver != "" {
+		request.TargetReceiver = receiver
+	}
+	return request
+}
+
+func (h *Handler) HandleTest(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
 	}
 
-	client, _, clientErr := h.selectedClient(requestedAlertmanager)
+	request := readTestRequest(w, r)
+	if request == nil {
+		return
+	}
+	labels, draft, targetReceiver := request.Labels, request.Draft, request.TargetReceiver
+	client, _, clientErr := h.selectedClient(request.Alertmanager)
 	if clientErr != nil {
 		http.Error(w, clientErr.Error(), http.StatusBadRequest)
 		return
 	}
-	config, err := client.GetConfigContext(r.Context())
+	var config *alertmanager.Config
+	var err error
+	if draft != nil {
+		config, err = client.ParseConfig(*draft)
+		if err != nil || config.Route == nil {
+			http.Error(w, "Invalid draft configuration", http.StatusBadRequest)
+			return
+		}
+	} else {
+		config, err = client.GetConfigContext(r.Context())
+	}
 	var receiver string
 	var receiverConfig *alertmanager.Receiver
 	var matchedRoutes []alertmanager.MatchedRoute
@@ -357,7 +392,7 @@ func (h *Handler) HandleTest(w http.ResponseWriter, r *http.Request) {
 		slog.Error("alertmanager config is nil")
 		errorMsg = "Alertmanager returned empty config"
 	} else if config.Route == nil {
-		slog.Error("alertmanager config route is nil", "config", config)
+		slog.Error("alertmanager config route is nil")
 		errorMsg = "Alertmanager config has no route defined. Check your alertmanager.yml"
 	} else {
 		routeContext, span := telemetry.StartSpan(r.Context(), "alertmanager.route.evaluate")
@@ -376,12 +411,32 @@ func (h *Handler) HandleTest(w http.ResponseWriter, r *http.Request) {
 		span.End()
 	}
 
+	var receiverPaths []alertmanager.ReceiverPath
+	if targetReceiver != "" && config != nil {
+		if client.FindReceiverByName(targetReceiver, config) == nil {
+			if draft == nil {
+				http.Error(w, "Unknown target receiver", http.StatusBadRequest)
+				return
+			}
+		} else {
+			receiverPaths = alertmanager.ExplainReceiverPaths(labels, config, targetReceiver)
+		}
+	}
+
 	if r.Header.Get("HX-Request") == "true" {
 		routeSteps, matchedReceivers, continueCount, finalMatch := buildRouteSummary(matchedRoutes, receiver, config)
 		matchedReceiverSummaries := buildReceiverSummaries(matchedRoutes, receiver, config)
 		defaultRoot := isDefaultRoot(receiver, matchedRoutes, config)
-		routeMismatches, routeMismatchesOmitted := alertmanager.FindRouteMismatchesWithLimit(labels, config, maxRouteMismatchDiagnostics)
+		limit := h.RouteMismatchLimit
+		if limit <= 0 {
+			limit = appconfig.DefaultRouteMismatchLimit
+		}
+		routeMismatches, routeMismatchesOmitted := alertmanager.FindRouteMismatchesWithLimit(labels, config, limit)
 		data := struct {
+			ReceiverCheck            ReceiverCheck
+			Draft                    bool
+			TargetReceiver           string
+			ReceiverPaths            []alertmanager.ReceiverPath
 			Receiver                 string
 			ReceiverConfig           *alertmanager.Receiver
 			MatchedRoutes            []alertmanager.MatchedRoute
@@ -396,6 +451,10 @@ func (h *Handler) HandleTest(w http.ResponseWriter, r *http.Request) {
 			Labels                   map[string]string
 			Error                    string
 		}{
+			ReceiverCheck:            receiverCheck(receiverPaths),
+			Draft:                    draft != nil,
+			TargetReceiver:           targetReceiver,
+			ReceiverPaths:            receiverPaths,
 			Receiver:                 receiver,
 			ReceiverConfig:           receiverConfig,
 			MatchedRoutes:            matchedRoutes,
@@ -423,6 +482,8 @@ func (h *Handler) HandleTest(w http.ResponseWriter, r *http.Request) {
 	}
 
 	response := TestResponse{
+		Draft:          draft != nil,
+		ReceiverPaths:  receiverPaths,
 		Receiver:       receiver,
 		ReceiverConfig: receiverConfig,
 		MatchedRoutes:  matchedRoutes,

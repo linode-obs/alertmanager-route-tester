@@ -6,7 +6,48 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"gopkg.in/yaml.v3"
 )
+
+func TestLoadRouteMismatchLimit(t *testing.T) {
+	for _, tc := range []struct {
+		value   string
+		want    int
+		invalid bool
+	}{
+		{"", 500, false}, {"route_mismatch_limit: 0", 500, false}, {"route_mismatch_limit: 2", 2, false}, {"route_mismatch_limit: -1", 0, true},
+	} {
+		t.Run(tc.value, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "config.yaml")
+			text := "alertmanager-route-tester:\n  server:\n    " + tc.value + "\nalertmanagers:\n  local:\n    url: http://localhost:9093\n"
+			if err := os.WriteFile(path, []byte(text), 0600); err != nil {
+				t.Fatal(err)
+			}
+			cfg, err := Load(path)
+			if tc.invalid {
+				if err == nil || !strings.Contains(err.Error(), "route_mismatch_limit") {
+					t.Fatalf("error = %v", err)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			encoded, err := yaml.Marshal(cfg.App.Server)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var fields map[string]any
+			if err := yaml.Unmarshal(encoded, &fields); err != nil {
+				t.Fatal(err)
+			}
+			if fields["route_mismatch_limit"] != tc.want {
+				t.Fatalf("limit = %v, want %d", fields["route_mismatch_limit"], tc.want)
+			}
+		})
+	}
+}
 
 func TestLoadAllowsCLITestSuiteWithoutSingleLabels(t *testing.T) {
 	dir := t.TempDir()

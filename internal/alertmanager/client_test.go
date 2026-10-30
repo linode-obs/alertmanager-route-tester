@@ -7,12 +7,65 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"gopkg.in/yaml.v3"
 )
+
+func TestDisplayURLRedactsCredentialsAndQuery(t *testing.T) {
+	client := NewClient(urlWithTestUserInfo(t, "https://alerts.example.test/prometheus/alertmanager"), false)
+	if got, want := client.DisplayURL(), "https://alerts.example.test/prometheus/alertmanager"; got != want {
+		t.Fatalf("DisplayURL() = %q, want %q", got, want)
+	}
+}
+
+func TestGetConfigFailureDoesNotExposeURLCredentials(t *testing.T) {
+	client := NewClient(urlWithTestUserInfo(t, "http://127.0.0.1:1/alertmanager"), false)
+	_, err := client.GetConfig()
+	if err == nil {
+		t.Fatal("GetConfig() error = nil, want connection failure")
+	}
+	for _, secret := range []string{"test-user", "private-value"} {
+		if strings.Contains(err.Error(), secret) {
+			t.Errorf("GetConfig() error exposes %q: %v", secret, err)
+		}
+	}
+}
+
+func urlWithTestUserInfo(t *testing.T, rawURL string) string {
+	t.Helper()
+	parsed, err := url.Parse(rawURL)
+	if err != nil {
+		t.Fatalf("parse test URL: %v", err)
+	}
+	parsed.User = url.User("test-user")
+	query := parsed.Query()
+	query.Set("debug", "private-value")
+	parsed.RawQuery = query.Encode()
+	return parsed.String()
+}
+
+func TestGetConfigRejectsUpstreamErrorBodyWithoutReturningIt(t *testing.T) {
+	const secret = "upstream-error-secret"
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+		_, _ = io.WriteString(w, secret)
+	}))
+	defer server.Close()
+
+	_, err := NewClient(server.URL, false).GetConfig()
+	if err == nil || !strings.Contains(err.Error(), "500") {
+		t.Fatalf("GetConfig() error = %v, want upstream status code 500", err)
+	}
+	if strings.Contains(err.Error(), secret) {
+		t.Fatalf("GetConfig() error exposed upstream body: %v", err)
+	}
+}
 
 func TestGetConfigContextCancelsRequest(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -295,6 +348,30 @@ func TestExtractRawReceiverConfigsMatchesExactNames(t *testing.T) {
 	}
 	if strings.Contains(config.Receivers[0].RawConfig, "https://example.test/long") {
 		t.Fatalf("foo raw config = %q, included foo-bar receiver block", config.Receivers[0].RawConfig)
+	}
+}
+
+func TestIndexReceiverNodesByNamePreservesFirstDuplicate(t *testing.T) {
+	var document yaml.Node
+	contents := "receivers:\n" +
+		"  - name: foo\n" +
+		"    webhook_configs:\n" +
+		"      - url: https://example.test/first\n" +
+		"  - name: foo\n" +
+		"    webhook_configs:\n" +
+		"      - url: https://example.test/second\n" +
+		"  - name: bar\n"
+	if err := yaml.Unmarshal([]byte(contents), &document); err != nil {
+		t.Fatalf("unmarshal receiver YAML: %v", err)
+	}
+
+	receivers := indexReceiverNodesByName(yamlMappingValue(document.Content[0], "receivers"))
+	if len(receivers) != 2 {
+		t.Fatalf("indexed receivers = %d, want 2", len(receivers))
+	}
+	webhooks := yamlMappingValue(receivers["foo"], "webhook_configs")
+	if webhooks == nil || len(webhooks.Content) != 1 || yamlMappingValue(webhooks.Content[0], "url").Value != "https://example.test/first" {
+		t.Fatalf("indexed foo receiver = %#v, want the first foo entry", receivers["foo"])
 	}
 }
 
@@ -1856,6 +1933,54 @@ func TestClientGetSampleAlertsDefersLargeRouteTree(t *testing.T) {
 	}
 }
 
+func TestSampleScenarioUsesReadableNames(t *testing.T) {
+	for _, tc := range []struct {
+		labels map[string]string
+		want   string
+	}{
+		{map[string]string{"alertname": "CabinetHostTemperatureAverageHigh"}, "Cabinet Host Temperature Average High"},
+		{map[string]string{"alertname": "PrometheusHAGroupDown"}, "Prometheus HA Group Down"},
+		{map[string]string{"component": "emi_tickets"}, "emi tickets"},
+		{map[string]string{}, "No labels"},
+	} {
+		if got := sampleScenario(tc.labels); got != tc.want {
+			t.Errorf("name = %q, want %q", got, tc.want)
+		}
+	}
+}
+
+func TestGenerateSampleAlertsDescribesDistinctScenarios(t *testing.T) {
+	config := &Config{Route: &Route{Receiver: "default"}}
+	for _, service := range []string{"saltstack", "api", "database", "metrics", "web"} {
+		config.Route.Routes = append(config.Route.Routes, &Route{Receiver: service + "-team", Match: map[string]string{"service": service}})
+	}
+	samples := GenerateSampleAlerts(config)
+	if len(samples) != 4 {
+		t.Fatalf("examples = %d, want four total", len(samples))
+	}
+	foundSalt := false
+	for _, sample := range samples {
+		receiver, _, err := (&Client{}).FindMatchingRoute(sample.Labels, config)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len([]rune(sample.Name)) > 40 || len([]rune(sample.Description)) > 40 {
+			t.Fatalf("verbose sample: %#v", sample)
+		}
+		if service := sample.Labels["service"]; service != "" && receiver != "default" {
+			if !strings.Contains(sample.Name, service) || strings.Contains(sample.Name, receiver) {
+				t.Fatalf("generic scenario name %q", sample.Name)
+			}
+			if service == "saltstack" {
+				foundSalt = true
+			}
+		}
+	}
+	if !foundSalt {
+		t.Fatal("configured SaltStack scenario is missing")
+	}
+}
+
 func TestGenerateSampleAlertsUsesConfiguredRoutes(t *testing.T) {
 	config := &Config{
 		Route: &Route{
@@ -2027,7 +2152,7 @@ func TestGenerateSampleAlertsIncludesMultipleReceiverContinueExample(t *testing.
 	}
 
 	for _, sample := range GenerateSampleAlerts(config) {
-		if sample.Name != "Multiple receivers" {
+		if sample.Description != "2 receivers" {
 			continue
 		}
 		if len(sample.Labels) != 2 || sample.Labels["severity"] != "warning" || sample.Labels["team"] != "monitoring" {
@@ -2042,7 +2167,7 @@ func TestGenerateSampleAlertsIncludesMultipleReceiverContinueExample(t *testing.
 		if len(receivers) != 2 || receivers[0] != "slack-warnings" || receivers[1] != "monitoring-team" {
 			t.Fatalf("continued receivers = %v, want slack-warnings and monitoring-team", receivers)
 		}
-		if sample.Description != "Continue sends to 2 receivers." {
+		if !strings.Contains(sample.Tooltip, "slack-warnings, monitoring-team") {
 			t.Fatalf("multiple receiver example description = %q, want concise continue explanation", sample.Description)
 		}
 		return
@@ -2062,7 +2187,7 @@ func TestGenerateSampleAlertsDescribesRegexAndContinuedReceivers(t *testing.T) {
 	}
 
 	for _, sample := range GenerateSampleAlerts(config) {
-		if sample.Name != "Multiple receivers" {
+		if sample.Description != "2 receivers" {
 			continue
 		}
 		if sample.Labels["environment"] != "production" || sample.Labels["team"] != "platform" {
@@ -2077,7 +2202,7 @@ func TestGenerateSampleAlertsDescribesRegexAndContinuedReceivers(t *testing.T) {
 		if len(receivers) != 2 || receivers[0] != "operations" || receivers[1] != "security" {
 			t.Fatalf("continued receivers = %v, want operations and security", receivers)
 		}
-		if sample.Description != "Continue sends to 2 receivers." {
+		if !strings.Contains(sample.Tooltip, "operations, security") {
 			t.Fatalf("continued route description = %q, want concise continue explanation", sample.Description)
 		}
 		return

@@ -46,6 +46,10 @@ func captureSlogOutput(t *testing.T, expectedMessages ...string) *bytes.Buffer {
 
 // resultData mirrors the anonymous struct passed to result.html in HandleTest.
 type resultData struct {
+	ReceiverCheck            ReceiverCheck
+	Draft                    bool
+	TargetReceiver           string
+	ReceiverPaths            []alertmanager.ReceiverPath
 	Receiver                 string
 	ReceiverConfig           *alertmanager.Receiver
 	MatchedRoutes            []alertmanager.MatchedRoute
@@ -292,6 +296,35 @@ func TestHandleConfigLabelsRejectsNonGetRequests(t *testing.T) {
 	}
 }
 
+func TestHandleIndexRedactsAlertmanagerURLCredentials(t *testing.T) {
+	config := `{"config":{"original":"route:\n  receiver: default\nreceivers:\n- name: default\n"}}`
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(config))
+	}))
+	defer server.Close()
+	parsed, err := url.Parse(server.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	parsed.User = url.User("test-user")
+	handler := &Handler{client: alertmanager.NewClient(parsed.String(), false), tmpl: loadTemplates(t)}
+	request := httptest.NewRequest(http.MethodGet, "/", nil)
+	response := httptest.NewRecorder()
+	handler.HandleIndex(response, request)
+	if response.Code != http.StatusOK {
+		t.Fatalf("status = %d: %s", response.Code, response.Body.String())
+	}
+	for _, secret := range []string{"test-user"} {
+		if strings.Contains(response.Body.String(), secret) {
+			t.Fatalf("page exposes URL credential %q", secret)
+		}
+	}
+	if !strings.Contains(response.Body.String(), server.URL) {
+		t.Fatalf("page omits the safe Alertmanager link %q", server.URL)
+	}
+}
+
 func TestHandleIndexShowsCachedStatusAfterInitialLoad(t *testing.T) {
 	requests := 0
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -410,7 +443,7 @@ func TestIsDefaultRootRejectsEffectiveNestedMatchUsingRootReceiver(t *testing.T)
 // TestHandleTestRendersErrorForMissingRootRoute verifies that a missing root
 // route returns a rendered error response instead of attempting route matching.
 func TestHandleTestRendersErrorForMissingRootRoute(t *testing.T) {
-	captureSlogOutput(t, "alertmanager config route is nil")
+	logs := captureSlogOutput(t, "alertmanager config route is nil")
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path != "/api/v2/status" {
 			http.NotFound(w, r)
@@ -437,6 +470,9 @@ func TestHandleTestRendersErrorForMissingRootRoute(t *testing.T) {
 	}
 	if !bytes.Contains(response.Body.Bytes(), []byte("no route defined")) {
 		t.Fatalf("response = %q, want missing-route error", response.Body.String())
+	}
+	if strings.Contains(logs.String(), "receivers:") {
+		t.Fatal("configuration source entered application logs")
 	}
 }
 
@@ -573,7 +609,7 @@ func TestHandleGenerateSampleAlertsUsesCachedConfig(t *testing.T) {
 	if response.Code != http.StatusOK {
 		t.Fatalf("status = %d, want %d: %s", response.Code, http.StatusOK, response.Body.String())
 	}
-	for _, expected := range []string{"Multiple receivers", "Continue sends to 2 receivers.", "severity=warning", "team=monitoring", `data-label-key="severity"`, `data-label-value="warning"`} {
+	for _, expected := range []string{"to slack-warnings, monitoring-team", "2 receivers", "severity=warning", "team=monitoring", `data-label-key="severity"`, `data-label-value="warning"`} {
 		if !strings.Contains(response.Body.String(), expected) {
 			t.Errorf("sample response does not contain %q: %s", expected, response.Body.String())
 		}
@@ -735,6 +771,56 @@ func TestReloadConfigReturnsHXRefreshAfterSuccess(t *testing.T) {
 	}
 }
 
+func TestHandleTestExplainsStoppedRouteWithoutMisattributingReceiver(t *testing.T) {
+	draft := `route:
+  receiver: default
+  routes:
+  - receiver: parent
+    match:
+      team: platform
+    routes:
+    - receiver: child
+      match:
+        severity: critical
+      continue: true
+  - receiver: wanted
+    match:
+      alertname: HighLatency
+receivers:
+- name: default
+- name: parent
+- name: child
+- name: wanted
+`
+	body, err := json.Marshal(TestRequest{
+		Labels:         map[string]string{"team": "platform", "severity": "critical", "alertname": "HighLatency"},
+		Alertmanager:   "default",
+		TargetReceiver: "wanted",
+		Draft:          &draft,
+	})
+	if err != nil {
+		t.Fatalf("marshal request: %v", err)
+	}
+	h := &Handler{client: alertmanager.NewClient("http://127.0.0.1:1", false), tmpl: loadTemplates(t)}
+	request := httptest.NewRequest(http.MethodPost, "/test", bytes.NewReader(body))
+	request.Header.Set("Content-Type", "application/json")
+	request.Header.Set("HX-Request", "true")
+	response := httptest.NewRecorder()
+
+	h.HandleTest(response, request)
+
+	if response.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d: %s", response.Code, http.StatusOK, response.Body.String())
+	}
+	output := response.Body.String()
+	if !strings.Contains(output, `<code class="receiver-blocker-name">child</code>`) {
+		t.Fatalf("response = %q, want terminal receiver child", output)
+	}
+	if !strings.Contains(output, `data-tooltip="An earlier matching route delivered to this receiver and did not continue, so later routes were not checked."`) {
+		t.Fatalf("response = %q, want accurate stopping-route explanation", output)
+	}
+}
+
 func TestResultTemplateRendersRootFallbackWithMatchedParent(t *testing.T) {
 	tmpl := loadTemplates(t)
 	data := resultData{
@@ -759,45 +845,50 @@ func TestResultTemplateRendersRootFallbackWithMatchedParent(t *testing.T) {
 }
 
 func TestHandleTestBoundsRouteMismatchDiagnostics(t *testing.T) {
-	const mismatchLimit = 100
-	const omittedRoutes = 2
-	const totalRoutes = mismatchLimit + omittedRoutes
+	for _, limit := range []int{0, 2} {
+		mismatchLimit := limit
+		if limit == 0 {
+			mismatchLimit = 500
+		}
+		const omittedRoutes = 2
+		totalRoutes := mismatchLimit + omittedRoutes
 
-	var original strings.Builder
-	original.WriteString("route:\n  receiver: default\n  routes:\n")
-	for index := 0; index < totalRoutes; index++ {
-		fmt.Fprintf(&original, "  - receiver: route-%d\n    match:\n      severity: exact-%d\n", index, index)
-	}
-	original.WriteString("receivers:\n- name: default\n")
-	for index := 0; index < totalRoutes; index++ {
-		fmt.Fprintf(&original, "- name: route-%d\n", index)
-	}
-	configJSON, err := json.Marshal(map[string]map[string]string{"config": {"original": original.String()}})
-	if err != nil {
-		t.Fatalf("marshal status response: %v", err)
-	}
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write(configJSON)
-	}))
-	defer server.Close()
+		var original strings.Builder
+		original.WriteString("route:\n  receiver: default\n  routes:\n")
+		for index := 0; index < totalRoutes; index++ {
+			fmt.Fprintf(&original, "  - receiver: route-%d\n    match:\n      severity: exact-%d\n", index, index)
+		}
+		original.WriteString("receivers:\n- name: default\n")
+		for index := 0; index < totalRoutes; index++ {
+			fmt.Fprintf(&original, "- name: route-%d\n", index)
+		}
+		configJSON, err := json.Marshal(map[string]map[string]string{"config": {"original": original.String()}})
+		if err != nil {
+			t.Fatalf("marshal status response: %v", err)
+		}
+		server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			w.Header().Set("Content-Type", "application/json")
+			_, _ = w.Write(configJSON)
+		}))
+		defer server.Close()
 
-	h := &Handler{client: alertmanager.NewClient(server.URL, false), tmpl: loadTemplates(t)}
-	request := httptest.NewRequest(http.MethodPost, "/test", bytes.NewBufferString(`{"labels":{"severity":"warning"}}`))
-	request.Header.Set("Content-Type", "application/json")
-	request.Header.Set("HX-Request", "true")
-	response := httptest.NewRecorder()
+		h := &Handler{client: alertmanager.NewClient(server.URL, false), tmpl: loadTemplates(t), RouteMismatchLimit: limit}
+		request := httptest.NewRequest(http.MethodPost, "/test", bytes.NewBufferString(`{"labels":{"severity":"warning"}}`))
+		request.Header.Set("Content-Type", "application/json")
+		request.Header.Set("HX-Request", "true")
+		response := httptest.NewRecorder()
 
-	h.HandleTest(response, request)
+		h.HandleTest(response, request)
 
-	if response.Code != http.StatusOK {
-		t.Fatalf("status = %d, want %d: %s", response.Code, http.StatusOK, response.Body.String())
-	}
-	if got := strings.Count(response.Body.String(), `<div class="route-item">`); got != mismatchLimit {
-		t.Fatalf("rendered route mismatch count = %d, want %d", got, mismatchLimit)
-	}
-	if !strings.Contains(response.Body.String(), fmt.Sprintf("%d more omitted", omittedRoutes)) {
-		t.Fatalf("response = %q, want omitted-count notice", response.Body.String())
+		if response.Code != http.StatusOK {
+			t.Fatalf("status = %d, want %d: %s", response.Code, http.StatusOK, response.Body.String())
+		}
+		if got := strings.Count(response.Body.String(), `<div class="route-item">`); got != mismatchLimit {
+			t.Fatalf("rendered route mismatch count = %d, want %d", got, mismatchLimit)
+		}
+		if !strings.Contains(response.Body.String(), fmt.Sprintf("%d more omitted", omittedRoutes)) {
+			t.Fatalf("response = %q, want omitted-count notice", response.Body.String())
+		}
 	}
 }
 
@@ -1470,7 +1561,7 @@ func TestIndexTemplateExplainsEmptyLabelsAreAddedBelow(t *testing.T) {
 		t.Fatal("initial labels area is not closed")
 	}
 	containerMarkup := output[containerStart : containerStart+containerEndOffset]
-	if !strings.Contains(containerMarkup, `<p class="no-labels-text">No labels added. Add labels below, then test the route.</p>`) {
+	if !strings.Contains(containerMarkup, `<p class="no-labels-text">No labels yet. Add one below.</p>`) {
 		t.Fatal("initial labels area does not render its empty-state message")
 	}
 }

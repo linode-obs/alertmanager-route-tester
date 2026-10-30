@@ -6,6 +6,7 @@
     <title>Alertmanager Route Tester</title>
     <link rel="icon" type="image/svg+xml" href="/static/favicon.svg">
     <script src="/static/htmx.min.js"></script>
+    <script src="/static/draft-preview.js"></script>
     <script>
         (function() {
             const savedTheme = localStorage.getItem('theme');
@@ -38,7 +39,7 @@
             {{if gt (len .AlertmanagerNames) 1}}
             <form class="alertmanager-selector" method="GET" action="/">
                 <label for="alertmanager-select">Alertmanager</label>
-                <select id="alertmanager-select" name="alertmanager" onchange="this.form.submit()">
+                <select id="alertmanager-select" name="alertmanager" onchange="if (preserveEditorBeforeNavigation()) this.form.submit(); else this.value = selectedAlertmanager">
                     {{range $name := .AlertmanagerNames}}
                     <option value="{{$name}}" {{if eq $name $.SelectedAlertmanager}}selected{{end}}>{{$name}}</option>
                     {{end}}
@@ -62,7 +63,7 @@
                         {{end}}
                         <form method="POST" action="/config/reload"
                               hx-post="/config/reload" hx-swap="none"
-                              hx-on:config-reload-error="this.querySelector('.reload-error').hidden = false">
+                              hx-on:config-reload-error="draftNavigationApproved = false; this.querySelector('.reload-error').hidden = false">
                             <input type="hidden" name="alertmanager" value="{{.SelectedAlertmanager}}">
                             <button type="submit" class="btn-reload-config" aria-label="Reload Alertmanager config" title="Load the config again">Reload</button>
                             <span class="reload-error" hidden>Reload failed. Using cached configuration.</span>
@@ -81,7 +82,7 @@
                     <div class="connection-actions">
                         <form method="POST" action="/config/reload"
                               hx-post="/config/reload" hx-swap="none"
-                              hx-on:config-reload-error="this.querySelector('.reload-error').hidden = false">
+                              hx-on:config-reload-error="draftNavigationApproved = false; this.querySelector('.reload-error').hidden = false">
                             <input type="hidden" name="alertmanager" value="{{.SelectedAlertmanager}}">
                             <button type="submit" class="btn-reload-config" aria-label="Try the Alertmanager connection again" title="Try again">Retry</button>
                             <span class="reload-error" hidden>Retry failed.</span>
@@ -99,8 +100,7 @@
 
                 {{if or .SampleAlerts .SampleAlertsDeferred}}
                 <div class="quick-start-section">
-                    <h3>Quick examples</h3>
-                    <p class="help-text">Choose an example. The app loads its labels.</p>
+                    <h3>Quick examples <span class="help-tip" role="img" data-tooltip="Load example labels from this configuration. No alert is sent." aria-label="Quick example help: Load example labels from this configuration. No alert is sent." tabindex="0">ⓘ</span></h3>
                     <div id="sample-alerts">
                         {{if .SampleAlerts}}
                         {{template "sample-alert-cards" .}}
@@ -113,19 +113,18 @@
                 {{end}}
 
                 <div class="input-mode-toggle">
-                    <button id="ui-mode-btn" class="active" aria-pressed="true" title="Build labels with key and value fields" onclick="switchMode('ui')">Label editor</button>
-                    <button id="raw-mode-btn" aria-pressed="false" title="Paste labels as YAML" onclick="switchMode('raw')">Paste YAML</button>
+                    <button id="ui-mode-btn" class="active" aria-pressed="true" title="Add individual labels. Suggestions come from the loaded routes." onclick="switchMode('ui')">Label editor</button>
+                    <button id="raw-mode-btn" aria-pressed="false" title="Paste a YAML labels object, then select Load labels before testing." onclick="switchMode('raw')">Paste YAML</button>
                 </div>
 
-                <form id="alert-form" hx-post="/test" hx-target="#result" hx-swap="innerHTML">
+                <form id="alert-form" hx-ext="alert-labels" hx-post="/test" hx-target="#result" hx-swap="innerHTML">
                     <input type="hidden" name="alertmanager" value="{{.SelectedAlertmanager}}">
                     <div id="ui-builder">
                         <div class="label-section">
                             <h3>Alert labels <span class="help-tip" role="img" data-tooltip="A route matches only when its labels match." aria-label="Alert label help: A route matches only when its labels match." tabindex="0">ⓘ</span></h3>
-                            <p class="help-text">Add labels from the configuration, or enter them.</p>
 
                             <div id="current-labels" class="current-labels">
-                                <p class="no-labels-text">No labels added. Add labels below, then test the route.</p>
+                                <p class="no-labels-text">No labels yet. Add one below.</p>
                                 <!-- Labels will appear here as badges -->
                             </div>
 
@@ -134,6 +133,7 @@
                                        id="label-key-input"
                                        placeholder="key"
                                        aria-label="Alert label key"
+                                       title="Label name, such as severity or team."
                                        aria-describedby="label-input-error"
                                        aria-invalid="false"
                                        list="all-keys"
@@ -148,6 +148,7 @@
                                        id="label-value-input"
                                        placeholder="value"
                                        aria-label="Alert label value"
+                                       title="Label value, such as critical or platform. Suggestions are optional."
                                        aria-describedby="label-input-error"
                                        aria-invalid="false"
                                        list="current-values"
@@ -171,22 +172,97 @@ team: platform'></textarea>
                         </div>
                     </div>
 
-                    <div class="form-actions">
-                        <button type="submit" class="btn-primary btn-test-route" aria-label="Test the alert route" title="Check these labels against the routes">Test route</button>
-                        <button type="button" class="btn-secondary" onclick="shareLabels()" title="Copy a link containing these labels">Share link</button>
+                    <details id="routing-options" class="routing-options">
+                        <summary>More options <span class="help-tip" role="img" data-tooltip="Reuse labels, edit a draft, explain a receiver, or share labels." aria-label="More options help: Reuse labels, edit a draft, explain a receiver, or share labels." tabindex="0">ⓘ</span></summary>
+                        <div class="recent-label-controls">
+                            <label for="recent-labels">Recent tests <span class="help-tip" role="img" data-tooltip="Choose a saved test, then select Load to replace the current labels. Clear history removes saved tests only." aria-label="Recent tests help: Choose a saved test, then select Load to replace the current labels. Clear history removes saved tests only." tabindex="0">ⓘ</span></label>
+                            <select id="recent-labels" onchange="updateHistoryControls()">
+                                <option value="">Choose a previous test</option>
+                            </select>
+                            <button id="load-recent-labels" type="button" class="btn-secondary" onclick="loadRecentLabels(document.getElementById('recent-labels').value)" title="Replace current labels with the selected test." disabled>Load</button>
+                            <button id="clear-recent-labels" type="button" class="btn-secondary" onclick="clearRecentLabels()" title="Remove saved tests from this tab. Current labels stay.">Clear history</button>
+                        </div>
+                    <section class="draft-section">
+                        <button id="start-draft" type="button" class="btn-secondary" onclick="startDraft()">Edit configuration draft</button>
+                        <span class="help-tip" role="img" data-tooltip="Edit a copy of the loaded configuration and test it. Live Alertmanager stays unchanged. Drafts are not saved." aria-label="Configuration draft help: Edit a copy of the loaded configuration and test it. Live Alertmanager stays unchanged. Drafts are not saved." tabindex="0">ⓘ</span>
+                        <p id="draft-workspace-status" class="field-error" role="alert" aria-live="polite" hidden></p>
+                        <div id="draft-panel" hidden>
+                            <button id="edit-draft" type="button" class="btn-secondary" onclick="openDraftEditor()">Open draft editor</button>
+                            <button id="view-draft-patch" type="button" class="btn-secondary" onclick="showDraftPatch()" disabled>View patch</button>
+                            <span class="draft-active-label">Draft active</span>
+                        </div>
+                    </section>
+                    <div class="receiver-question">
+                        <label for="receiver-search">Explain a receiver <span class="help-tip" role="img" data-tooltip="Type parts of a receiver name to search. Choose a match to explain its routing. This does not change routing." aria-label="Receiver explanation help: Type parts of a receiver name to search. Choose a match to explain its routing. This does not change routing." tabindex="0">ⓘ</span></label>
+                        <div class="receiver-picker">
+                            <input id="receiver-search" class="receiver-search" type="text" role="combobox" aria-autocomplete="list" aria-expanded="false" aria-controls="receiver-options" aria-describedby="receiver-search-status" autocomplete="off" spellcheck="false" placeholder="Search receivers...">
+                            <button id="clear-receiver" class="receiver-clear" type="button" aria-label="Clear receiver selection" title="Clear receiver selection" hidden>×</button>
+                            <div id="receiver-options" class="receiver-options" role="listbox" aria-label="Matching receivers" hidden></div>
+                            <span id="receiver-search-status" class="receiver-search-status" role="status" aria-live="polite"></span>
+                        </div>
+                        <select id="target-receiver" name="target_receiver" hidden>
+                            <option value="">No receiver selected</option>
+                            {{if .Config}}{{range .Config.Receivers}}
+                            <option value="{{.Name}}">{{.Name}}</option>
+                            {{end}}{{end}}
+                        </select>
                     </div>
+                        <div class="share-controls">
+                            <button type="button" class="btn-secondary" onclick="shareLabels()" title="Copy a link containing alert labels only.">Share link</button>
+                            <span class="help-tip" role="img" data-tooltip="Copy a URL containing labels only. Drafts and the selected Alertmanager are excluded." aria-label="Share link help: Copy a URL containing labels only. Drafts and the selected Alertmanager are excluded." tabindex="0">ⓘ</span>
+                        </div>
+                    </details>
                     <p id="share-status" class="field-status" role="status" aria-live="polite" hidden></p>
+                    <div class="form-actions">
+                        <button type="submit" class="btn-primary btn-test-route" aria-label="Test the alert route" title="Evaluate labels against the loaded configuration. No alert is sent.">Test route</button>
+                    </div>
                 </form>
             </div>
 
             <div class="panel workspace-pane workspace-result-pane" id="result" aria-live="polite" aria-atomic="true">
                 <span class="workspace-pane-label">ROUTING OUTPUT</span>
                 <div class="placeholder">
-                    <p>Add labels, then select "Test route". The app shows the matching receiver.</p>
+                    <p>Add labels, then test the route.</p>
                 </div>
             </div>
         </main>
     </div>
+
+    <dialog id="draft-editor" class="draft-editor" aria-labelledby="draft-editor-title" aria-describedby="draft-editor-help">
+        <header class="draft-editor-header">
+            <div>
+                <h2 id="draft-editor-title">Configuration draft</h2>
+                <p id="draft-editor-help">Changes stay in this page. Live Alertmanager stays unchanged.</p>
+            </div>
+            <button type="button" class="btn-secondary" onclick="closeDraftEditor()" title="Close the editor and keep the draft.">Close</button>
+        </header>
+        <div class="draft-editor-body">
+            <div class="draft-editor-field">
+                <label for="config-draft">Alertmanager YAML</label>
+                <textarea id="config-draft" rows="24" wrap="off" spellcheck="false" autocapitalize="off" disabled></textarea>
+            </div>
+            <section id="draft-diff" class="draft-diff" aria-label="Draft comparison" hidden>
+                <div class="draft-patch-heading">
+                    <h3>Git patch</h3>
+                    <div class="draft-patch-actions">
+                        <button id="copy-patch" type="button" class="btn-secondary" onclick="copyPatch()" title="Copy the displayed patch. It can contain configuration secrets." disabled>Copy patch</button>
+                        <button id="download-patch" type="button" class="btn-secondary" onclick="downloadPatch()" title="Download the displayed patch as a .patch file." disabled>Download .patch</button>
+                    </div>
+                </div>
+                <pre id="config-diff" aria-label="Git patch preview" tabindex="0"></pre>
+            </section>
+        </div>
+        <footer class="draft-editor-footer">
+            <p id="draft-status" role="status" hidden></p>
+            <div class="draft-patch-target">
+                <label for="patch-target">Patch target <span class="help-tip" role="img" data-tooltip="Repository-relative filename. The baseline is Alertmanager's sanitized YAML, which can differ from your repository file." aria-label="Patch target help: Repository-relative filename. The baseline is Alertmanager's sanitized YAML, which can differ from your repository file." tabindex="0">ⓘ</span></label>
+                <input id="patch-target" type="text" value="alertmanager.yml" spellcheck="false" aria-label="Patch target file">
+            </div>
+            <button id="preview-draft" type="button" class="btn-secondary" onclick="toggleDraftDiff()">Show patch</button>
+            <button id="discard-draft" type="button" class="btn-secondary" onclick="discardDraft()">Discard draft</button>
+            <button id="use-draft" type="button" class="btn-primary" onclick="useDraft()" title="Close the editor and use this draft for routing tests.">Use draft</button>
+        </footer>
+    </dialog>
 
     <script>
         // Current alert labels
@@ -194,14 +270,408 @@ team: platform'></textarea>
         const emptyLabelsMessage = document.querySelector('#current-labels .no-labels-text');
 
         // Label suggestions from config
-        const labelSuggestions = {
+        let labelSuggestions = {
             {{range $suggestion := .LabelSuggestions}}
             "{{$suggestion.Key}}": [{{range $i, $value := $suggestion.Values}}{{if $i}}, {{end}}"{{$value}}"{{end}}],
             {{end}}
         };
 
+        const selectedAlertmanager = "{{.SelectedAlertmanager}}";
+        const editorStorageName = `art:labels:${selectedAlertmanager}`;
+        let labelLinkHash = window.location.hash;
+
+        function saveEditorState() {
+            try {
+                sessionStorage.setItem(editorStorageName, JSON.stringify({
+                    labels: currentLabels,
+                    hash: labelLinkHash,
+                    mode: document.getElementById('raw-mode-btn').getAttribute('aria-pressed') === 'true' ? 'raw' : 'ui',
+                    raw: document.getElementById('raw-input').value,
+                    name: document.getElementById('label-key-input').value,
+                    value: document.getElementById('label-value-input').value,
+                }));
+                return true;
+            } catch (error) {
+                return false;
+            }
+        }
+
+        function restoreEditorState() {
+            try {
+                const state = JSON.parse(sessionStorage.getItem(editorStorageName));
+                if (!state || (window.location.hash && state.hash !== window.location.hash)) return false;
+                currentLabels = decodeSharedLabels(encodeSharedLabels(state.labels));
+                renderLabels();
+                switchMode(state.mode === 'raw' ? 'raw' : 'ui');
+                document.getElementById('raw-input').value = typeof state.raw === 'string' ? state.raw : '';
+                document.getElementById('label-key-input').value = typeof state.name === 'string' ? state.name : '';
+                document.getElementById('label-value-input').value = typeof state.value === 'string' ? state.value : '';
+                return true;
+            } catch (error) {
+                setShareStatus('Saved labels could not be loaded.', true);
+            }
+        }
+
+        function preserveEditorBeforeNavigation() {
+            const editedDraft = draftIsEdited();
+            if (editedDraft && !confirm('This page contains an edited configuration draft. Continuing will discard it. Continue?')) return false;
+            const proceed = saveEditorState() || confirm('Browser storage is unavailable. Reloading will discard your alert input. Continue?');
+            draftNavigationApproved = editedDraft && proceed;
+            return proceed;
+        }
+
+        document.querySelectorAll('form[action="/config/reload"]').forEach(form => {
+            form.addEventListener('submit', event => {
+                if (!preserveEditorBeforeNavigation()) {
+                    event.preventDefault();
+                    event.stopImmediatePropagation();
+                }
+            }, true);
+            form.addEventListener('htmx:afterRequest', event => {
+                if (event.detail.xhr.getResponseHeader('HX-Refresh') !== 'true') draftNavigationApproved = false;
+            });
+        });
+        window.addEventListener('beforeunload', saveEditorState);
+        document.getElementById('raw-input').addEventListener('input', saveEditorState);
+
+        let draftBaseline = null;
+        let currentPatch = '';
+        let currentPatchTarget = '';
+        let draftNavigationApproved = false;
+        let draftEditorOpener = null;
+        const draftPreviewRequests = createLatestDraftPreview();
+        const liveReceiverChoices = document.getElementById('target-receiver').cloneNode(true);
+
+        function draftIsEdited() {
+            return draftBaseline !== null && document.getElementById('config-draft').value !== draftBaseline;
+        }
+
+        function setDraftStatus(message, failed = false) {
+            const status = document.getElementById('draft-status');
+            status.textContent = message;
+            status.classList.toggle('field-error', failed);
+            status.hidden = false;
+        }
+
+        function setDraftWorkspaceStatus(message) {
+            const status = document.getElementById('draft-workspace-status');
+            status.textContent = message;
+            status.hidden = !message;
+        }
+
+        function showDraftTestFailure() {
+            const result = document.getElementById('result');
+            const warning = document.createElement('div');
+            warning.className = 'result-warning draft-test-error';
+            const heading = document.createElement('h2');
+            heading.textContent = 'Draft test failed';
+            const message = document.createElement('p');
+            message.textContent = 'Open the draft editor to see the error details.';
+            warning.append(heading, message);
+            result.replaceChildren(warning);
+        }
+
+        function openDraftEditor(opener = document.activeElement) {
+            draftEditorOpener = opener;
+            document.getElementById('draft-editor').showModal();
+            document.getElementById('config-draft').focus({preventScroll: true});
+        }
+
+        function closeDraftEditor() {
+            document.getElementById('draft-editor').close();
+        }
+
+        function hideDraftDiff() {
+            draftPreviewRequests.invalidate();
+            currentPatch = '';
+            currentPatchTarget = '';
+            document.getElementById('draft-diff').hidden = true;
+            document.getElementById('preview-draft').textContent = 'Show patch';
+            updatePatchControls();
+        }
+
+        async function showDraftPatch() {
+            if (!document.getElementById('draft-editor').open) openDraftEditor();
+            await previewDraft();
+            if (!document.getElementById('draft-diff').hidden) document.getElementById('config-diff').focus();
+        }
+
+        function toggleDraftDiff() {
+            if (document.getElementById('draft-diff').hidden) previewDraft();
+            else hideDraftDiff();
+        }
+
+        document.getElementById('draft-editor').addEventListener('close', () => {
+            const opener = draftEditorOpener;
+            draftEditorOpener = null;
+            const isVisible = element => element?.isConnected && !element.hidden && element.getClientRects().length > 0;
+            if (isVisible(opener)) {
+                opener.focus({preventScroll: true});
+            } else {
+                const editDraft = document.getElementById('edit-draft');
+                const startDraft = document.getElementById('start-draft');
+                (isVisible(editDraft) ? editDraft : isVisible(startDraft) ? startDraft : document.querySelector('.btn-test-route')).focus({preventScroll: true});
+            }
+        });
+
+        async function startDraft() {
+            const button = document.getElementById('start-draft');
+            button.disabled = true;
+            try {
+                const response = await fetch('/config/source?alertmanager=' + encodeURIComponent(selectedAlertmanager));
+                if (!response.ok) throw new Error(await response.text());
+                const data = await response.json();
+                draftBaseline = data.source;
+                const editor = document.getElementById('config-draft');
+                editor.value = draftBaseline;
+                editor.disabled = false;
+                document.getElementById('draft-panel').hidden = false;
+                button.hidden = true;
+                document.querySelector('.btn-test-route').textContent = 'Test draft';
+                document.querySelector('.btn-test-route').title = 'Evaluate labels against this draft. Live Alertmanager stays unchanged.';
+                setDraftStatus('Draft ready.');
+                setDraftWorkspaceStatus('');
+                updatePatchControls();
+                openDraftEditor(document.getElementById('edit-draft'));
+            } catch (error) {
+                const message = 'Cannot load a configuration draft. ' + error.message;
+                setDraftStatus(message, true);
+                setDraftWorkspaceStatus(message);
+            } finally {
+                button.disabled = false;
+            }
+        }
+
+        function updatePatchControls() {
+            const enabled = draftIsEdited() && document.getElementById('patch-target').value.trim() !== '';
+            const view = document.getElementById('view-draft-patch');
+            view.disabled = !enabled;
+            view.title = enabled ? 'View the Git patch. This does not start a download.' : 'Edit the draft to view a patch.';
+            for (const id of ['copy-patch', 'download-patch']) document.getElementById(id).disabled = !enabled || !currentPatch;
+        }
+
+        async function compareDraft(draft, target) {
+            const response = await fetch('/config/draft', {
+                method: 'POST', headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({alertmanager: selectedAlertmanager, baseline: draftBaseline, draft, patch_target: target}),
+            });
+            if (!response.ok) throw new Error(await response.text());
+            return response.json();
+        }
+
+        function replaceDraftReceiverChoices(names) {
+            const receivers = document.getElementById('target-receiver');
+            const selected = receivers.value;
+            receivers.replaceChildren(new Option('No receiver selected', ''));
+            names.forEach(name => receivers.add(new Option(name, name)));
+            if (names.includes(selected)) receivers.value = selected;
+            syncReceiverPicker();
+        }
+
+        async function useDraft() {
+            const draft = document.getElementById('config-draft').value;
+            try {
+                const data = await compareDraft(draft, '');
+                if (draft !== document.getElementById('config-draft').value || draftBaseline === null) return;
+                replaceDraftReceiverChoices(data.receivers);
+                setDraftStatus('Draft ready.');
+                closeDraftEditor();
+            } catch (error) {
+                setDraftStatus(error.message, true);
+            }
+        }
+
+        async function copyPatch() {
+            if (!currentPatch) return;
+            try {
+                await copyText(currentPatch);
+                setDraftStatus('Patch copied.');
+            } catch (error) {
+                setDraftStatus('Could not copy patch: ' + error.message, true);
+            }
+        }
+
+        function downloadPatch() {
+            if (!currentPatch) return;
+            const url = URL.createObjectURL(new Blob([currentPatch], {type: 'text/x-patch;charset=utf-8'}));
+            const link = document.createElement('a');
+            link.href = url;
+            link.download = currentPatchTarget.split('/').pop() + '.patch';
+            document.body.appendChild(link);
+            link.click();
+            link.remove();
+            setTimeout(() => URL.revokeObjectURL(url), 1000);
+            setDraftStatus('Patch downloaded.');
+        }
+
+        document.getElementById('patch-target').addEventListener('input', () => {
+            hideDraftDiff();
+            updatePatchControls();
+        });
+
+        function previewDraft() {
+            const draft = document.getElementById('config-draft').value;
+            const target = document.getElementById('patch-target').value.trim();
+            setDraftStatus('Comparing configurations.');
+            return draftPreviewRequests.run(
+                () => compareDraft(draft, target),
+                data => {
+                    if (draft !== document.getElementById('config-draft').value || target !== document.getElementById('patch-target').value.trim() || draftBaseline === null) return;
+                    currentPatch = data.patch;
+                    currentPatchTarget = target;
+                    document.getElementById('config-diff').textContent = currentPatch || 'No changes from the fetched configuration.';
+                    document.getElementById('draft-diff').hidden = false;
+                    document.getElementById('preview-draft').textContent = 'Hide patch';
+                    replaceDraftReceiverChoices(data.receivers);
+                    setDraftStatus('Draft is valid.');
+                    updatePatchControls();
+                },
+                error => {
+                    document.getElementById('config-diff').textContent = '';
+                    hideDraftDiff();
+                    setDraftStatus(error.message, true);
+                },
+            );
+        }
+
+        function discardDraft() {
+            draftBaseline = null;
+            draftNavigationApproved = false;
+            setDraftWorkspaceStatus('');
+            const editor = document.getElementById('config-draft');
+            editor.value = '';
+            editor.disabled = true;
+            document.getElementById('draft-panel').hidden = true;
+            document.getElementById('start-draft').hidden = false;
+            document.getElementById('config-diff').textContent = '';
+            hideDraftDiff();
+            closeDraftEditor();
+            document.querySelector('.btn-test-route').textContent = 'Test route';
+            document.querySelector('.btn-test-route').title = 'Evaluate labels against the loaded configuration. No alert is sent.';
+            const receivers = document.getElementById('target-receiver');
+            receivers.replaceChildren(...Array.from(liveReceiverChoices.options).map(option => option.cloneNode(true)));
+            syncReceiverPicker();
+            setDraftStatus('Draft discarded.');
+            updatePatchControls();
+        }
+
+        document.getElementById('config-draft').addEventListener('input', () => {
+            draftNavigationApproved = false;
+            document.getElementById('config-diff').textContent = '';
+            hideDraftDiff();
+            setDraftStatus('Draft changed.');
+            updatePatchControls();
+        });
+        document.getElementById('alert-form').addEventListener('htmx:afterRequest', event => {
+            if (draftBaseline !== null && !event.detail.successful) {
+                setDraftStatus(event.detail.xhr.responseText || 'Draft test failed.', true);
+                showDraftTestFailure();
+            }
+        });
+        window.addEventListener('beforeunload', event => {
+            if (draftIsEdited() && !draftNavigationApproved) {
+                event.preventDefault();
+                event.returnValue = '';
+            }
+        });
+
+        const historyStorageName = `art:recent:${selectedAlertmanager}`;
+        let recentLabelSets = [];
+        let submittedLabels = null;
+        let suggestionRequest = 0;
+        let suggestionTimer;
+
+        function renderRecentLabels(choice = null) {
+            const select = document.getElementById('recent-labels');
+            select.replaceChildren(new Option(recentLabelSets.length ? 'Choose a previous test' : 'No recent tests', ''));
+            select.disabled = recentLabelSets.length === 0;
+            document.getElementById('clear-recent-labels').hidden = recentLabelSets.length === 0;
+            recentLabelSets.forEach((labels, index) => {
+                const description = Object.entries(labels).map(([name, value]) => `${name}=${value}`).join(', ') || 'No labels';
+                select.add(new Option(description, String(index)));
+            });
+            if (choice) {
+                const identity = labelSetIdentity(choice);
+                const index = recentLabelSets.findIndex(labels => labelSetIdentity(labels) === identity);
+                if (index >= 0) select.value = String(index);
+            }
+            updateHistoryControls();
+        }
+
+        function updateHistoryControls() {
+            document.getElementById('load-recent-labels').disabled = document.getElementById('recent-labels').value === '';
+        }
+
+        function loadRecentLabels(index) {
+            if (index === '' || !recentLabelSets[index]) return;
+            currentLabels = { ...recentLabelSets[index] };
+            renderLabels();
+            switchMode('ui');
+        }
+
+        function clearRecentLabels() {
+            recentLabelSets = [];
+            try { sessionStorage.removeItem(historyStorageName); } catch (error) {}
+            renderRecentLabels();
+        }
+
+        function labelSetIdentity(labels) {
+            return JSON.stringify(Object.entries(labels).sort(([a], [b]) => a.localeCompare(b)));
+        }
+
+        document.getElementById('alert-form').addEventListener('htmx:afterRequest', event => {
+            const labels = event.detail.xhr.artSubmittedLabels;
+            if (!event.detail.successful || !labels || !document.querySelector('#result .result-success')) return;
+            const choice = recentLabelSets[document.getElementById('recent-labels').value];
+            const identity = labelSetIdentity(labels);
+            recentLabelSets = [labels, ...recentLabelSets.filter(labels => labelSetIdentity(labels) !== identity)].slice(0, 10);
+            try { sessionStorage.setItem(historyStorageName, JSON.stringify(recentLabelSets)); } catch (error) {}
+            renderRecentLabels(choice);
+        });
+
+        function renderValueSuggestions() {
+            const values = document.getElementById('current-values');
+            values.replaceChildren();
+            const suggestions = labelSuggestions[document.getElementById('label-key-input').value];
+            if (Array.isArray(suggestions)) suggestions.forEach(value => values.appendChild(new Option(value)));
+        }
+
+        function refreshLabelSuggestions() {
+            const request = ++suggestionRequest;
+            clearTimeout(suggestionTimer);
+            suggestionTimer = setTimeout(async () => {
+                const labels = { ...currentLabels };
+                delete labels[document.getElementById('label-key-input').value];
+                try {
+                    const response = await fetch('/labels/suggestions', {
+                        method: 'POST', headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({labels, alertmanager: selectedAlertmanager}),
+                    });
+                    if (!response.ok) return;
+                    const suggestions = await response.json();
+                    if (request !== suggestionRequest) return;
+                    labelSuggestions = Object.fromEntries(suggestions.map(item => [item.key, item.values]));
+                    const names = document.getElementById('all-keys');
+                    names.replaceChildren();
+                    suggestions.forEach(item => names.appendChild(new Option(item.key)));
+                    renderValueSuggestions();
+                } catch (error) {
+                    // Suggestions are optional. Manual input remains available.
+                }
+            }, 200);
+        }
+
+        try {
+            const saved = JSON.parse(sessionStorage.getItem(historyStorageName));
+            if (Array.isArray(saved)) recentLabelSets = saved.slice(0, 10).map(labels => decodeSharedLabels(encodeSharedLabels(labels)));
+        } catch (error) {}
+        renderRecentLabels();
+
         // Render labels as badges
         function renderLabels() {
+            labelImportRequest++;
+            saveEditorState();
+            refreshLabelSuggestions();
             const container = document.getElementById('current-labels');
             container.replaceChildren();
 
@@ -268,7 +738,7 @@ team: platform'></textarea>
             inputError.hidden = true;
             keyInput.setAttribute('aria-invalid', 'false');
             valueInput.setAttribute('aria-invalid', 'false');
-            currentLabels[key] = value;
+            currentLabels = { ...currentLabels, [key]: value };
             renderLabels();
 
             // Clear inputs
@@ -301,8 +771,8 @@ team: platform'></textarea>
             }
         }
 
-        document.getElementById('label-key-input').addEventListener('input', syncLabelValidationState);
-        document.getElementById('label-value-input').addEventListener('input', syncLabelValidationState);
+        document.getElementById('label-key-input').addEventListener('input', () => { syncLabelValidationState(); saveEditorState(); });
+        document.getElementById('label-value-input').addEventListener('input', () => { syncLabelValidationState(); saveEditorState(); });
 
         // Remove a label
         function removeLabel(key) {
@@ -311,18 +781,9 @@ team: platform'></textarea>
         }
 
         // Update value suggestions when key changes
-        document.getElementById('label-key-input').addEventListener('input', function(e) {
-            const key = e.target.value;
-            const valueDatalist = document.getElementById('current-values');
-            valueDatalist.innerHTML = '';
-
-            if (labelSuggestions[key]) {
-                labelSuggestions[key].forEach(val => {
-                    const option = document.createElement('option');
-                    option.value = val;
-                    valueDatalist.appendChild(option);
-                });
-            }
+        document.getElementById('label-key-input').addEventListener('input', function() {
+            renderValueSuggestions();
+            refreshLabelSuggestions();
         });
 
         // Allow Enter key to add label
@@ -348,6 +809,12 @@ team: platform'></textarea>
                 rawBtn.classList.remove('active');
                 rawBtn.setAttribute('aria-pressed', 'false');
             } else {
+                if (rawBtn.getAttribute('aria-pressed') !== 'true') {
+                    const entries = Object.entries(currentLabels);
+                    document.getElementById('raw-input').value = entries.length
+                        ? entries.map(([name, value]) => `${JSON.stringify(name)}: ${JSON.stringify(value)}`).join('\n')
+                        : '{}';
+                }
                 uiBuilder.style.display = 'none';
                 rawBuilder.style.display = 'block';
                 uiBtn.classList.remove('active');
@@ -355,11 +822,12 @@ team: platform'></textarea>
                 rawBtn.classList.add('active');
                 rawBtn.setAttribute('aria-pressed', 'true');
             }
+            saveEditorState();
         }
 
         // Load sample alert
         function loadSampleAlertFromCard(card) {
-            const labels = {};
+            const labels = Object.create(null);
             card.querySelectorAll('.mini-label').forEach(label => {
                 labels[label.dataset.labelKey] = label.dataset.labelValue;
             });
@@ -372,64 +840,50 @@ team: platform'></textarea>
         }
 
         // Parse raw YAML input
-        function parseRawInput() {
+        let labelImportRequest = 0;
+        async function parseRawInput() {
+            const request = ++labelImportRequest;
+            const source = document.getElementById('raw-input').value;
             try {
-                const raw = document.getElementById('raw-input').value;
-                const labels = {};
-                
-                // Simple YAML parser for key: value pairs
-                const lines = raw.split('\n');
-                for (const line of lines) {
-                    const trimmed = line.trim();
-                    if (trimmed && !trimmed.startsWith('#')) {
-                        const colonIndex = trimmed.indexOf(':');
-                        if (colonIndex > 0) {
-                            const key = trimmed.substring(0, colonIndex).trim();
-                            let value = trimmed.substring(colonIndex + 1).trim();
-                            
-                            // Remove quotes if present
-                            if ((value.startsWith('"') && value.endsWith('"')) || 
-                                (value.startsWith("'") && value.endsWith("'"))) {
-                                value = value.slice(1, -1);
-                            }
-                            
-                            if (key && value) {
-                                labels[key] = value;
-                            }
-                        }
-                    }
+                const response = await fetch('/labels/parse', {
+                    method: 'POST',
+                    body: source,
+                });
+                if (!response.ok) {
+                    throw new Error(await response.text());
                 }
-
-                if (Object.keys(labels).length === 0) {
-                    alert('No valid YAML labels found. Use this format:\nkey: value');
-                    return;
-                }
-
-                currentLabels = labels;
+                const data = await response.json();
+                if (request !== labelImportRequest || source !== document.getElementById('raw-input').value) return;
+                currentLabels = data.labels;
                 renderLabels();
 
                 // Switch to UI mode
                 switchMode('ui');
             } catch (e) {
+                if (request !== labelImportRequest || source !== document.getElementById('raw-input').value) return;
                 alert('Invalid YAML format: ' + e.message);
             }
         }
 
-        // Form submission: create hidden inputs for labels
-        document.getElementById('alert-form').addEventListener('submit', function(e) {
-            // Remove any existing hidden inputs
-            document.querySelectorAll('.label-hidden-input').forEach(el => el.remove());
-
-            // Create hidden input for each label
-            const form = e.target;
-            for (const [key, value] of Object.entries(currentLabels)) {
-                const hidden = document.createElement('input');
-                hidden.type = 'hidden';
-                hidden.name = key;
-                hidden.value = value;
-                hidden.className = 'label-hidden-input';
-                form.appendChild(hidden);
-            }
+        // Alert labels stay separate from routing controls.
+        htmx.defineExtension('alert-labels', {
+            onEvent(name, event) {
+                if (name === 'htmx:configRequest') event.detail.headers['Content-Type'] = 'application/json';
+            },
+            encodeParameters() {
+                return JSON.stringify({
+                    labels: submittedLabels,
+                    alertmanager: selectedAlertmanager,
+                    target_receiver: document.getElementById('target-receiver').value,
+                    draft: draftBaseline === null ? undefined : document.getElementById('config-draft').value,
+                });
+            },
+        });
+        document.getElementById('alert-form').addEventListener('submit', function() {
+            submittedLabels = { ...currentLabels };
+        }, true);
+        document.getElementById('alert-form').addEventListener('htmx:beforeRequest', event => {
+            event.detail.xhr.artSubmittedLabels = { ...submittedLabels };
         });
 
         function setShareStatus(message, isError) {
@@ -460,7 +914,7 @@ team: platform'></textarea>
             if (!payload || payload.version !== 1 || !payload.labels || Array.isArray(payload.labels) || typeof payload.labels !== 'object') {
                 throw new Error('the link uses unsupported label data');
             }
-            const labels = {};
+            const labels = Object.create(null);
             for (const [key, labelValue] of Object.entries(payload.labels)) {
                 if (!key || typeof labelValue !== 'string') {
                     throw new Error('labels must have non-empty names and string values');
@@ -481,6 +935,7 @@ team: platform'></textarea>
             }
             try {
                 currentLabels = decodeSharedLabels(window.location.hash.slice(prefix.length));
+                labelLinkHash = window.location.hash;
                 renderLabels();
                 setShareStatus('Labels loaded from the shared link.', false);
             } catch (error) {
@@ -488,16 +943,17 @@ team: platform'></textarea>
             }
         }
 
-        async function copyShareURL(url) {
+        async function copyText(text) {
             if (navigator.clipboard && window.isSecureContext) {
-                await navigator.clipboard.writeText(url);
+                await navigator.clipboard.writeText(text);
                 return;
             }
             const input = document.createElement('textarea');
-            input.value = url;
+            input.value = text;
             input.style.position = 'fixed';
             input.style.opacity = '0';
-            document.body.appendChild(input);
+            const container = document.querySelector('dialog[open]') || document.body;
+            container.appendChild(input);
             input.select();
             const copied = document.execCommand('copy');
             input.remove();
@@ -511,8 +967,9 @@ team: platform'></textarea>
                 const url = new URL(window.location.href);
                 url.searchParams.delete('alertmanager');
                 url.hash = `labels=${encodeSharedLabels(currentLabels)}`;
-                await copyShareURL(url.toString());
+                await copyText(url.toString());
                 history.replaceState(null, '', url.toString());
+                labelLinkHash = url.hash;
                 setShareStatus('Share link copied. It contains labels only.', false);
             } catch (error) {
                 setShareStatus(`Could not copy share link: ${error.message}.`, true);
@@ -560,15 +1017,16 @@ team: platform'></textarea>
         });
 
         applyTheme(document.documentElement.dataset.themePreference || 'system');
-        loadSharedLabels();
+        if (!restoreEditorState()) loadSharedLabels();
     </script>
+    <script src="/static/receiver-picker.js"></script>
 </body>
 </html>
 
 {{define "sample-alert-cards"}}
 <div class="sample-alerts-grid">
     {{range $sample := .SampleAlerts}}
-    <div class="sample-alert-card" role="button" tabindex="0" aria-label="Load sample alert {{$sample.Name}}" onclick="loadSampleAlertFromCard(this)" onkeydown="if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); loadSampleAlertFromCard(this); }">
+    <div class="sample-alert-card" role="button" tabindex="0" aria-label="Load sample alert {{$sample.Name}}" title="{{$sample.Tooltip}}" onclick="loadSampleAlertFromCard(this)" onkeydown="if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); loadSampleAlertFromCard(this); }">
         <div class="sample-name">{{$sample.Name}}</div>
         <div class="sample-description">{{$sample.Description}}</div>
         <div class="sample-labels">

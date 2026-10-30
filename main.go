@@ -159,18 +159,23 @@ func run() int {
 
 	// Web server mode
 	h := handler.NewWithClientsFromFS(clients, names, defaultName, assets)
+	h.RouteMismatchLimit = cfg.App.Server.RouteMismatchLimit
 	mux := http.NewServeMux()
 	mux.Handle("/static/", http.FileServer(http.FS(assets)))
 	mux.HandleFunc("/healthz", handler.HandleHealth)
 	mux.HandleFunc("/", h.HandleIndex)
 	mux.HandleFunc("/test", h.HandleTest)
+	mux.HandleFunc("/labels/parse", handler.HandleParseLabels)
+	mux.HandleFunc("/labels/suggestions", h.HandleLabelSuggestions)
 	mux.HandleFunc("/config/labels", h.HandleConfigLabels)
 	mux.HandleFunc("/config/reload", h.HandleReloadConfig)
 	mux.HandleFunc("/config/samples", h.HandleGenerateSampleAlerts)
+	mux.HandleFunc("/config/source", h.HandleConfigSource)
+	mux.HandleFunc("/config/draft", h.HandlePreviewDraft)
 	mux.Handle("/metrics", providers.PrometheusHandler())
 
 	slog.Info("starting server", "listen", cfg.App.Server.Listen)
-	slog.Info("using alertmanager", "name", defaultName, "url", clients[defaultName].BaseURL())
+	slog.Info("using alertmanager", "name", defaultName, "url", clients[defaultName].DisplayURL())
 	server := &http.Server{
 		Addr:              cfg.App.Server.Listen,
 		Handler:           telemetry.MetricsHandler(mux),
